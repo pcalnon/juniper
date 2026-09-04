@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
+**Version**: 1.0.67
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -48,6 +48,9 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
+| `python util/ad-hoc/e2e_f039_topoprobe_instrument.py apply --checkout CANOPY --target metrics` | Instrument a canopy store writer (revert before commit) |
+| `LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_f039_metrics_store_soak.py` | Hold a live tab so the metrics store can tick |
+| `python util/ad-hoc/e2e_f039_topoprobe_instrument.py report --log LOG --target metrics` | Read the **whole** TOPOPROBE series, not its head |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -444,6 +447,13 @@ an awaited `httpx.AsyncClient`. Do **not** reintroduce a module-global expressio
 health endpoints X7 is defined by. Both scans read `main.py` only; the metrics relay is a named miss.
 Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census).
 
+**F-039 store probe:** a correct `/api/topology` body with an empty DOM is a store-apply
+contradiction, not starvation. Instrument server-side (`e2e_f039_topoprobe_instrument.py`), hold a
+live tab (`e2e_f039_metrics_store_soak.py` — `curl` cannot tick a Dash interval), and **read the
+whole series**. Topology converges (`eq=False` ×4 then `eq=True` ×11); a head-only reading produced
+"permanently empty." `--target topology` refuses on current canopy. Revert before committing.
+Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe).
+
 ---
 
 ## Environment Variables
@@ -662,6 +672,8 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
+| Isolated topology / metrics store empty, wire correct | Read the whole TOPOPROBE series; do not trust `_store()` or the first four lines. See [REFERENCE](REFERENCE.md#f-039-store-probe). |
+| `e2e_f039_topoprobe_instrument.py` `REFUSING` on `--target topology` | Expected — handler no longer receives the client's `State`. Probe `metrics` or add the `State`. |
 | Isolated `bring-up failed` / partial trio | `do_up` already ran `do_down` — read the logs, confirm the ports are free, then retry. |
 | Isolated `--up` logs `ERROR: conda activate '…' failed` | Expected fail-closed path — fix the env name or `JUNIPER_E2E_CONDA_DIR`, then retry. |
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
@@ -723,6 +735,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert; read the whole series; `--target topology` refuses
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -730,5 +743,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Version:** 1.0.67
 **Maintainer:** Paul Calnon

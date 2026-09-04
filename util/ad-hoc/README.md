@@ -93,6 +93,22 @@ Operator contract: [`docs/REFERENCE.md` § X7 Off-Loop Census](../../docs/REFERE
 
 ---
 
+## F-039 store probe (operational)
+
+`e2e_f039_topoprobe_instrument.py` (`apply` / `report` / `revert`), `e2e_f039_metrics_store_soak.py`, and `e2e_f039_duplicate_store_probe.py` are the revertible server-side instrument that root-caused F-CANOPY-039 (FIXED in juniper-canopy#549). They are **not CI**.
+
+- **Read the whole `report` series**, not its head. Topology's measured healthy shape is `eq=False` ×4 then `eq=True` ×11. A head-only reading of that same log produced the retracted "permanently empty" claim.
+- **`--target topology` refuses** on current canopy: `_update_topology_store_handler` no longer receives the client's store copy. Use `--target metrics`, or add the `State` first.
+- **Backup lives in the git dir** (`f039-topoprobe.f039bak`), never beside `dashboard_manager.py`. A work-tree bak is swept by `git add -A`.
+- **`curl` cannot tick a Dash interval.** Hold a live browser session with the soak script.
+- **`e2e_f039_duplicate_store_probe.py` exit 1 is not a verdict** — the probe could not run. `dcc.Store` has no DOM; `paths.strs` hides duplicates.
+
+Always `revert` before committing anything from the instrumented checkout.
+
+Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFERENCE.md#f-039-store-probe).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

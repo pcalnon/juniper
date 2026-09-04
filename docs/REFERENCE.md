@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.55
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -22,6 +22,7 @@
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [F-039 Store Probe](#f-039-store-probe)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
@@ -965,8 +966,94 @@ Troubleshooting:
 | Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
 | Canopy looks "up," but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
 | Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
+| Topology / metrics store looks empty while the wire is correct | Do not trust a browser `_store()` read or the first TOPOPROBE lines. Run the apply / soak / report / revert loop in [F-039 Store Probe](#f-039-store-probe). |
 
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
+
+Store-apply contradictions (correct `/api/topology` body, empty DOM) are a different class from bring-up failures — see [F-039 Store Probe](#f-039-store-probe).
+
+---
+
+## F-039 Store Probe
+
+The instrument that root-caused **F-CANOPY-039** (FIXED in juniper-canopy#549; heading on [`JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md)). Operators still need it when a topology or metrics tab looks empty after a correct wire response, or when someone quotes a store as "never advancing."
+
+The finding shape is a **contradiction between two simultaneous values for one store id**. Browser-side `_store()` reads are unreliable — they returned `None` while that store's writer fired 12 times in 60 s. What settled it was logging the comparison's operands **server-side**, inside the handler, where the value Dash delivered as `State` is visible.
+
+Finding triage (`e2e_finding_triage.py`) only classifies ledger headings. The census (`e2e_f037_render_census.py`) only scores `topodiag` JSON. Neither of those tools is this probe.
+
+### Workflow
+
+```bash
+# Playwright lives only in JuniperCanopy1. Empty LIBTORCH / LD_LIBRARY_PATH or an
+# ambient rust_mudgeon libtorch breaks import with `_PyObject_NextNotImplemented`.
+LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+  util/ad-hoc/e2e_f039_topoprobe_instrument.py apply --checkout /path/to/juniper-canopy --target metrics
+
+# Restart THAT canopy leg (instrumentation is a source edit). Then hold a live tab:
+LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+  util/ad-hoc/e2e_f039_metrics_store_soak.py --seconds 120
+
+python3 util/ad-hoc/e2e_f039_topoprobe_instrument.py report --log /tmp/juniper-e2e/logs/juniper-canopy.log --target metrics
+
+# ALWAYS revert before committing anything from that checkout
+python3 util/ad-hoc/e2e_f039_topoprobe_instrument.py revert --checkout /path/to/juniper-canopy
+```
+
+`--target metrics` probes `metrics-panel-metrics-store` via `_update_metrics_store_handler` / `current_metrics`. `--target topology` is the **default in argparse and REFUSES on current canopy**: `_update_topology_store_handler` takes only `(n, active_tab)` and no longer receives the client's store copy. Emitting a probe that reads a name not in scope is the stale-identifier class this arc already hit; `apply` exits **2** with the `State("network-visualizer-topology-store", "data")` instructions instead.
+
+`apply` is idempotent one-target-at-a-time (`TOPOPROBE` already in the file → exit **1**, revert first). A renamed handler or a missing anchor exits **2**.
+
+### Read the whole series
+
+`report` prints distinct `cur_len` values so a head-only reading cannot recur. Topology's measured healthy shape is `eq=False` ×4 then `eq=True` ×11: the client's copy is empty for ~22 s, then **converges** and holds the correct payload. The original reading of that same log said "permanently empty" because it generalised from the first four lines.
+
+| `report` observation | Verdict (from `do_report`) |
+|----------------------|----------------------------|
+| Some comparisons `eq=True` | Client copy **does** advance. Refutes "never advances." This is topology's shape. |
+| Every comparison unequal, and `cur_len` **varies** | Neither never-advances nor a deterministic asymmetry. Investigate before concluding. |
+| `cur_len=0` or `cur_type=NoneType` | The `State` is **not delivered**. Different defect from written-but-empty. Not a unification confirmation. |
+| Constant small `cur_len` (≤ 8) | Matches the store's empty default — client's copy never advances. For `--target metrics` this supports F-035 / F-038 / F-039 being one defect. |
+| Constant **large** `cur_len` and never-equal | Client copy is populated and stable yet never compares equal: deterministic round-trip asymmetry. **Refutes** the unification. |
+
+`cur_len` alone does not discriminate: the metrics store's empty default serialises to `cur_len=2`, and an unresolved `State` is `cur_len=0` via the probe's `"" if current is None` branch. Discriminate by **writer** before concluding — `metrics-panel-metrics-store` has a second, unguarded writer (`append_ws_metrics_store`, `allow_duplicate=True`) whose every write is `no_update`-free by construction.
+
+### Backup must not land in the work tree
+
+The first version wrote `<file>.f039bak` beside `dashboard_manager.py`. That file was untracked and unignored, so `git add -A` would sweep a full copy of the instrumented module into a commit. The backup now goes in the git dir (`git rev-parse --absolute-git-dir` → `f039-topoprobe.f039bak`) because in a worktree `.git` is a file. `revert` still honours a beside-the-file leftover.
+
+### Companion probes that are not this instrument
+
+| Script | What it measures | What it is not |
+|--------|------------------|----------------|
+| `e2e_f039_metrics_store_soak.py` | Holds a Playwright session so `fast-update-interval` can tick. Exit **0** if the session stayed open for `--seconds` (default 120). | Not a store verdict. `curl` cannot produce a single sample — a Dash interval only fires inside a live browser. |
+| `e2e_f039_duplicate_store_probe.py` | Live layout-tree walk. `occurrences > 1` **and** `distinct_data > 1` is the finding; `occurrences == 1` **refutes** it. | Not a DOM check (`dcc.Store` has none). Not `e2e_f027_dup_ids.py` (declared layout). Not `paths.strs` (duplicate id → one winner; F-027 trap). Exit **1** = could not run, **not** a verdict. |
+
+Shared browser helpers come from `e2e_w3_params_driver.py`. Default canopy URL is `JUNIPER_E2E_CANOPY_URL` (`http://127.0.0.1:8051`).
+
+### Exit codes (`e2e_f039_topoprobe_instrument.py`)
+
+| Code | Meaning |
+|------|---------|
+| 0 | `apply` wrote the probe / `revert` restored / `report` found lines and printed a verdict |
+| 1 | Already instrumented / not instrumented / no `TOPOPROBE` lines in the log |
+| 2 | Missing `--checkout`, missing file, renamed handler, refused topology target, missing log |
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `_PyObject_NextNotImplemented` on import | Ambient libtorch. Prefix `LIBTORCH= LD_LIBRARY_PATH=` and use `JuniperCanopy1`'s python. |
+| `REFUSING: … has no current_metrics / current parameter` | Expected for `--target topology` on current canopy. Add the `State` or probe `metrics`. |
+| `already instrumented` | One target at a time. `revert` first. |
+| `no TOPOPROBE lines` | Leg is not running the instrumented checkout, or the tab was never driven. Restart after `apply`. Isolated `--up` writes `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/juniper-canopy.log` — the argparse default is the A/B path `/tmp/juniper-e2e/juniper-canopy-ab.log`. |
+| First four lines are `eq=False` | Read the whole series. Topology converges after ~22 s. |
+| `git add -A` wants `dashboard_manager.py` + a `.f039bak` | Backup leaked into the work tree. `revert`, delete the leftover bak, never commit the probe. |
+| DOM / `paths.strs` / static layout says the store is unique | Expected. Use `e2e_f039_duplicate_store_probe.py` on the live tree. |
+| `curl` / log scrape shows no metrics-store samples | Need a live browser session (`e2e_f039_metrics_store_soak.py`). |
+| Duplicate-store probe exits 1 | Probe could not run. Not a refutation and not a confirmation. |
+
+These scripts are **not CI**. They edit a sibling checkout. Revert is part of the contract, not optional cleanup.
 
 ---
 
@@ -1611,6 +1698,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `--systemd` / `USE_SYSTEMD=1` stops units in reverse dependency order (worker→canopy→cascor→data), soft-fails per unit, and always `exit 0`.
   - Never falls through to the pidfile parser or `orphaned_worker_cleanup` / `KILL_WORKERS`.
   - Hermetic pins: `tests/test_juniper_chop_all.py` `TestSystemdModeBehavioral` (open juniper-ml#804). Operator detail: [`docs/REFERENCE.md`](REFERENCE.md) § systemd mode.
+- `util/ad-hoc/e2e_f039_topoprobe_instrument.py` -- Revertible server-side TOPOPROBE for canopy store writers (`apply` / `report` / `revert`). `--target metrics` is the live path; `--target topology` refuses unless the handler receives the client's `State`. Backup goes in the git dir, never beside the file. Exit 0/1/2. Not CI. Operator surface: [F-039 Store Probe](#f-039-store-probe).
+- `util/ad-hoc/e2e_f039_metrics_store_soak.py` -- Holds a Playwright session so `fast-update-interval` can tick. Exit 0 if the session stayed open. `curl` cannot produce a sample.
+- `util/ad-hoc/e2e_f039_duplicate_store_probe.py` -- Live layout-tree walk. `occurrences > 1` and `distinct_data > 1` is the finding; exit 1 is "could not run", not a verdict. Blind to `dcc.Store` DOM and to `paths.strs`.
 - `util/isolated_stack.bash` -- Brings up / tears down the isolated training-runtime E2E trio (data 8101 dedicated `python3.14` venv, cascor 8202 `JuniperCascor1`, canopy 8051 `JuniperCanopy1` service mode) with the documented env (control-WS origin pair, `JUNIPER_DATA_URL`, `LD_LIBRARY_PATH=`); `--up`/`--down`/`--status`/`--dry-run`, ports 8101/8202/8051 (`JUNIPER_E2E_*` overrides), `--dry-run` starts nothing. See [E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md).
   - Live compose (juniper-ml#813): `cascor_up` empties `LD_LIBRARY_PATH`, points `JUNIPER_DATA_URL` at isolated data, sets control-WS allowlist to `CANOPY_ORIGIN`, writes `juniper-cascor.pid`, then health-gates; `canopy_up` forces `DEMO_MODE=0`, wires isolated cascor/data URLs + matching `CASCOR_WS_ORIGIN`, writes `juniper-canopy.pid`, then health-gates. Missing `conda.sh` aborts before launch/pid. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](#isolated-stack-e2e-utilities).
   - `data_up` (juniper-ml#807): dedicated `${RUN_DIR}/.venv-data` via `python3.14 -m venv` (skip create if present), `pip install -e juniper-data[${JUNIPER_E2E_DATA_EXTRAS:-api}] prometheus_client juniper-observability`, launch with `PYTHON_GIL=0`, write `juniper-data.pid`, health-gate; missing `python3.14` aborts via `require_cmd` before side effects. `do_up` order is data → cascor → canopy.
@@ -3104,6 +3194,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.55  | 2026-09-04 | F-039 store probe: apply / soak / report / revert for the server-side TOPOPROBE; read the whole series; `--target topology` refuses on current canopy; backup lives in the git dir |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3442,7 +3533,7 @@ These variables are consumed by Juniper packages documented in this repository. 
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
 > REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the F-039 store-probe overrides in [F-039 Store Probe](#f-039-store-probe) (`JUNIPER_E2E_CANOPY_URL`, `JUNIPER_E2E_CANOPY_LOG`), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
 Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
@@ -3453,5 +3544,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Version:** 0.6.55
 **Maintainer:** Paul Calnon
