@@ -79,6 +79,20 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Defect-register close protocol (operational)
+
+`register_open_set.py` re-derives the open/fixed set from row markers. `register_status_crosscheck.py` is the independent third reading of §2 / §4 / §5.1.
+
+Do **not** treat `register_open_set.py` and `grep -cE '\*\*FIXED'` as two measurements — they read the same rows. The crosscheck is the second measurement.
+
+`register_open_set.py` uses a **relative** `Path("notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md")`. Run it from the juniper-ml repo root or it raises `FileNotFoundError`. The crosscheck locates the file via `__file__` and runs from any cwd.
+
+The machine-readable token is `**FIXED` only. A WON'T FIX close still writes `**FIXED` with the qualification inside the marker.
+
+Operator contract: [`docs/REFERENCE.md` § Defect Register Close Protocol](../../docs/REFERENCE.md#defect-register-close-protocol).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

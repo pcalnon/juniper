@@ -70,6 +70,8 @@ parenthetical about a different row*, so the grep found it and the author skimme
 **`**FIXED` is the machine-readable token.** `util/ad-hoc/register_open_set.py` keys on it
 (`\| (APD-[A-Z]+-\d+[ab]?) ` then `"**FIXED" in line`). A WON'T FIX close still writes `**FIXED`
 with the qualification *inside* the marker. Inventing a second marker leaves the row counted OPEN.
+Operator runbook (cwd pitfall, third reading vs the two §4 counters):
+[`docs/REFERENCE.md` § Defect Register Close Protocol](../docs/REFERENCE.md#defect-register-close-protocol).
 
 **A correction-only register PR is legitimate** — closing nothing, fixing what drifted.
 

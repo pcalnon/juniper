@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.31
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -28,6 +28,7 @@
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
+- [Defect Register Close Protocol](#defect-register-close-protocol)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
 - [AGENTS.md Date Check](#agentsmd-date-check)
@@ -1481,6 +1482,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
+- `util/ad-hoc/register_open_set.py` -- Authoritative open/fixed **counter** for [`notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md`](../notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md). Keys on `"**FIXED" in line` after `\| (APD-[A-Z]+-\d+[ab]?) `; unique-id sets; relative `Path("notes/…")` so cwd **must** be the repo root. Same measurement as `grep -cE '\*\*FIXED'`. Operator surface: [Defect Register Close Protocol](#defect-register-close-protocol).
+- `util/ad-hoc/register_status_crosscheck.py` -- Independent third reading of the same register (§4 `**FIXED` vs §2 prose vs §5.1). Exit 0 `AGREE` / 1 `DISAGREE`. Locates the file via `__file__` (`parents[2]`), so it runs from any cwd. `table_fixed` is currently a whole-file scan. Operator surface: [Defect Register Close Protocol](#defect-register-close-protocol).
 - `util/editable_install_drift_check.py` -- Drift checker for juniper editable installs in the conda environments. Reads each env's `*.dist-info/direct_url.json` directly (robust to broken envs); classifies every `juniper-*` editable as `FRESH` / `WORKTREE_PINNED` (under a `worktrees` path) / `ORPHANED` (missing). `*-DEPRECATED` skipped by default; exit 1 on ORPHANED; `--json`; `--fix` re-points orphans to their canonical repo (`--dry-run` previews).
   - **Version axis** (`MATCH` / `STALE` / `UNKNOWN`), orthogonal to the path axis: compares the version the install RECORDED at pip time against the version its target declares NOW. An editable never re-derives its version — `import` follows the live tree while `*.dist-info/METADATA` stays frozen — so a `FRESH` install can be badly stale.
   - Blind spot it closes: on 2026-08-14 **7 of 8** installs on this host were FRESH *and* stale (juniper-data 5 minors behind, `0.6.0` vs `0.11.0`), invisible to both the path axis and `juniper-env-drift-check`'s floor check — a stale editable sits above every floor and is still wrong. It breaks whatever reads the *installed* version: a repo's `version == pyproject` self-check (cascor's `test_version_matches_pyproject`) and a host-launched service's build-info metric.
@@ -2653,6 +2656,67 @@ When adding a publishing sibling: register it in `util/release_train/registry.ya
 
 ---
 
+## Defect Register Close Protocol
+
+Closing a row in [`notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md`](../notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md) is four touches plus a whole-file read, not a table edit. Two ad-hoc scripts re-derive counts; they are **not** interchangeable.
+
+### The four touches
+
+1. The **§4 table row** — set the status cell to `` `**FIXED` `` (a WON'T FIX close still writes `` `**FIXED` `` with the qualification *inside* the marker).
+2. The **§5.1 verification row** — the PR and what was actually verified.
+3. The **§2 Status paragraph** — add the id to the enumerated list and update the open count.
+4. The header **`Last Updated`** date.
+
+Then `grep -n 'APD-<ID>'` and **read every hit**. Ids also live in prose notes, cross-references, and other rows' cells. After a close, also re-read any sentence that counts or ranks something without naming an id — those are invisible to an ID-keyed sweep.
+
+### Two counters, one measurement
+
+`util/ad-hoc/register_open_set.py` is the authoritative open/fixed **counter** the close protocol keys on. `grep -cE '\*\*FIXED'` over the same file is the same §4-shaped scan reported twice: they can agree with each other and still both be wrong.
+
+```bash
+# cwd MUST be the juniper-ml repo root (relative Path("notes/..."))
+python3 util/ad-hoc/register_open_set.py
+# live 2026-09-04: 96 rows | 78 fixed | 18 open
+```
+
+Contract, verified against `util/ad-hoc/register_open_set.py` on `main`:
+
+| Rule | What the script actually does |
+|------|-------------------------------|
+| Token | `"**FIXED" in line` after `\| (APD-[A-Z]+-\d+[ab]?) `. Lookalikes `FIXED`, `**CLOSED`, `**PARKED`, `*FIXED*` stay OPEN. |
+| Union | An id is FIXED if **any** matching line carries the token (detail row + §5.1 row). Not last-row-wins. |
+| Headline | Unique ids (`set`), even though the print says "rows". Letter-suffix ids (`001a` / `001b`) are distinct. |
+| Prefix | `rsplit("-", 1)` so `APD-CASCOR-001a` groups as `APD-CASCOR`. |
+| Cwd | `REG = pathlib.Path("notes/JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md")` — relative. From any other directory it raises `FileNotFoundError`. |
+
+### The third reading
+
+`util/ad-hoc/register_status_crosscheck.py` is the independent check: §4 `` `**FIXED` `` ids vs the §2 prose enumeration vs §5.1 verification rows. Exit **0** `AGREE` / **1** `DISAGREE`. It locates the register via `__file__` (`parents[2]`), so it runs from any cwd.
+
+```bash
+python3 util/ad-hoc/register_status_crosscheck.py
+# live 2026-09-04: 96 unique ids, 78 **FIXED, 78 prose, 78 §5.1 — AGREE
+```
+
+- §2 line match: `line.startswith("**Seventy")` **or** `"have since been fixed**" in line`. The second arm is the durable one once the count leaves the seventies.
+- §5.1 block: headings `### 5.1` through `### 5.2`. Missing either heading → stderr + exit 1.
+- `table_fixed` currently scans **the whole file**, not only §4. A §5.1 cell that contains the `` `**FIXED` `` token can pull an OPEN §4 id into the fixed set. Combined with a matching §2 mention, `AGREE` can hide an incomplete close. Read the §4 row.
+- `AGREE` is not proof that ID-free state claims ("three prefixes read zero") are current. Those have no automation.
+
+Parked rows stay OPEN (no `` `**FIXED` ``). All three park shapes in the register (row-level, group-level, foreign-cell) stop unilateral action; they do not change these counters.
+
+`util/ad-hoc/` is outside every pre-commit Python hook. A green hook run is not coverage of these scripts.
+
+| Symptom | Check |
+|---------|-------|
+| `FileNotFoundError` on `notes/JUNIPER_…_DEFECT-REGISTER.md` | You ran `register_open_set.py` outside the repo root. `cd` there, or use `register_status_crosscheck.py` which is `__file__`-relative. |
+| `grep -cE '\*\*FIXED'` matches `register_open_set.py` | Expected — they read the same rows. Run the crosscheck. |
+| `AGREE` but a §4 cell is still OPEN | Whole-file `table_fixed` poison, or an ID-free sentence. Read the §4 row and any count/rank prose. |
+| `DISAGREE`: FIXED in §4, absent from §2 / §5.1 | Four-touch close missed a touch. |
+| Lookalike `FIXED` / `**CLOSED` / `*FIXED*` still in the open set | Only `` `**FIXED` `` counts. A WON'T FIX close still writes `` `**FIXED` ``. |
+
+---
+
 ## Scheduled Security Scan and Lockfile Update
 
 Operator contract for the two Monday-scheduled workflows that keep dependency hygiene unattended. Both are distinct from the per-PR `ci.yml` `security` / `dependency-docs` jobs.
@@ -3001,6 +3065,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.31  | 2026-09-04 | Defect-register close protocol: `register_open_set.py` is the §4 counter (cwd-relative; `**FIXED` only); `register_status_crosscheck.py` is the independent third reading. `grep` + open-set can agree and both be wrong |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
@@ -3346,6 +3411,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.31
 **Maintainer:** Paul Calnon

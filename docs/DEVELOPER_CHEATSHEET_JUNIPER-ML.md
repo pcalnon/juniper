@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.43
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -47,7 +47,11 @@
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
+| `python3 util/ad-hoc/register_open_set.py` | Re-derive defect-register open/fixed counts (`**FIXED` token; cwd = repo root) |
+| `python3 util/ad-hoc/register_status_crosscheck.py` | Third reading of §2 / §4 / §5.1 (`AGREE` / `DISAGREE`; any cwd) |
 | `./claudey`                                            | Launch default interactive Claude session       |
+
+Tip: `register_open_set.py` and `grep -cE '\*\*FIXED'` read the same §4-shaped rows — they can agree and both miss a close that never reached §2 / §5.1. Run `register_status_crosscheck.py` after every four-touch close. `register_open_set.py` uses a relative `notes/…` path (`FileNotFoundError` unless cwd is the repo root); the crosscheck is `__file__`-relative. Token is `**FIXED` only. [REFERENCE — Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol).
 
 ---
 
@@ -609,6 +613,8 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
+| `register_open_set.py` `FileNotFoundError` | Cwd is not the repo root — the register path is relative. `cd` to juniper-ml, or run `register_status_crosscheck.py`. |
+| Register `AGREE` but a §4 cell is still OPEN | Whole-file `table_fixed` scan, or an ID-free count/rank sentence. Read the §4 row. [Close protocol](REFERENCE.md#defect-register-close-protocol). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -705,6 +711,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) -- `**FIXED` token, cwd pitfall, third reading vs the two §4 counters
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
@@ -713,6 +720,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.43
 **Maintainer:** Paul Calnon

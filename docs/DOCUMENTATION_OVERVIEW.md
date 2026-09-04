@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.20
+**Version:** 0.2.36
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -38,6 +38,7 @@
 | **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) (incl. partial-`--up` → `teardown_run`) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
 | **Attribute snapshots / pin the dataset instance** | [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin) (`seeded_params`, `--dataset-seed` vs `--seed`, sidecar-chain `--root` trap) | docs/    |
+| **Close or count a defect-register row** | [REFERENCE — Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) (`**FIXED` token, cwd pitfall, third reading vs the two §4 counters) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |
@@ -75,7 +76,7 @@
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
 | **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, and open-PR budget alarm |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, defect-register close protocol, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
@@ -108,6 +109,7 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 
 | File                                                                                          | Type        | Purpose                                                                                          |
 |-----------------------------------------------------------------------------------------------|-------------|--------------------------------------------------------------------------------------------------|
+| **JUNIPER_2026-08-14_JUNIPER-ECOSYSTEM_DEFECT-REGISTER.md**                                     | Register    | Ecosystem defect register; four-touch close + counters in [REFERENCE](REFERENCE.md#defect-register-close-protocol) |
 | **JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md**                     | Runbook     | Modes (`off`/`report`/`propose`/`ceremony`), Gate 1/2 review, HALTs, App-token setup             |
 | **JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md**              | Procedure   | YubiKey 5 ed448 `keytocard` root cause + validated ed25519/cv25519 transfer (pointer in [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning)) |
 | **JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md**                  | Findings    | Why the July restore points are gone; scheduled lane is the replacement (pointer in [REFERENCE](REFERENCE.md#scheduled-duplicati-backup-lane)) |
@@ -176,6 +178,6 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.2.20
+**Last Updated:** 2026-09-04
+**Version:** 0.2.36
 **Maintainer:** Paul Calnon
