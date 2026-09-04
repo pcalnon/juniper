@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Status**: Living register — verified against working copies on 2026-08-14
-**Last Updated**: 2026-09-03
+**Last Updated**: 2026-09-04
 **Source**: [`JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md`](JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md)
 
 ---
@@ -734,6 +734,33 @@ Both findings hold exactly as filed; only their anchors had rotted (corrected in
   **judgement call** — "202 the moment work outlives a sensible request timeout … That works until a generator outlives the
   client's socket timeout" — so the precondition worth measuring first is whether any generator actually does. The remedy is a job
   store, status transitions, retention, and polling endpoints: a wire contract every client must adopt, not a local change.
+
+  > **Owner decision 2026-09-04, and the csv_import half is SHIPPED. The row stays OPEN for the `equities` half.**
+  > The async-job pattern is **not** being built. The owner chose Option 6 of
+  > [`notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`](JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md) —
+  > bound the inputs — and settled that file's two open sub-questions for `csv_import`: the cap is in **bytes**, and exceeding it
+  > **truncates** rather than rejecting outright, *provided* the caller is given a blocking notification and the dataset carries a
+  > permanent truncated annotation.
+  >
+  > Shipped in **[data#326](https://github.com/pcalnon/juniper-data/pull/326)** (`cf387a82`): a 128 MiB cap derived from measured
+  > throughput (median 14.4 MB/s over the whole `generate()` path — `util/ad-hoc/2026-09-04_measure_csv_import_throughput.py` in
+  > juniper-data); a **422** refusal until the caller opts in via `allow_truncation`,
+  > `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION`, or the matching `.env` entry; and a permanent `DatasetMeta.truncation` descriptor
+  > carried over a reserved channel key popped before checksum + NPZ persist, mirroring `core/scaling.py`.
+  >
+  > **422 was chosen because it is already on the API's surface**, so the fix introduces no new status code — `APD-DATA-022`, which
+  > would have to document one in `responses={}`, is parked, and a fix for one row must not force work inside a parked one.
+  >
+  > **Two review findings were confirmed and fixed before merge**, both of which made the cap decorative: the effective cap is now
+  > `min(requested, deployment)` because an explicitly-supplied `max_bytes` previously won outright (and a generated client
+  > serialising schema defaults would have raised a *lower* operator ceiling on every request); and `stat` is now only a cheap
+  > pre-check, with the **read** enforcing the bound, because trusting `stat` let a FIFO (`st_size == 0`) or a file that grew
+  > between the stat and the open be ingested without limit.
+  >
+  > **Still open, and why the row is not `**FIXED`:** the `equities` half. It needs a default *value* decision, and
+  > `generators/equities/generator.py:264` is a bare slice that **truncates silently** — the exact class this half just closed for
+  > `csv_import`. The owner's ruling for `csv_import` (truncation is acceptable, silence is not) is the obvious precedent, but the
+  > cap value is a separate call.
 - **`-019` (full-population work per page).** Confirmed: `total = len(filtered)` (`storage/base.py:537`) materialises the entire
   filtered set, then slices — **and it does so on the cursor path too** (`:545-548`), so `APD-DATA-011`'s keyset pagination did not
   address this. That is the useful relationship to record: `-011` fixed pagination's **correctness** half (drift under concurrent
