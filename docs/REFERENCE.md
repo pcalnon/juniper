@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.16
+**Version:** 0.6.17
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -3126,7 +3126,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.16  | 2026-09-04 | Perf-lane reader / baseline operator surface: split work (`step_count` exact) vs speed (reported); de-ratified `wall_seconds`/`timings.drive`; last-row histogram; scrape tri-state; `make_baseline` refusals (no `--force`); #1613 workload fingerprint vs `config_sha256` and fail-on-mismatch behind identity |
+| 0.6.17  | 2026-09-04 | Perf-lane reader / baseline operator surface: split work (`step_count` exact) vs speed (reported); de-ratified `wall_seconds`/`timings.drive`; last-row histogram; scrape tri-state; `make_baseline` refusals (no `--force`); #1613 workload fingerprint vs `config_sha256` and fail-on-mismatch behind identity |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
