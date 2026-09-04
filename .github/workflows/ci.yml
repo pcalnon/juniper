@@ -816,6 +816,13 @@ jobs:
           # manifest, and the 0/1/2/3/4 exit matrix. No live services;
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.
           python3 -m unittest -v tests/test_run_experiment.py
+          # tests/test_stats_summary_render.py: complementary leftover the
+          # StatsSummaryUnitTest / MetricsScrapedTest pair cannot see --
+          # render_summary_md scrape-confirmed tri-state (#1550 honesty),
+          # last_count==0 / decreasing-count step stats, git dirty vs
+          # unavailable, and cascor/recurrence render edges. Does not touch
+          # tests/test_run_experiment.py. util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_stats_summary_render.py
           # tests/test_read_run_metrics.py: hermetic tests for
           # util/experiments/read_run_metrics.py, the canonical reader for the perf
           # lane's two ratified gate inputs (P2 item 0.4). Pins that the LAST sampled
