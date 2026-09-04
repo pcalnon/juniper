@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.51
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -26,6 +26,7 @@
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
+- [P4 Campaign Suites](#p4-campaign-suites)
 - [X7 Off-Loop Census](#x7-off-loop-census)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
@@ -1450,12 +1451,13 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   written for every outcome, and the full 0/1/2/3/4 exit matrix incl. `RedactedEnv` subprocess arms.
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
-- `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
-- `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
+- `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`: `load_suite` plus oversize-stall / wall-pin / timeout-ordering. Operator surface: [P4 Campaign Suites](#p4-campaign-suites).
   - **Oversize is pool OR cap.** The original gate triggered on `candidate_pool_size >= 16` only, so a wide-**cap** suite at a modest pool shipped and then lost its widest cells to a false `stalled` hours in — the candidate phase slows every iteration as the cascade widens each candidate's input, i.e. "the ml#1069 class, arriving through width instead of through pool size" (`suites/p4/e-i-cascor-cap-ceiling.yaml:46-50`). `max_hidden_units >= 64` now triggers too.
   - **Third contract — wide-cap suites must pin a wall budget**, via either `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I uses the latter, so accepting only the former would fail a correctly-budgeted suite). Thresholds are measured, not guessed: E-I at fixed pool 8 ran cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s** against a 3600 s inherited default, so 128 would have been truncated and 64 clears by only 693 s.
-  - **Known limitation**: only the suite's own `matrix` / `include` are read, so a pool or cap inherited from `suite.base_config` is invisible — deliberate, because resolving `base_config` reaches into sibling repos and would turn a structural gate into one that skips whenever the ecosystem is not checked out.
-  The Q-2 detector watches `current_epoch`, which does not advance while the CANDIDATE pool trains, so those cells are recorded `stalled` while perfectly healthy -- the P4 E-A grid lost its pool-16 cells to exactly that. Structural only: deliberately never calls `expand_cells`, which would resolve sibling-repo `base_config` and turn the gate into a skip. Carries a negative control plus an anti-resurrection check for the retired `util/ad-hoc/2026-08-10_driver_stall_shim.py`.
+  - **Fourth contract — `per_run_timeout_seconds` > driver wall** (`>` not `>=`): equal destroys the manifest (subprocess kill before the driver writes). Both apps.
+  - **Limitation, partially lifted.** Declared `matrix` / `include` are unioned with per-cell effective values when the base resolves (`_effective_numbers`, via `expand_cells`). Sibling-repo bases stay `unresolved` in a juniper-ml-only checkout; in-repo bases always resolve, so `e-k` / `e-l` read as cap-16 / cap-4 rather than inherited 64. Anti-resurrection check for the retired `util/ad-hoc/2026-08-10_driver_stall_shim.py`.
+  The Q-2 detector watches `current_epoch`, which does not advance while the CANDIDATE pool trains, so those cells are recorded `stalled` while perfectly healthy -- the P4 E-A grid lost its pool-16 cells to exactly that.
+- `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
 - `scripts/test.bash` -- Manual end-to-end harness for session create/resume launcher flows
 - `scripts/test_resume_file_safety.bash` -- Regression script ensuring invalid `--resume <file.txt>` input does not delete the source file
 
@@ -1689,6 +1691,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
+  - **`include` does not inherit `matrix`.** Empty matrix still yields one cell per `base_config`. P4 catalog + the cap-128 n=2 trap: [P4 Campaign Suites](#p4-campaign-suites).
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -2592,6 +2595,105 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 
 ---
 
+## P4 Campaign Suites
+
+Scientific campaign instruments under `util/experiments/suites/p4/` (plan §10.5). They are **not** verdicts and **not** the Wave 7.3 PF instruments in `suites/perf/`. Driver: `python util/experiments/run_suite.py --suite PATH`. Always `--dry-run` first — it expands cells and prints commands, and writes nothing.
+
+Plan of record: [`JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) §10.5.
+First-nine evidence (E-A…E-H): [`JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md).
+That note's 55-cell / nine-file census is historical — the tree now has **19** YAMLs (E-I…E-P plus a second E-H and three E-J files). Do not quote 55 as the current catalog.
+
+### Catalog (verified against the YAML on `origin/main`)
+
+| File | App | What it sweeps | Parallel? |
+|------|-----|----------------|-----------|
+| `e-a-cascor-budget-sweep.yaml` | cascor | cap × pool on spiral (exclude 32×16; include `wide-pool-long`) | no |
+| `e-b-cascor-dataset-difficulty.yaml` | cascor | spiral-smoke + five generator includes | no |
+| `e-c-cascor-noise-robustness.yaml` | cascor | noise × cap-64 spiral + four moon includes | no |
+| `e-d-recurrence-d-sweep.yaml` | recurrence | `train.d` × three primaries | no |
+| `e-e-recurrence-readout-spectrum.yaml` | recurrence | two bases + four readout includes | no |
+| `e-f-recurrence-irregularity.yaml` | recurrence | jitter on `irregular_sine` | `max_parallel: 2` |
+| `e-g-recurrence-cv-scheme.yaml` | recurrence | scheme × embargo | `max_parallel: 2` |
+| `e-h-real-data.yaml` | cascor | equities AAPL vs spiral control | no |
+| `e-h-recurrence-real-data.yaml` | recurrence | `equities_seq` AAPL vs irregular_sine control | no |
+| `e-i-cascor-cap-ceiling.yaml` | cascor | cap 32/64/128 at pool 8 | no |
+| `e-j-h2h-wide-cap64.yaml` | cascor | service H2H, cap 64, **3** description replicates | no |
+| `e-j-h2h-wide-cap128.yaml` | cascor | service H2H, cap 128, **2** replicates (`r0`/`r1`) | no |
+| `e-j-h2h-wide-cap64-init42.yaml` | cascor | init-control (dataset+init seed 42) | no |
+| `e-k-thread-probe-cap16.yaml` | cascor | RC-1 service reference, cap 16 | no |
+| `e-l-determinism-cap4.yaml` | cascor | 20 description replicates, cap 4 | no |
+| `e-m-h2h-paired-cap64.yaml` | cascor | paired cap-64 service leg | no |
+| `e-n-profile-cap4.yaml` | cascor | forked-worker profile service leg | no |
+| `e-o-val-split-bias-cap4.yaml` | cascor | 8 dataset seeds, network seed 42 | no |
+| `e-p-val-split-bias-cap16.yaml` | cascor | 20 dataset seeds, network seed 42 | no |
+
+Two E-H files. `e-h-real-data.yaml` is cascor; `e-h-recurrence-real-data.yaml` is recurrence. Do not run one and cite the other.
+
+Root-level `suites/cascor-budget-sweep.yaml` and `suites/recurrence-d-sweep.yaml` are **not** this catalog.
+
+### Expansion (do not guess cell counts from the description string)
+
+`expand_cells` (`run_suite.py:252`): `base_config` × `matrix` product, minus `exclude` (key-subset match), **then** `include` appended. An empty `matrix` still yields **one cell per base** — `e-e` has two bases, so it starts at two cells before the four includes.
+
+**`include` does not inherit `matrix`.** Only `item["overrides"]` apply (plus optional `item["config"]`, else `base_config[0]`). E-A's `wide-pool-long` therefore restates `max_iterations` and pins `outputs.max_wall_seconds: 5400` itself — without that restatement it would keep spiral-baseline's 12 iterations and 3600 s wall.
+
+```bash
+python util/experiments/run_suite.py --suite util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml --dry-run
+# Resume / subset (cell ids from the dry-run / registry):
+python util/experiments/run_suite.py --suite util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml --resume SUITE_ID --only CELL_ID
+```
+
+E-A…E-H `base_config` walks into `juniper-cascor` / `juniper-recurrence`. From a worktree set `JUNIPER_EXP_PROJECT_DIR` to the ecosystem root — the override **wins** over a literal walk that happens to resolve (`run_suite.py:216-221`). Forgetting it mixes worktree **code** with primary **config**. E-J…E-P use the in-repo base `util/ad-hoc/2026-08-16_h2h_wide_nrot3.yaml`.
+
+### R-6 budget contracts (`tests/test_experiment_suite_yamls.py`)
+
+Defaults from the driver source: `DEFAULT_STALL_SECONDS = 120`, `DEFAULT_MAX_WALL_SECONDS = 3600`.
+
+| Contract | Rule | Why |
+|----------|------|-----|
+| Oversize stall | cascor `candidate_pool_size >= 16` **or** `max_hidden_units >= 64` must declare `execution.stall_seconds` **> 120** | Q-2 watches `current_epoch`, which does not advance while the CANDIDATE pool trains. E-A lost every pool-16 cell at ~130 s. E-I: the same class arrives through **width** at pool 8 (`e-i-cascor-cap-ceiling.yaml:46-50`). |
+| Wide-cap wall | cap ≥ 64 must pin a wall, via `execution.max_wall_seconds` **or** dotted `outputs.max_wall_seconds` | Unpinned cells inherit the base (3600 s on `spiral-baseline`) with no signal. E-I at pool 8: cap 32 → 1497.4 s, 64 → 2907.1 s, 128 → **4243.6 s**. |
+| Timeout ordering | `execution.per_run_timeout_seconds` **>** the driver wall (`>` not `>=`) | The timeout is run_suite's **subprocess** ceiling. Equal or below: the driver is killed before it writes `manifest.json` (`run_suite.py:350-354`). E-A `wide-pool-long` is 5400 wall / 7200 timeout. |
+
+The oversize / wall checks now **union** declared `matrix`/`include` values with per-cell effective values when the base resolves (`_effective_numbers` / `_inherited_wall_budgets`). Sibling-repo bases are `unresolved` in a juniper-ml-only checkout (CI) and the gate declines to judge them. In-repo bases always resolve — `e-k` / `e-l` inherit cap 64 from the H2H file and override **down** to 16 / 4, so reading the base alone would flag suites they are not.
+
+E-J…E-N still set `stall_seconds: 1200` at pool 8 because the H2H base is a wide-cap / wide-wall shape; do not strip it to "match E-A pool 8".
+
+### Cap-128 n=2 (do not quote a 3-seed spread)
+
+`e-j-h2h-wide-cap128.yaml` `suite.description` still says "3 seeded replicates". The matrix has `r0` and `r1` only. The file header records the cut: cap 128 is the expensive half (E-I 4244 s vs 2907 s at 64); the hours went to `e-j-h2h-wide-cap64-init42.yaml`. **n = 2.** Quote the two paired deltas and the n. Seeds still start at 0, so they match the first two cap-64 seeds (`20260729` / `20260730`).
+
+The H2H base is one config for **both** arms. The service arm never reads that file directly — `run_suite` writes `<suite_dir>/cells/<cell_id>/experiment.yaml`. The CLI arm (`util/ad-hoc/2026-08-16_h2h_cli_arm.bash`) must be handed **that generated cell file**. Feeding the base gives every CLI replicate one seed while the service arm varies.
+
+Service vs CLI seed spreads are **not** commensurate: the CLI threads the dataset seed into network init; the service re-seeds to 42. The init-control cell is the only measurement that makes a path effect quantifiable.
+
+### Recurrence P4 cells report; they do not gate
+
+`e-d` / `e-e` / `e-f` / `e-g` / `e-h-recurrence-real-data` expand and write manifests. `make_baseline` / `compare_baseline` **refuse** them (exit 2) because recurrence has no work counter — landed in #1683, `read_run_metrics._recurrence_fields`. A refuse is not a missing `stats.json`. Do not add `--force`; there is none.
+
+Only E-F and E-G are `execution.mode: parallel`. Recurrence may parallelise. Cascor `max_parallel > 1` needs a verifiable cascor `>= 0.10.0` (`CASCOR_PARALLEL_FLOOR`, `JUNIPER_CASCOR_LOG_DIR`); an unreadable version **refuses** (`run_suite.py:123-153`). None of the shipped cascor P4 files request parallel.
+
+P4 cells ran unscraped by design — `JUNIPER_SUITE_GRAFANA_BRIDGE` is an env toggle, not a suite key. The driver's loopback `/metrics` sample still feeds `metrics_series.csv`.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Healthy cascor cell `stalled` at ~130 s | Missing or `<= 120` `stall_seconds` on pool ≥ 16 **or** cap ≥ 64. E-A pool-16 class; E-I width class. |
+| `timed_out` with `exit_code: null` / no `manifest.json` | `per_run_timeout_seconds` ≤ driver wall. Raise the subprocess ceiling, not the wall, so the driver writes the honest row. |
+| Include cell missing matrix axes / inherited 12 iterations | `include` is append-only. Restate every override the cell needs (E-A `wide-pool-long`). |
+| Quoted 3-seed spread at cap 128 | Description is stale. n = 2 (`r0`/`r1`). |
+| CLI H2H replicates share one seed | You fed the ad-hoc **base**. Use the generated `cells/<id>/experiment.yaml`. |
+| Worktree run used primary cascor YAML | Set `JUNIPER_EXP_PROJECT_DIR`; the override wins over a literal resolve. |
+| `make_baseline` exit 2 on E-D…E-G | Expected. Recurrence work is not countable. |
+| Cascor suite refuses `max_parallel > 1` | Need cascor ≥ 0.10.0 with a readable version, or `mode: sequential`. |
+| Quoted 55 cells / nine files as the tree | That census is the 2026-08-09 E-A…E-H note. Count the YAML. |
+| Ran `e-h-real-data` and cited recurrence equities | Two E-H files. Check `suite.app`. |
+
+R-6 gate: `python3 -m unittest -v tests.test_experiment_suite_yamls`. Suite driver mechanics (resume, registry, H-11): [Experiment Stack Utilities](#experiment-stack-utilities) and the `run_suite.py` utility-script bullet. PF instruments: `suites/perf/` (separate fill).
+
+---
+
 ## X7 Off-Loop Census
 
 X7 is event-loop blocking in juniper-canopy: synchronous retrying `requests` I/O inside `async def` route handlers on a **single-worker** uvicorn. While juniper-cascor is unreachable, canopy stops answering HTTP — `/v1/health` included. Measured end-to-end (design §2): **5.7 ms** healthy, **3.0 s** cascor stopped, **123.12 s** cascor hung (`SIGSTOP`), **5.1 ms** recovery with no restart.
@@ -3104,6 +3206,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.51  | 2026-09-04 | P4 campaign suites: 19 YAML catalog; `include` does not inherit `matrix`; oversize stall is pool ≥ 16 **or** cap ≥ 64; timeout must sit **above** the driver wall; cap-128 H2H is n=2 (description still says 3); recurrence P4 cells report, they do not gate |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
