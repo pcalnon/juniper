@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.20
+**Version:** 0.2.35
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -38,6 +38,7 @@
 | **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) (incl. partial-`--up` → `teardown_run`) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
 | **Attribute snapshots / pin the dataset instance** | [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin) (`seeded_params`, `--dataset-seed` vs `--seed`, sidecar-chain `--root` trap) | docs/    |
+| **Census F-CANOPY-037 topology paint** | [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) (11 sessions; structured JSON; `hidden_units==0` is INVALID) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |
@@ -176,6 +177,6 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.2.20
+**Last Updated:** 2026-09-04
+**Version:** 0.2.35
 **Maintainer:** Paul Calnon

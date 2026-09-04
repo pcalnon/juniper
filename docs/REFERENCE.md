@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.30
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -27,6 +27,7 @@
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
+- [F-CANOPY-037 Render Census](#f-canopy-037-render-census)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
@@ -964,6 +965,7 @@ Troubleshooting:
 | Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
 | Canopy looks "up," but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
 | Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
+| One green topology paint "proves" F-CANOPY-037 | 2 of 11 was the finding — a single session is ~18% likely while still broken. Run [F-CANOPY-037 Render Census](#f-canopy-037-render-census). |
 
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
 
@@ -1690,6 +1692,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+- `util/ad-hoc/e2e_f037_render_census.py` -- Multi-session F-CANOPY-037 topology-paint census. Default 11 sessions (the finding's sample); verdicts from structured `topodiag` JSON only; exit 2 means the census failed to measure, not a low paint rate. Operator surface: [F-CANOPY-037 Render Census](#f-canopy-037-render-census).
 - `util/get_cascor_*.bash` -- Cascor REST API query utilities (status, metrics, history, network, topology). These helpers read legacy `CASCOR_HOST` and `CASCOR_PORT` environment variables (with `localhost` / `8201` defaults). Do not confuse them with the `JUNIPER_CASCOR_*` variables used by `util/juniper_plant_all.bash`.
 
 ---
@@ -2627,6 +2630,67 @@ Structural gate: `tests/test_subpackage_ci_workflows.py`.
 
 ---
 
+## F-CANOPY-037 Render Census
+
+F-CANOPY-037 is "the topology graph is starved ABSENT" — the rebuild used to race a 1 Hz identical store rewrite and painted in **2 of 11** live sessions. Ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md) entry F-CANOPY-037. A single green `topodiag` cannot validate a fix: one PASS is ~18% likely while the race is still live.
+
+[`util/ad-hoc/e2e_f037_render_census.py`](../util/ad-hoc/e2e_f037_render_census.py) is the instrument. It launches N **separate processes** (each gets its own browser, Dash session, and renderer-slot pool) of [`e2e_seg17_topology_driver.py --step topodiag`](../util/ad-hoc/e2e_seg17_topology_driver.py) and tallies how many painted. Bring-up stays in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
+
+```bash
+# isolated trio already up on 8101 / 8202 / 8051
+python3 util/ad-hoc/e2e_f037_render_census.py
+python3 util/ad-hoc/e2e_f037_render_census.py --sessions 5 --out reports/e2e/<run>/f037_census.json
+# A/B a pre-merge canopy checkout on :8052 against the same cascor/data:
+bash util/ad-hoc/e2e_f037_ab_premerge_leg.bash up /path/to/juniper-canopy
+JUNIPER_E2E_CANOPY_URL=http://127.0.0.1:8052 python3 util/ad-hoc/e2e_f037_render_census.py
+```
+
+### Verdict source and exits
+
+Each session writes its own file via `JUNIPER_E2E_SEG17_RESULTS` and the census reads `topodiag` from that JSON. Stdout that says `PASS` cannot clean a missing or corrupt results file — those sessions become `verdict is None`.
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every session produced `PASS` or `FAIL`. Read the tally. `painted==0` is still exit 0 — the tool does **not** judge the render rate. |
+| `2` | At least one session crashed, timed out, or produced no verdict. The census failed to measure. |
+
+Default `--sessions` is **11** (the finding). `2/11` vs `1/1` is not a claim. `--timeout` defaults to 420 s; `topodiag`'s own paint budget is 240 s.
+
+### Scope: populated vs varied
+
+Two independent questions. Conflating them produced a wrong claim once (`bool(["0"])` is True — an all-zero `hidden_units` run is **not** idle, it is invalid):
+
+| `scope` | `populated` | `varied` | What you may conclude |
+|---------|-------------|----------|------------------------|
+| `invalid` | false (`0` / absent / empty in every session) | — | Nothing. Neither PASS nor FAIL. Train a network first. |
+| `idle` | true | false | VALID test of the **single** mount-time rebuild (F-CANOPY-039's core question). Do not generalise a PASS to "the panel tracks a live cascade". |
+| `growth` | true | true | Distinct topologies **across sessions**. Cannot distinguish "cascade grew while a session watched" from "consecutive sessions saw different static topologies". For mid-growth paint, read per-session `elapsed_s` and trace counts. |
+
+`populated` is "any observed `hidden_units` not in `0` / `None` / empty". `varied` is "more than one distinct observed value". An idle *populated* census is a real measurement and must not be thrown out.
+
+### Provenance and root walk
+
+`_find_juniper_root` walks **up** until a directory contains **both** `juniper-canopy` and `juniper-cascor`. A fixed three-`dirname` hop from `juniper-ml/.claude/worktrees/<name>/util/ad-hoc` lands on `worktrees/` and recorded `sha=None` (2026-08-31). One sibling is not enough.
+
+`--canopy-src` / `CANOPY_SRC_DIR` (and the cascor pair) record the tree the **stack** ran from. Defaulting to the primary checkout while the isolated trio is a worktree writes an authoritative-looking wrong SHA.
+
+The census strips `LIBTORCH` and `LD_LIBRARY_PATH` because `JuniperCanopy1` activate hooks do not run for a direct interpreter invocation (same libtorch collision class as isolated `cascor_up`).
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Exit 0 with `painted==0` | Expected. The census measured; the graph did not paint. Compare to 2/11, then read `scope`. |
+| `scope=invalid` after a "green" tally | Server never offered a non-zero topology. Train first. |
+| `sha=None` for canopy | Nested worktree + one-sibling walk. Need both sibling dirs, or pass `--canopy-src`. |
+| `1/1` published as the re-drive | Sample size is part of the claim. Keep `--sessions 11` unless you are debugging the harness. |
+| Stdout `PASS` but census `BROKEN` | Results JSON missing. Do not scrape the log. |
+| Host `plant_all` canopy | Ports / `DEMO_MODE` collide. Isolated stack only. |
+
+Hermetic pins for the vacuity / walk-up / exit contract land with juniper-ml#1650 (`tests/test_e2e_f037_render_census.py`); they are not yet on `main`.
+
+---
+
 ## Docs Full Check
 
 Weekly (Monday 06:00 UTC) + `workflow_dispatch` workflow [`.github/workflows/docs-full-check.yml`](../.github/workflows/docs-full-check.yml). It does **not** run on PRs — per-PR CI uses `--cross-repo skip`. The weekly job clones sibling checkouts and runs the screens PR CI cannot:
@@ -2999,6 +3063,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.30  | 2026-09-04 | F-CANOPY-037 render census: 11-session instrument; structured `topodiag` JSON only; exit 2 = failed to measure; `hidden_units` 0/absent is INVALID not idle; walk-up root needs both sibling repos. Skipped 0.6.16–0.6.29 (in-flight docs PRs) |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3344,8 +3409,10 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 `JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_attribute.py` imports when the fallbacks
 (`~/Development/python/Juniper/juniper-cascor/src` and `.../juniper-data`) are wrong.
 
+`JUNIPER_E2E_SEG17_RESULTS` is the per-session structured-verdict path the F-037 census sets for each `topodiag` child (default `$JUNIPER_E2E_RUN_DIR/seg17_results.json` in the standalone driver). `CANOPY_SRC_DIR` / `CASCOR_SRC_DIR` (or `--canopy-src` / `--cascor-src`) name the stack under test for provenance. See [F-CANOPY-037 Render Census](#f-canopy-037-render-census).
+
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.30
 **Maintainer:** Paul Calnon

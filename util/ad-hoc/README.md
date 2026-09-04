@@ -79,6 +79,16 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## F-CANOPY-037 render census (operational)
+
+`e2e_f037_render_census.py` runs N independent `topodiag` sessions (default 11, the finding's sample). A single green session is ~18% likely while the race is still live. Verdicts come from structured `JUNIPER_E2E_SEG17_RESULTS` JSON, never stdout. Exit 0 means the census measured (read the tally — `painted==0` is still 0); exit 2 means a session produced no verdict. All-zero `hidden_units` is `scope=invalid`, not idle. `_find_juniper_root` must see both `juniper-canopy` and `juniper-cascor`.
+
+Companion: `e2e_f037_ab_premerge_leg.bash` launches a second canopy on `:8052` against the isolated cascor/data pair.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-037 Render Census](../../docs/REFERENCE.md#f-canopy-037-render-census).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

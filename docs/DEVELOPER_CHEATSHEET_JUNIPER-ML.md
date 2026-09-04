@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.42
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -47,6 +47,7 @@
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
+| `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 11-session topology-paint census (isolated stack; does not judge the rate) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -573,6 +574,8 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
 
+Tip: F-CANOPY-037 painted in 2 of 11 sessions — one green `topodiag` is ~18% likely while still broken. `e2e_f037_render_census.py` exits 0 even at `painted==0` (it does not judge the rate); exit 2 means a session produced no verdict. `hidden_units` all-zero is INVALID, not idle. Walk-up root needs both `juniper-canopy` and `juniper-cascor`. See [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census).
+
 
 ### Host Stack Troubleshooting
 
@@ -603,6 +606,7 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
 | Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
 | Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| One green topology paint "closes" F-037 | Need 11 sessions. Census exit 0 with `painted==0` is a measured miss, not a harness fail. `scope=invalid` means train first. [F-CANOPY-037](REFERENCE.md#f-canopy-037-render-census). |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
@@ -707,12 +711,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
+- [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; exit 2 = failed to measure; idle populated is VALID
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.42
 **Maintainer:** Paul Calnon
