@@ -5,7 +5,7 @@ Project:     Juniper
 Sub-Project: juniper-ml
 Application: util
 Author:      Paul Calnon
-Version:     0.1.0
+Version:     0.1.1
 License:     MIT License
 
 Automates the mechanical parts of a pointer-follow soak run so the only thing
@@ -179,6 +179,12 @@ def parse_events(path: Path) -> dict:
         try:
             ev = json.loads(line)
         except json.JSONDecodeError:
+            continue
+        # Same failure class as the `message` guard below: a non-object JSONL
+        # line (array / string / number) is valid JSON so it is not skipped by
+        # JSONDecodeError, then `ev.get` raises AttributeError and the rest of
+        # a spent session is lost. Guard the type, not just decode success.
+        if not isinstance(ev, dict):
             continue
         etype = ev.get("type")
         if etype == "result":
