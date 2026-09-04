@@ -2062,6 +2062,24 @@ def step_topostate(page, capture):
 
     # ---- M-TOPOLOGY-18 / W4-15 -- the raw-topology poll's gate ------------
     #
+    # ORDERING HAZARD -- DRIVE `topostate` FIRST, OR ALONE.
+    #
+    # This row's first half is "the raw store is EMPTY while the view is Node
+    # Graph". That precondition is destroyed by any earlier step that visits the
+    # Weight Matrix view -- `topo` does exactly that for M-TOPOLOGY-03 -- because
+    # the store, once filled, stays filled for the life of the page. Measured
+    # 2026-09-04 on canopy `94220f0`: `--step topo,topoevents,topostate,topoexport`
+    # in one browser session scored this row INDETERMINATE
+    # (`empty_in_node_graph=False`), while `--step topostate` alone against the
+    # SAME build minutes later scored PASS (`empty_in_node_graph=True`, filled in
+    # 6.6 s).
+    #
+    # The INDETERMINATE is CORRECT -- the row says so rather than scoring a
+    # half-measured gate -- but a reader who sees it after a combined run will
+    # reach for a regression. It is a harness ordering artifact. Same class as the
+    # M-06 -> M-17 filter leak noted in `step_topo`: these steps are NOT
+    # order-independent, and nothing enforces that but this comment.
+    #
     # SCORED ON THE STORE, NOT ON THE WIRE. The first version of this row counted
     # browser requests to `/api/topology/raw` and read 0 in every condition,
     # including Weight Matrix -- which looked exactly like F-CANOPY-040's
@@ -2120,6 +2138,9 @@ def step_topostate(page, capture):
             "store_keys_after": sorted(after_store.keys()) if isinstance(after_store, dict) else type(after_store).__name__,
         }
         log(f"  M-TOPOLOGY-18 raw-store gate: empty_in_node_graph={empty_in_node_graph} populated_in_weight_matrix={populated_in_weight_matrix} (filled in {fill_s}s) -> {m18}")
+        if m18 == "INDETERMINATE":
+            log("  !! INDETERMINATE is an ORDERING artifact, not a regression: an earlier step in this")
+            log("     session already filled the raw store. Re-drive `--step topostate` ALONE to score it.")
         if not populated_in_weight_matrix:
             log("  !! the store never filled even in Weight Matrix -- that is F-CANOPY-040's shape, not a gate that is too tight")
         if not empty_in_node_graph:
@@ -2206,6 +2227,11 @@ def step_topostate(page, capture):
     log(f"  topostate verdicts: {[(k, v.get('verdict')) for k, v in res.items() if isinstance(v, dict) and 'verdict' in v]}")
 
 
+# STEP ORDER IS NOT FREE. `topostate` must run FIRST or ALONE: M-TOPOLOGY-18's
+# gate needs the raw-topology store still empty, and `topo` fills it permanently
+# when M-TOPOLOGY-03 opens the Weight Matrix. Driven after `topo`, the row
+# correctly reports INDETERMINATE rather than a verdict -- see the note on the
+# M-TOPOLOGY-18 block above.
 STEPS = {
     "probe": step_probe,
     "topodiag": step_topodiag,
