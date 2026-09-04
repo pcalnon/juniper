@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.48
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -27,6 +27,7 @@
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [X7 Off-Loop Census](#x7-off-loop-census)
+- [Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1480,6 +1481,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
+- `util/ad-hoc/e2e_seg17_topology_driver.py` -- `--step` is order-preserving on one browser page; `topostate` must run first or alone or M-TOPOLOGY-18 reports `INDETERMINATE`. The module docstring's `W4-01..17` / `W1-12..14` list is stale. Operator surface: [§ Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids). Scorer predicates remain in-flight docs #1675.
+- `util/ad-hoc/e2e_finding_triage.py` -- `pri_of` takes the first severity token anywhere in the bolded header body (not only the parenthetical). Do not name another severity in header prose. Dispositions remain in-flight docs #1646. Same section as the bullet above.
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
@@ -2695,6 +2698,70 @@ Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § X7 off-
 
 ---
 
+## Canopy E2E Topology Step Order and Blast-Radius IDs
+
+Operator contract for re-driving the canopy topology block without treating a harness artifact as a regression, and without holding a finding open on walkthrough IDs that were never enumerated. Triggered by [juniper-ml#1695](https://github.com/pcalnon/juniper-ml/pull/1695) (F-CANOPY-037 close + F-E2E-007). Distinct from the F-037 **render census** (in-flight docs #1652), the topology **scorer predicates** (in-flight docs #1675), and finding-triage **dispositions** (in-flight docs #1646).
+
+Verified against `origin/main` `d69c9a73`: `util/ad-hoc/e2e_seg17_topology_driver.py`, `util/ad-hoc/e2e_finding_triage.py`, `reports/e2e/*/statuses.tsv`, and [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md). Ledger status on main still says F-CANOPY-037 **OPEN**; cite #1695 for the close — do not copy that PR's unmerged pass counts.
+
+### `topostate` first, or alone
+
+`step_topostate` scores M-TOPOLOGY-18 on the raw-topology **store**, not on browser traffic to `/api/topology/raw` (that fetch is server-side and Playwright cannot see it). The gate is two-sided:
+
+| Store in Node Graph | Store in Weight Matrix | Verdict |
+|---------------------|------------------------|---------|
+| empty | populated | `PASS` |
+| already populated | populated | `INDETERMINATE` |
+| empty | still empty | `FAIL` (F-CANOPY-040 shape) |
+| unreadable | — | `BLOCKED` (never score unreadable as empty) |
+
+`topo` opens Weight Matrix for M-TOPOLOGY-03 (`set_radio(..., "weight_matrix")`). Once filled, the store stays filled for the life of the page. `--step` is comma-separated and **order-preserving** (`STEPS[name](page, capture)` on one `page`); nothing in `STEPS` rejects `topo` before `topostate`. Combined `--step topo,topoevents,topostate` in one browser session therefore trips the already-populated arm.
+
+`INDETERMINATE` here is the scorer working: the first half was not measurable. It is not a product regression. Re-drive `--step topostate` **alone** (or put it first). Same class as the M-06 → M-17 depth-filter leak already logged in `step_topo`.
+
+```bash
+# Score M-TOPOLOGY-13 / -18 without a prior Weight Matrix visit
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+    util/ad-hoc/e2e_seg17_topology_driver.py --step topostate
+```
+
+Playwright lives in `JuniperCanopy1`. Default canopy URL is `JUNIPER_E2E_CANOPY_URL` (`http://127.0.0.1:8051`). Results merge into `JUNIPER_E2E_SEG17_RESULTS`. Isolated trio bring-up remains [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
+
+### Do not treat `W4-01..17` / `W1-12..14` as real blockers
+
+Four "Blast radius" paragraphs copy the sentence *M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay BLOCKED*. That names **20** walkthrough IDs. Against every `reports/e2e/*/statuses.tsv` on main:
+
+| ID in that phrase | Verdicts on main |
+|-------------------|------------------|
+| `W4-02` | one — `BLOCKED`, F-CANOPY-037, run `20260826T215010Z` |
+| `W1-12` | one — `BLOCKED`, F-CANOPY-037, same run |
+| `W1-12..14` (literal range string used as an id) | one — `BLOCKED(DOM)/PASS(server)`, run `20260810T002233Z` |
+| `W4-01`, `W4-03`…`W4-17`, `W1-13`, `W1-14` | **none, ever** |
+
+The W-series elsewhere is real (`W1-17` / `W1-18` PASS; W2/W3/W5/W6 carry many rows). The phrase's 20 IDs are not: **18 have never existed**. The plan document has **zero** `W4-` / `W1-1` matches. The driver's module docstring still lists `W4-01..17` and `W1-12..14` as if they live in the matrix — they do not; `STEPS` is the authority for what is implemented.
+
+[juniper-ml#1695](https://github.com/pcalnon/juniper-ml/pull/1695) files this as **F-E2E-007** and closes F-CANOPY-037 against the scoreable M-TOPOLOGY rows. Whether to retire the phantom IDs or define and score the lane is an owner decision; nothing is blocked on the answer. The driver's own comments alias `W4-02` as M-TOPOLOGY-01 (layout cycle).
+
+M-TOPOLOGY-11 (select-mode drag) and M-TOPOLOGY-16 (cascade add on a saturated fixture) stay BLOCKED on their own causes — neither is this finding.
+
+### Finding-header severity trap
+
+`util/ad-hoc/e2e_finding_triage.py` `pri_of` takes the **first** `\b(P0/P1|P0|P1|P2|CRITICAL|LEDGER)\b` anywhere in the bolded header body after the em-dash — not only the parenthetical. A header that says "holding the arc's only P0/P1 open" before `(LEDGER; …)` is triaged **P0/P1**. Disposition parsing (`FIXED` / `HEALED` / `ACCEPTED` in the last 170 characters) is the in-flight #1646 surface; this pitfall is only the first-token rule. Do not name another severity in a header's prose.
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only   # still prints full totals; exit is always 0
+```
+
+| Symptom | Check / fix |
+|---------|-------------|
+| M-TOPOLOGY-18 `INDETERMINATE` after a combined `--step` | An earlier step visited Weight Matrix. Re-drive `--step topostate` alone. |
+| Holding F-CANOPY-037 open until W4/W1 are scored | Those IDs were never enumerated. See F-E2E-007 / #1695. Score M-TOPOLOGY. |
+| Triage invents a P0/P1 from a bookkeeping note | First severity token in the header won. Rewrite the prose; keep one priority in the parenthetical. |
+| Driver docstring lists `W4-*` / `W1-12..14` as matrix rows | Stale. `STEPS` is the implemented set; the plan has zero of those ids. |
+
+---
+
 ## Shared-Package CI Workflows
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest/coverage/wheel smoke.
@@ -3104,6 +3171,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.48  | 2026-09-04 | Topology step order + blast-radius IDs: `topostate` first or alone (M-TOPOLOGY-18 INDETERMINATE is a harness artifact); W4-01..17 / W1-12..14 are mostly phantom (F-E2E-007 / #1695); triage `pri_of` takes the first severity token in the header |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3453,5 +3521,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Version:** 0.6.48
 **Maintainer:** Paul Calnon

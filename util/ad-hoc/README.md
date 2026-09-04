@@ -93,6 +93,18 @@ Operator contract: [`docs/REFERENCE.md` § X7 Off-Loop Census](../../docs/REFERE
 
 ---
 
+## Topology step order and blast-radius IDs (operational)
+
+`e2e_seg17_topology_driver.py` `--step` is order-preserving on one page. `topo` fills the raw-topology store (M-03 Weight Matrix); a later `topostate` then scores M-18 `INDETERMINATE`. Re-drive `--step topostate` **alone**. Scorer predicates stay with in-flight docs #1675.
+
+The copied blast-radius sentence *W4-01..17 and W1-12..14 stay BLOCKED* names 20 IDs; 18 have never existed in any `reports/e2e/*/statuses.tsv`. The plan has zero `W4-` / `W1-1` matches. The module docstring still lists those IDs as matrix rows — stale. `STEPS` is the implemented set. Filed as F-E2E-007 in juniper-ml#1695.
+
+`e2e_finding_triage.py` `pri_of` takes the **first** severity token anywhere in the bolded header body. Do not name another severity in header prose. Dispositions stay with in-flight docs #1646.
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Step Order and Blast-Radius IDs](../../docs/REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

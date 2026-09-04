@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
+**Version**: 1.0.60
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -48,6 +48,7 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step topostate` | Score M-TOPOLOGY-13/-18 alone (do not append after `topo`) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -444,6 +445,8 @@ an awaited `httpx.AsyncClient`. Do **not** reintroduce a module-global expressio
 health endpoints X7 is defined by. Both scans read `main.py` only; the metrics relay is a named miss.
 Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census).
 
+**Topology step order / phantom W-ids (#1695):** `--step` is order-preserving on one page. `topo` fills the raw-topology store, so a later `topostate` scores M-18 `INDETERMINATE` — harness artifact. Re-drive `--step topostate` alone. Do not hold F-037 open on `W4-01..17` / `W1-12..14` (18 of 20 never existed; F-E2E-007). Triage takes the first severity token in the header. [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
+
 ---
 
 ## Environment Variables
@@ -659,6 +662,9 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
+| M-TOPOLOGY-18 `INDETERMINATE` after `topo,…,topostate` | Store already filled. Re-drive `--step topostate` alone. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids). |
+| F-037 still OPEN waiting on W4/W1 rows | Those IDs were never enumerated (F-E2E-007 / #1695). Score M-TOPOLOGY. |
+| Triage reports P0/P1 on a LEDGER note | First severity token in the header won — do not name another severity in the prose. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
@@ -723,6 +729,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; W4/W1 blast-radius IDs are mostly phantom (F-E2E-007 / #1695)
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -730,5 +737,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Version:** 1.0.60
 **Maintainer:** Paul Calnon
