@@ -917,6 +917,15 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_f037_render_census.py: the F-CANOPY-037 multi-session render
+          # census (util/ad-hoc/e2e_f037_render_census.py). Pins the vacuity that a
+          # hidden_units==0 run is INVALID (not idle), that an idle populated run is
+          # VALID (conflating populated with varied produced a wrong claim), the
+          # walk-up root that must see BOTH sibling repos (three hops from a nested
+          # worktree recorded sha=None), structured topodiag JSON as the only verdict
+          # source, and exit 2 on no-verdict / exit 0 even when painted==0. subprocess
+          # is mocked; no live canopy. util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_e2e_f037_render_census.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
