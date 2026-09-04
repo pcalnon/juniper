@@ -917,6 +917,13 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_topology_row_predicates.py: the three M-TOPOLOGY row
+          # predicates that scored the easier half of an OR (F-CANOPY-042 / -046).
+          # -06 must require label AND hidden-count; -07 must assert the label, not
+          # display alone; -12 must BLOCKED (not FAIL) when the clear control is
+          # absent. Hermetic -- no Playwright. The driver is checked structurally
+          # for the two sites that call the helpers. util/ is not lint-gated.
+          python3 -m unittest -v tests/test_e2e_topology_row_predicates.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /

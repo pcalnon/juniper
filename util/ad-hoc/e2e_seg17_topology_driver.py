@@ -102,6 +102,10 @@ def _load(name: str, fname: str):
 
 _w3 = _load("_w3drv", "e2e_w3_params_driver.py")
 _f027 = _load("_f027drv", "e2e_f027_redrive.py")
+_pred = _load("_topopred", "e2e_topology_row_predicates.py")
+score_m_topology_06 = _pred.score_m_topology_06
+score_m_topology_07 = _pred.score_m_topology_07
+selection_is_cleared = _pred.selection_is_cleared
 
 log = _w3.log
 http_get = _w3.http_get
@@ -1280,11 +1284,17 @@ def step_topo(page, capture):
     page.wait_for_timeout(3000)
 
     # M-TOPOLOGY-07 / W4-08 -- depth container visible, label reads "all".
+    #
+    # The label half of that contract was READ but never ASSERTED: the verdict
+    # turned on ``display`` alone while ``label`` went into the record as
+    # decoration. It read "0 of 40" on every run of this arc and the row still
+    # scored PASS -- F-CANOPY-042's defect B, sitting in plain sight inside this
+    # scorer's own output. Assert what the row says.
     dv = vis(page, f"{NV}-depth-slider-container")
     dlabel = text_of(page, f"{NV}-depth-label")
-    m07 = dv.get("display") not in (None, "none")
-    res["M-TOPOLOGY-07"] = {"verdict": "PASS" if m07 else "FAIL", "display": dv.get("display"), "label": dlabel}
-    log(f"  M-TOPOLOGY-07 depth container: display={dv.get('display')!r} label={dlabel!r}")
+    m07 = score_m_topology_07(dv.get("display"), dlabel)
+    res["M-TOPOLOGY-07"] = {"verdict": "PASS" if m07 else "FAIL", "display": dv.get("display"), "label": dlabel, "want_label": "all"}
+    log(f"  M-TOPOLOGY-07 depth container: display={dv.get('display')!r} label={dlabel!r} want='all'")
 
     # M-TOPOLOGY-06 / W4-09 -- filter to k < N.
     n_hidden = int(server["hidden"]) if server["hidden"].isdigit() else 0
@@ -1323,12 +1333,19 @@ def step_topo(page, capture):
     settle_figure(page)
     k_label = text_of(page, f"{NV}-depth-label")
     k_counts = counts(page)
-    m06 = sl.get("idiom") is not None and (k_label == want or k_counts["hidden"] == want)
+    # BOTH, not either. The predicate used to be ``label == want OR
+    # counts["hidden"] == want``, and it passed on the counts branch: the stats
+    # bar tracked the filter while the label beside the slider stayed at
+    # "0 of 40". So this row went green on a run where half of what it names was
+    # broken -- and F-CANOPY-042 had to be found by eye instead of by this
+    # scorer. An OR over two independent claims scores the easier one.
+    m06 = score_m_topology_06(sl.get("idiom"), k_label, k_counts["hidden"], want)
     res["M-TOPOLOGY-06"] = {
         "verdict": "PASS" if m06 else "FAIL",
         "slider": sl, "label": k_label, "hidden_count": k_counts["hidden"], "want": want,
+        "label_ok": k_label == want, "counts_ok": k_counts["hidden"] == want,
     }
-    log(f"  M-TOPOLOGY-06 depth={k}: idiom={sl.get('idiom')} label={k_label!r} hidden={k_counts['hidden']!r} want={want!r}")
+    log(f"  M-TOPOLOGY-06 depth={k}: idiom={sl.get('idiom')} label={k_label!r} hidden={k_counts['hidden']!r} want={want!r} (label_ok={k_label == want} counts_ok={k_counts['hidden'] == want})")
 
     # RESET THE FILTER, AND VERIFY IT LANDED. This reset already existed but was
     # called without an ``effect``, so it used the synthetic idioms that cannot
@@ -1654,7 +1671,7 @@ def step_topoevents(page, capture):
         wait_for(lambda: selection_info(page).get("display") in (None, "none"), budget_s=20, every_s=0.5, label="-selection-info to clear")
         n_click_ev = page.evaluate("() => window.__jn_empty_clicks || 0")
         after = selection_info(page)
-        cleared = after.get("display") in (None, "none") or not (after.get("text") or "").strip()
+        cleared = selection_is_cleared(after)
         res["M-TOPOLOGY-12"] = {
             "verdict": "PASS" if cleared else "FAIL",
             "precondition_selected": True, "clicked": spot, "before": sel, "after": after,
