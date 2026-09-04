@@ -917,6 +917,14 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_row_coverage.py: hermetic tests for util/ad-hoc/e2e_row_coverage.py,
+          # the compressed-range ESTIMATOR for remaining canopy E2E matrix rows. Distinct from
+          # e2e_unfilled_rows.py (the AUTHORITATIVE status-cell reader). Pins inclusive range
+          # expansion, first-field-only (prose mentions must not credit), unmatched tokens
+          # staying out of hit, and that TSV pending records ARE credited -- the known
+          # over-credit that made Segment 15 plan two already-PASS rows. util/ is not
+          # pre-commit-lint-gated, so this unittest is the gate.
+          python3 -m unittest -v tests/test_e2e_row_coverage.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
