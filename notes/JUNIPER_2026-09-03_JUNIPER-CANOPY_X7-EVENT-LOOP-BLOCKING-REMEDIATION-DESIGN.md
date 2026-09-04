@@ -90,7 +90,7 @@ Derived from measurement, not preference. A design that misses any of these is r
 | **C2** | Upstream call rate must be independent of browser-tab count and poller count | ρ scales with tabs otherwise (§4.2) |
 | **C3** | Handler latency must fit the dashboard's own budget: **1.0 s** fast lane, **2.0 s** normal (`canopy_constants.py:373-374`) | otherwise every panel renders an error div even when "fixed" |
 | **C4** | Concurrent outbound cascor calls must be **bounded**, and the bound must be < the 20-slot executor (`min(32, cpu+4)`, verified) | unbounded offload measured **3 → 42** upstream requests and peaked 20/20 |
-| **C5** | The shared `requests.Session` must not be used concurrently from multiple threads | documented not thread-safe; the loop currently serialises it at concurrency 1 |
+| **C5** | ~~The shared `requests.Session` must not be used concurrently from multiple threads~~ **REFUTED (§5.2)** — the client mutates session state only in `__init__`; the shared object is a thread-safe urllib3 pool. Restated: **the client must not mutate session state per request**, pinned by T-A4 | premise was correct (the loop did serialise at concurrency 1); the documented hazard does not apply to this client's usage |
 | **C6** | An unknown/stale backend status must never be presented as a *fresh negative* fact | the adapter returns `{"is_training": False, "error": …}` rather than raising (§5.1); a cache that stamps that `FRESH` fabricates "not training" |
 | **C7** | Health must **surface staleness**, and must **stay 200/degraded** on an upstream outage | ratified: `values.yaml:222-226` — "upstream … outages remain 200/degraded so the dashboard stays useful with cached state" — and guarded by `test_canopy_never_returns_503_on_upstream_down` (`src/tests/unit/test_health.py:300-315`) |
 | **C8** | Retries must not be applied to non-idempotent verbs | `POST /v1/training/start` measured reaching the server **4×** |
@@ -199,8 +199,31 @@ defaults `timeout=30, retries=3` — the settings under which X7 was measured (�
 
 ### 5.2 Slice 1a — off-loop discipline (this is the fix)
 
-**All 36 confirmed-blocking sites** in `async def` handlers move off the loop. Not 5, not 31 — the
+**All 58 confirmed-blocking sites** in `async def` handlers move off the loop. Not 5, not 31 — the
 count is the acceptance criterion, and the scan is the test.
+
+**Count history — 36 is superseded, and so is 52.** It moved 40 → 39 → 37 → **52** → **58**. The
+first three moves each removed a false positive. The fourth added 15 real sites when the gate's
+module-global exemption was found: because `:3574` offloaded `backend.get_status`, every *other*
+`backend.get_status()` became invisible, including the three health endpoints X7 is defined by
+(fixed in canopy `d33ab0a`). The fifth added the six sites below, and **shipped as canopy#567**.
+
+**The last six matter more than the number, because the gate structurally cannot see any of them.**
+Two are inside `main.py`: `_extract_meta_params()` and `_seed_training_state()` are bare module
+functions whose *bodies* hold `backend.get_status()`, so at their call sites the receiver is not an
+I/O client — it is nothing — and a receiver-resolving scan reports a clean **0** over calls that
+block the loop identically. Four are outside `main.py`, which the gate does not read at all:
+`cascor_service_adapter.connect()` → `self._client.is_alive()`; `_relay_loop()` →
+`self.extract_network_topology()` (the 123 s-per-183 s site named below); and
+`service_backend.initialize()` → `attach_to_existing()` and `CascorStateSync(...).sync()` — both on
+a **request** path, since `_swap_backend` awaits `initialize()` for a runtime model change.
+
+The gate was therefore **extended**, not merely satisfied: it now resolves module-level sync helpers
+transitively (bucket `HELPER`). A gate reading zero over live blocking calls is the same failure as
+`d33ab0a`, reached by a different route. The four sites outside `main.py` were found by a new
+transitive taint scan over canopy plus both client libraries
+(`juniper-canopy/util/ad-hoc/2026-09-04_async_blocking_callgraph.py`) and remain guarded by that
+instrument rather than by the gate — **run it when touching the adapter**.
 
 The guard already exists and is applied correctly at `/api/state` (`main.py:1239`) under the comment
 *"keep them off the event loop so a slow cascor cannot stall every other canopy route"*; `main.py`
@@ -211,9 +234,19 @@ uses `asyncio.to_thread` 30 times. This slice makes that convention **total**.
   guarded, because the repo's correct idiom includes **13 bare-attribute offloads**
   (`to_thread(backend.f)` — never a `Call` node) and **8 named closures**, so it would emit 8 false
   positives on the exemplar code while missing 13 correct offloads.
-- **Session safety (C5)**: multiple worker threads now touch the client, so a `threading.local()`
-  session at the client boundary is part of this slice, not a follow-up. The pre-fix serialisation
-  was accidental — the blocked loop held concurrency at 1.
+- **Session safety (C5) — REFUTED on inspection; no client change ships.** The premise stands: the
+  pre-fix serialisation was accidental, the blocked loop held concurrency at 1, and 1a removes that.
+  The remedy does not. `JuniperCascorClient` mutates session state **only in `__init__`** — two
+  `mount()` calls and one API-key header (`client.py:142-183`) — and `_request` passes method, url,
+  json, params and timeout as *arguments*, touching nothing on the session (`client.py:530-545`).
+  What is shared is the `HTTPAdapter`'s urllib3 connection pool, which is thread-safe by
+  construction and is the reason `pool_maxsize` exists; a `threading.local()` session would instead
+  give every worker its own pool and discard keep-alive across the executor's threads.
+  The safety therefore rests on an **invariant, not a lock**: the client never mutates session state
+  per request. Nothing pinned that, which is what made the original warning reasonable — **T-A4 now
+  does**, both empirically (8 threads × 4 uniquely-tagged requests, no cross-talk) and structurally
+  (session headers unchanged afterwards). If per-request mutation is ever added upstream, T-A4 fails
+  and the `threading.local()` remedy becomes correct.
 - **Sites the previous plan omitted** are explicitly in scope, including
   `main.py:3530 GET /api/train/status`, the WS accept path (`:705`), `_swap_backend`'s `initialize()`
   (`:3718`), lifespan discovery (`:294`, `:322`), and the metrics relay's inline
@@ -342,10 +375,10 @@ guard.
 | --- | --- | --- | --- | --- |
 | 1b | **T-B1** | per-call cost against a closed port | 3.005 s | **0.002 s** |
 | 1b | **T-B2** | timed-out `POST` reaches a counting stub once | 4× | 1× |
-| **1a** | **T-A1** | **closure-aware AST scan: 0 un-offloaded blocking calls in async handlers** | fails (36) | **0** |
-| **1a** | **T-A2** | with **≥3 concurrent drivers** against a **2.0 s bounded** stub, **max latency of `/v1/health/live` < 500 ms** | fails (5.813 s) | passes |
-| **1a** | **T-A3** | vacuity guards for T-A2: control sample non-empty, **and** each driver's latency ≥ the stub bound, **and** the driver route is one T-A2 actually blocks on | — | all must hold |
-| 1a | **T-A4** | per-thread session: no `Session` shared across worker threads | fails | passes |
+| **1a** | **T-A1** | **closure-aware AST scan: 0 un-offloaded blocking calls in async handlers**, incl. module-local helpers (`HELPER`) | fails (52 direct + 2 helper) | **0** ✅ |
+| **1a** | **T-A2** | with **≥3 concurrent drivers** against a **2.0 s bounded** stub, **max latency of `/v1/health/live` < 500 ms** | fails (5.813 s; re-measured **6.019 s** by mutation check) | passes ✅ |
+| **1a** | **T-A3** | vacuity guards for T-A2: sample non-empty, **and** each driver's latency ≥ the stub bound, **and** the driver route reached the backend (counted *at* the stub), **and** the same harness FAILS against an un-offloaded control app | — | all hold ✅ |
+| 1a | **T-A4** | ~~per-thread session~~ → **no per-request session mutation**, under 8 concurrent threads (C5 restated, §5.2) | premise unpinned | passes ✅ |
 | 1c | **T-C1** | classifier census over the §5.3 table, incl. `None`, `[]`, `{}`, half-dead 200, `error: None` | fails | passes |
 | 1c | **T-C2** | half-dead 200 renders **"Unreachable"**, not "Stopped" — PR #340 regression guard | **fails** | passes |
 | 1c | **T-C3** | refresher's dedicated breaker unaffected by `get_network_data()` failures | fails | passes |
