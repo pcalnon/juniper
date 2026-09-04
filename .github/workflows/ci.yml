@@ -565,6 +565,15 @@ jobs:
           # fence-blind regression and a silent bad cut, so it also pins the four-backtick
           # fence (canopy wraps ```-examples in ````) and the info-string closing rule.
           python3 -m unittest -v tests/test_p3_relocate_section.py
+          # tests/test_x7_offload_census.py: the gate for the X7 slice-1a census
+          # (util/ad-hoc/2026-09-04_x7_offload_census_v2.py). util/ad-hoc is not
+          # pre-commit-lint-gated, and the census IS the test -- a module-global
+          # expression exemption certified a partial fix (offloading backend.get_status
+          # at one site hid every other, including the three health endpoints X7 is
+          # defined by; reported 39, true count 54). This suite pins site-local
+          # exemption, provenance (not the bare name `client`), and that v1 stays
+          # the unsound negative example.
+          python3 -m unittest -v tests/test_x7_offload_census.py
           # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
           # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
           # so this suite IS the gate. It pins the properties that let the soak FALSIFY

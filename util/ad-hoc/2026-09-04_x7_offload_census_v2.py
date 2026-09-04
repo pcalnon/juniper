@@ -157,8 +157,14 @@ def classify(receiver: ast.AST, bound: dict[str, str]) -> str:
     return "UNRESOLVED"
 
 
-def main() -> int:
-    tree = ast.parse(CANOPY_MAIN.read_text())
+def census_source(source: str) -> dict[str, list[tuple[int, str, str]]]:
+    """Classify un-offloaded calls in ``source``.
+
+    Extracted from ``main`` so the walk can be tested without canopy's ``main.py``.
+    Keys: CASCOR, OTHER, LOCAL, ASYNC, UNRESOLVED. Each value is
+    ``(lineno, handler, expr)``.
+    """
+    tree = ast.parse(source)
     for parent in ast.walk(tree):
         for child in ast.iter_child_nodes(parent):
             child._parent = parent  # type: ignore[attr-defined]
@@ -200,7 +206,11 @@ def main() -> int:
                 if root not in {"client", "adapter", "_adapter", "_client"}:
                     continue
             buckets[kind].append((node.lineno, fn.name, expr))
+    return buckets
 
+
+def main() -> int:
+    buckets = census_source(CANOPY_MAIN.read_text())
     blocking = buckets["CASCOR"] + buckets["OTHER"] + buckets["UNRESOLVED"]
     print(f"file: {CANOPY_MAIN}\n")
     for kind in ("CASCOR", "OTHER", "UNRESOLVED", "LOCAL", "ASYNC"):
