@@ -138,5 +138,5 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.3.37
+**Version:** 0.3.38
 **Status:** Active
