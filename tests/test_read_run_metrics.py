@@ -183,6 +183,54 @@ class ReadSuiteTest(unittest.TestCase):
             self.assertEqual(len(rrm.read_suite(suite)), 1)
 
 
+class WorkloadFingerprintTest(unittest.TestCase):
+    """The identity check that P2 item 1.5's fail-on-mismatch rule depends on.
+
+    A ``step_count`` mismatch only means "the code regressed" when both sides ran the SAME
+    workload. Without this, an ordinary config edit would be reported as a regression -- and a
+    gate that blames the wrong thing gets switched off.
+    """
+
+    def _cell(self, suite: Path, cell_id: str, body: str) -> None:
+        (suite / "cells" / cell_id).mkdir(parents=True, exist_ok=True)
+        (suite / "cells" / cell_id / "experiment.yaml").write_text(body, encoding="utf-8")
+
+    def test_ignores_cosmetic_description_and_name(self):
+        # PF-1's five repeats differ ONLY by these; registry config_sha256 differs across all five,
+        # so it cannot serve as a workload identity.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment:\n  description: repeat 1\n  name: a\n  seed: 42\ntraining:\n  params:\n    max_epochs: 4000\n")
+            self._cell(suite, "c001", "experiment:\n  description: repeat 2\n  name: b\n  seed: 42\ntraining:\n  params:\n    max_epochs: 4000\n")
+            self.assertEqual(rrm.workload_fingerprint(suite, "c000"), rrm.workload_fingerprint(suite, "c001"))
+
+    def test_seed_is_NOT_cosmetic(self):
+        # Two runs at different seeds are different workloads, not repeats.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment:\n  description: x\n  seed: 42\n")
+            self._cell(suite, "c001", "experiment:\n  description: x\n  seed: 43\n")
+            self.assertNotEqual(rrm.workload_fingerprint(suite, "c000"), rrm.workload_fingerprint(suite, "c001"))
+
+    def test_computation_relevant_change_moves_the_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment:\n  seed: 42\ntraining:\n  params:\n    max_epochs: 4000\n")
+            self._cell(suite, "c001", "experiment:\n  seed: 42\ntraining:\n  params:\n    max_epochs: 500\n")
+            self.assertNotEqual(rrm.workload_fingerprint(suite, "c000"), rrm.workload_fingerprint(suite, "c001"))
+
+    def test_missing_cell_yaml_is_none_not_a_shared_identity(self):
+        # Unknown identity must NOT collapse into "same as everything else unknown" -- callers
+        # treat None as a refusal, and two Nones comparing equal would be a vacuous pass.
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(rrm.workload_fingerprint(Path(tmp) / "s", "c000"))
+
+    def test_single_workload_false_when_identities_unknown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
+            self.assertFalse(rrm.summarise(rrm.read_suite(suite))["single_workload"])
+
+
 class CliTest(unittest.TestCase):
     def test_json_mode_emits_parseable_payload(self):
         import contextlib
