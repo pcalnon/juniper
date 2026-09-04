@@ -109,6 +109,16 @@ DEFAULT_TIMEOUT = 900
 TERMINAL_VERDICTS = ("BET-FAILING", "HOLDS-AT-")
 
 
+def verdict_is_terminal(verdict: str) -> bool:
+    """Has the soak reached an answer further runs cannot change?
+
+    The single definition. Both callers below go through it, so a later change
+    here -- normalisation, a new terminal name -- cannot reach one and miss the
+    other.
+    """
+    return any(verdict.startswith(t) for t in TERMINAL_VERDICTS)
+
+
 def refuses_terminal_verdict(verdict: str, *, force: bool, dry_run: bool) -> bool:
     """Should this invocation be refused because the soak already has its answer?
 
@@ -120,7 +130,7 @@ def refuses_terminal_verdict(verdict: str, *, force: bool, dry_run: bool) -> boo
     """
     if force or dry_run:
         return False
-    return any(verdict.startswith(t) for t in TERMINAL_VERDICTS)
+    return verdict_is_terminal(verdict)
 
 
 def resolve_claude() -> str:
@@ -289,7 +299,7 @@ def main() -> int:
               f"change it and each one spends a session.\nPass --force to override "
               f"(e.g. to re-baseline after a deliberate intervention).", file=sys.stderr)
         return 2
-    if args.dry_run and any(verdict.startswith(t) for t in TERMINAL_VERDICTS):
+    if args.dry_run and verdict_is_terminal(verdict):
         # Describe, but do not hide the state a real run would refuse on.
         print(f"NOTE: soak verdict is {verdict} -- terminal. This dry run proceeds "
               f"(it spends no session); a real run would refuse without --force.",
