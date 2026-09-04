@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.41
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,6 +22,7 @@
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Canopy E2E Dataset Drivers](#canopy-e2e-dataset-drivers)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
@@ -967,6 +968,96 @@ Troubleshooting:
 
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
 
+Dataset-tab / W6 COLD-migration scoring is a separate Playwright surface: [Canopy E2E Dataset Drivers](#canopy-e2e-dataset-drivers). Those scripts read `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`), not `JUNIPER_E2E_CANOPY_PORT`.
+
+---
+
+## Canopy E2E Dataset Drivers
+
+Two Playwright drivers score the canopy **dataset** rows of [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md). They are **not** red/green tests: every check is printed (`PASS` / `FAIL` / `BLOCKED` / `!!`) and a completed run exits `0`. Ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md).
+
+They share helpers from `util/ad-hoc/e2e_w3_params_driver.py` (browser, `http_get`/`http_post`, `JUNIPER_E2E_CANOPY_URL`). They do **not** share W3's `--steps` range parser.
+
+| Driver | Matrix | Flag | What it drives |
+|--------|--------|------|----------------|
+| `util/ad-hoc/e2e_w6_dataset_driver.py` | W6 COLD migration (sidebar stage → banner → restart modal) | `--steps` (plural) | `#nn-dataset-type-dropdown`, `#apply-dataset-button`, `#pending-dataset-banner`, restart **modal** through cancel |
+| `util/ad-hoc/e2e_seg16_dataset_driver.py` | §3.6 Dataset View (`M-DATASET-01`…`27`) | `--step` (singular, required) | Dataset **panel** toolbar / modal / selector / tiles / plots / sequence controls |
+
+Playwright lives only in `JuniperCanopy1`. Invoking that interpreter directly bypasses conda's `LD_LIBRARY_PATH` strip, so an ambient libtorch then fails import with `undefined symbol: _PyObject_NextNotImplemented` (reads like a test failure; it is not):
+
+```bash
+# Isolated trio first (canopy :8051). Then:
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+    util/ad-hoc/e2e_w6_dataset_driver.py --steps 1,2,4,7
+
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+    util/ad-hoc/e2e_seg16_dataset_driver.py --step start,toolbar,selector
+```
+
+### W6 — do not confirm the restart
+
+`STEPS` is the authority: `1`, `2`, `4`, `7`, `10`, `11b`, `10b`, `cleanup`. There is **no** step `16` and no `#restart-confirm-button` click. `step_10` logs `STOPPING BEFORE step 16` on purpose: `POST /api/train/restart` ships `reset=True` (`dashboard_manager.py` restart handler) and **wipes the live network** that carries segment-6/7 evidence. That is an owner call, not a driver's.
+
+| Key | Matrix rows | Notes |
+|-----|-------------|-------|
+| `1` | W6-01 | Baseline dropdown + `/api/status`. `#network-visualizer-input-count` is the F-CANOPY-006 dead-oracle — do not score it. |
+| `2` | W6-02 | Switch generator (default preference: Moon / Moons / Circles / Xor / XOR / Gaussian). `--target-dataset` overrides. |
+| `4` | W6-04/05/06 | `#apply-dataset-button` → `POST /api/stage_dataset`, banner, `pending_dataset`. |
+| `7` | W6-07/08 | Cancel pending (`DELETE /api/cancel_pending_dataset`) + one 10 s reconcile tick. |
+| `10` | W6-10…15 | Open restart modal, Escape, start-fresh toggle, granular collapse, `#restart-ds-type`, **cancel**. Needs a staged pending dataset. |
+| `11b` | W6-11/12 | Escape **and** backdrop dismiss. Consequence lines are **static** layout text, not wired to the toggle. |
+| `10b` | W6-10 fidelity | Compares `#restart-confirm-summary` to `/api/status` `pending_dataset` (they have disagreed). |
+| `cleanup` | — | Logs leftover `pending_dataset` only. |
+
+Default `--steps 1,2,4,7` **cancels** the stage. To open the restart modal, pass `1,2,4,10` (no `7` in between). `--granular-target` defaults to `Spirals` for W6-14.
+
+`--steps` is comma tokens only. Unknown names are **dropped**; if nothing remains, exit `2`. The module docstring example `--steps 1-9` is wrong on this driver — `1-9` is not a key. W3's `parse_steps` expands ranges; W6 does not import it.
+
+### §3.6 Dataset View
+
+`STEPS` is the authority: `start`, `inventory`, `wire`, `inputs`, `ctxmenu`, `badge`, `degraded`, `toolbar`, `upload`, `selector`, `stats`, `plots`, `seq`. Unknown names exit `2` (no silent drop). `--step` is required.
+
+| Step | Rows | Constraint |
+|------|------|------------|
+| `start` | (precondition) | Clicks `#start-button` so `/api/dataset` reports `loaded`. A GET at run start can exceed the 10 s default (F-CANOPY-004); the driver uses `timeout=90`. |
+| `toolbar` | M-DATASET-01/02/09 | Generate modal. Under live-run congestion the open was measured at **~39 s** — a 3 s sample reports the FIXED modal as dead. |
+| `upload` | M-DATASET-05/07 | File-picker contract; confirm ships disabled; URL fill. |
+| `selector` | M-DATASET-10/11/12 | **Select is inert** (no `/api/dataset*` on select alone). Load on the LIVE arm is expected **400**. Split changes are client re-filter (no `/api/`). Scope `[role=option]` by the trigger's `aria-controls` or you scrape every other open menu. |
+| `stats` | M-DATASET-13/14 | Four tiles + theme recolour. |
+| `plots` | M-DATASET-15/16 | Scatter + distribution. Matrix class **MANUAL**. |
+| `seq` | M-DATASET-17…27 | Sequence controls; 2-D inverse expects them hidden. |
+
+`ensure_no_modal` polls the welcome dialog. A single early `dismiss_welcome` can report "not present" before render; the leftover `aria-modal` then intercepts every click as a 30 s Playwright timeout.
+
+### Visibility and the confirm modal
+
+`offsetParent` is **null** for `position:fixed`. Both drivers use computed style + a non-zero border box. The restart confirm modal's DOM **does not exist** while closed — poll for appearance (`wait_appear`); a one-shot visibility read races.
+
+### Environment
+
+| Variable | Default | Role |
+|----------|---------|------|
+| `JUNIPER_E2E_CANOPY_URL` | `http://127.0.0.1:8051` | Driver target. Changing `JUNIPER_E2E_CANOPY_PORT` on the stack does **not** retarget these scripts. |
+| `JUNIPER_E2E_CANOPY_LOG` | `/tmp/juniper-e2e/logs/juniper-canopy.log` | Server-log byte-offset reads (W6 cancel / stage evidence). |
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `undefined symbol: _PyObject_NextNotImplemented` | Missing `LD_LIBRARY_PATH=`. Not a Playwright/assertion bug. |
+| `--steps 1-9` → `no runnable steps` / exit `2` | W6 has no range parser. Use `1,2,4,7`. |
+| Default W6 run never opens the restart modal | Default includes `7` (cancel). Use `1,2,4,10`. |
+| Live 10-unit network gone after a "full W6" | You clicked `#restart-confirm-button` or called `/api/train/restart`. The driver refuses that on purpose. |
+| `!! #restart-with-new-dataset-button absent` | Nothing staged. Run `1,2,4` first. |
+| Generate modal "never opened" at 3 s | F-CANOPY-004 congestion. The driver polls ~40 s. |
+| Every click times out at 30 s | Welcome modal still up. `ensure_no_modal` is the fix; do not treat as a dead control. |
+| Selector option list is nonsense | Unscoped `[role=option]`. Use `aria-controls`. |
+| Load-selected returns 400 | Expected on the LIVE arm (M-DATASET-11). |
+| `offsetParent` says the modal is hidden | `position:fixed`. Use computed style + rect. |
+| Exit `0` but the log is full of `!!` | By design. Read the log; do not gate on the process exit. |
+
+Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § Canopy E2E dataset drivers.
+
 ---
 
 ## Fleet Triage and Sequence Safety
@@ -1617,6 +1708,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Fail-closed `activate_conda` under those OR-list callers: `source … || return 1` and `if ! conda activate …; then set -u; return 1; fi` (both arms restore nounset). A bare activate followed by a successful trailing `set -u` would return 0 and launch cascor/canopy on the ambient PATH.
   - Teardown: `--down` is kill-by-port via `port_pid`/`stop_port` (`ss` first `pid=`), canopy→cascor→data, then RUN_DIR + `snapshot_*` cleanup — not `JuniperProject.pid`. Empty/`ss` soft-fail is a noop; `--dry-run` never kills.
   - Health: `wait_for_health` polls `/v1/health` every 2s until `JUNIPER_E2E_HEALTH_TIMEOUT` (default 60); `--status` `probe_health` reports code + pid and does not fail the script. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](#isolated-stack-e2e-utilities).
+- `util/ad-hoc/e2e_w6_dataset_driver.py` / `util/ad-hoc/e2e_seg16_dataset_driver.py` -- Isolated-stack Playwright drivers for the canopy dataset matrix (W6 COLD migration vs §3.6 Dataset View). `--steps` (W6, comma tokens only) vs `--step` (seg16, required). W6 **stops before** `#restart-confirm-button` (`reset=True` wipes the live network). Shared helpers from `e2e_w3_params_driver.py`; W6 does **not** inherit W3's range parser. Operator surface: [Canopy E2E Dataset Drivers](#canopy-e2e-dataset-drivers).
 - `util/experiment_stack.bash` -- Brings up / tears down a **per-run** experiment stack (dedicated juniper-data + `--cascor` and/or `--recurrence`; never canopy) for the
   [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) §6.2 (Wave 2.1).
   `--up` (with `--shared-data URL` / `--config PATH` / `--experiment NAME` / `--grafana-bridge`), `--down <RUN_ID>|--all-mine`, `--status [RUN_ID]`, `--dry-run`; misuse exits 2.
@@ -2999,6 +3091,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.41  | 2026-09-04 | Canopy E2E dataset drivers: W6 (`--steps`, no ranges, stops before restart-confirm wipe) vs §3.6 (`--step`); `JUNIPER_E2E_CANOPY_URL` is the target, not `JUNIPER_E2E_CANOPY_PORT` |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3346,6 +3439,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.41
 **Maintainer:** Paul Calnon

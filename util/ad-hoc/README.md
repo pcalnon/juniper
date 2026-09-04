@@ -79,6 +79,19 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Canopy E2E dataset drivers (operational)
+
+`e2e_w6_dataset_driver.py` (W6 sidebar stage → banner → restart **modal**) and `e2e_seg16_dataset_driver.py` (§3.6 Dataset View panel) score the canopy dataset matrix against a live isolated-stack canopy. Shared browser helpers come from `e2e_w3_params_driver.py`. They print evidence and exit `0`; they are not red/green tests.
+
+- **W6 `--steps` is comma tokens only.** The docstring example `--steps 1-9` is wrong. W3's range parser is not imported.
+- **W6 stops before `#restart-confirm-button`.** That `POST /api/train/restart` ships `reset=True` and wipes the live network. Default `--steps 1,2,4,7` cancels the stage; the restart modal needs `1,2,4,10`.
+- **§3.6 is `--step` (singular, required).** Select is inert; Load on the LIVE arm is expected 400. Scope dropdown options by `aria-controls`.
+- Both need `LD_LIBRARY_PATH=` and the `JuniperCanopy1` interpreter. Target is `JUNIPER_E2E_CANOPY_URL`, not `JUNIPER_E2E_CANOPY_PORT`.
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Dataset Drivers](../../docs/REFERENCE.md#canopy-e2e-dataset-drivers).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

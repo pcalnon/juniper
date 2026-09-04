@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.53
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -45,6 +45,8 @@
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_w6_dataset_driver.py --steps 1,2,4,7` | W6 dataset COLD-migration driver (stops before restart-confirm wipe) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg16_dataset_driver.py --step start,toolbar,selector` | §3.6 Dataset View driver (`--step` is required; select is inert) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `./claudey`                                            | Launch default interactive Claude session       |
@@ -458,6 +460,8 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
 | `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
 | `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
+| `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Playwright dataset-driver target (not derived from `JUNIPER_E2E_CANOPY_PORT`) |
+| `JUNIPER_E2E_CANOPY_LOG`       | `/tmp/juniper-e2e/logs/juniper-canopy.log` | Server-log byte-offset reads for W6 stage/cancel evidence |
 | `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` (2s poll; not `HEALTH_CHECK_INTERVAL`) |
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
@@ -493,6 +497,8 @@ Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). Afte
 `data_up` needs `python3.14` on `PATH`, installs into `${JUNIPER_E2E_RUN_DIR}/.venv-data`, and launches with `PYTHON_GIL=0` (existing venv skips create but still re-pips). Use `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for D2/I-5.
 Post-[#785](https://github.com/pcalnon/juniper-ml/pull/785), `activate_conda` restores `set -u` after conda activate (pre-fix left nounset off for the rest of `--up`).
 Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
+
+Tip: W6 (`e2e_w6_dataset_driver.py --steps`) is sidebar stage/banner/restart-modal and **stops before `#restart-confirm-button`** — that POST wipes the live network (`reset=True`). `--steps 1-9` is a docstring lie (comma tokens only). §3.6 is `--step` on `e2e_seg16_dataset_driver.py`. Both need `LD_LIBRARY_PATH=` + `JuniperCanopy1`. See [REFERENCE — Dataset Drivers](REFERENCE.md#canopy-e2e-dataset-drivers).
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
@@ -603,6 +609,9 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
 | Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
 | Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| W6 `--steps 1-9` exits `2` | No range parser. Use `1,2,4,7`. Default includes cancel (`7`); restart modal needs `1,2,4,10`. |
+| Live network wiped after "full W6" | You confirmed restart. The driver refuses `#restart-confirm-button` on purpose. |
+| Dataset driver import dies with `_PyObject_NextNotImplemented` | Prefix `LD_LIBRARY_PATH=`. Not a Playwright failure. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
@@ -713,6 +722,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.53
 **Maintainer:** Paul Calnon
