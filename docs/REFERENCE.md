@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.48
+**Version:** 0.6.50
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -3171,7 +3171,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.48  | 2026-09-04 | Topology step order + blast-radius IDs: `topostate` first or alone (M-TOPOLOGY-18 INDETERMINATE is a harness artifact); W4-01..17 / W1-12..14 are mostly phantom (F-E2E-007 / #1695); triage `pri_of` takes the first severity token in the header |
+| 0.6.50  | 2026-09-04 | Topology step order + blast-radius IDs: `topostate` first or alone (M-TOPOLOGY-18 INDETERMINATE is a harness artifact); W4-01..17 / W1-12..14 are mostly phantom (F-E2E-007 / #1695); triage `pri_of` takes the first severity token in the header |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3521,5 +3521,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.48
+**Version:** 0.6.50
 **Maintainer:** Paul Calnon
