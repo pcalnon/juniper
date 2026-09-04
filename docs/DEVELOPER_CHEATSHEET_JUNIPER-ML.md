@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.52
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -35,6 +35,8 @@
 | `util/experiment_stack.bash --dry-run --up --cascor`   | Preview a per-run experiment stack (ports 8110–8289; no side effects) |
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
+| `python util/experiments/run_suite.py --suite PATH --dry-run` | Preview suite expansion (no dirs, no `index.jsonl`) |
+| `python util/experiments/run_suite.py --suite PATH` | Run a suite (`--resume SUITE_ID` skips succeeded cells) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -471,7 +473,8 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
-| `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `util/experiment_stack.bash` (not `/tmp`) |
+| `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `experiment_stack.bash` **and** `run_suite.py` (not `/tmp`) |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset              | `1`/`true`/`yes`/`on` adds `--grafana-bridge` to every suite `--up` (not a YAML key) |
 | `JUNIPER_EXP_LOCK_ROOT`        | `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments` | Ephemeral port lockdirs (`8110`–`8289`) |
 | `JUNIPER_EXP_PROJECT_DIR`      | parent of juniper-ml | Ecosystem root — **set in git worktrees** |
 | `JUNIPER_EXP_HEALTH_TIMEOUT`   | `90`               | Per-service health wait for experiment `--up` (cold-start sized) |
@@ -564,6 +567,8 @@ Tip: on a failed `*_up` leg, isolated-stack `do_up` auto-calls `do_down` — exp
 Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disables `set -e` inside each body — critical steps need `|| return 1` or a health timeout with a live listener false-greens `--up` and skips teardown. A `--grafana-bridge` failure after healthy services tears the run down; a **staging** failure (missing `--config`) still exits between `allocate_port` and `ports.json`, so clear stale `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` by hand (open #979).
 
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
+
+Tip: `run_suite.py` expands `base_config × matrix` then `--up`/`drive`/`--down` per cell. `--dry-run` writes nothing. `--resume` skips only `succeeded`. Cascor `max_parallel > 1` needs the **launched** tree ≥ 0.10.0 (not `importlib.metadata`). `include` does not inherit `matrix`. Grafana scrape is `JUNIPER_SUITE_GRAFANA_BRIDGE=1`, never a suite key. Full contract: [REFERENCE — Suite driver](REFERENCE.md#suite-driver).
 
 Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always stream-caps POST/PUT/PATCH (`Content-Length` is a hint only); auth runs before rate limiting and 429s must pass `exc.headers` through; control-WS reject logs stay single-line via `_sanitize_for_log`; `ws_control_rate_limit_per_sec=0` yields `retry_after=3600` instead of dividing by zero; `/ws/workers` closes **4001** on bad auth and **4008** on a bad registration shape. See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
 
@@ -669,6 +674,11 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
 | Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
 | `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
+| Suite exit `2` unknown `execution:` key | Typo (`stall_second`). R-6 (`tests/test_experiment_suite_yamls.py`) catches this on shipped suites. |
+| Suite exit `2` cascor parallel | Launched cascor below 0.10.0 or version unreadable — sequential, or retarget `JUNIPER_EXP_CASCOR_SRC_DIR`. |
+| Suite cells `stalled` ~130 s then finish | Candidate-phase inert stall — set `execution.stall_seconds`; size `per_run_timeout_seconds` above the wall. |
+| `--resume` re-runs a green cell | Only `registry.jsonl` `succeeded` is skipped; missing resume dir is exit `2`. |
+| Repeats ran the smoke config | `include` does not inherit `matrix` — put the repeat axis on `matrix` (PF-1). |
 
 ## Quick Reference Tables
 
@@ -705,6 +715,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Suite driver](REFERENCE.md#suite-driver) -- `run_suite.py` expansion, resume, cascor parallel floor
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
@@ -713,6 +724,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.52
 **Maintainer:** Paul Calnon

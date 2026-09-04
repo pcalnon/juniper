@@ -8,6 +8,8 @@
 **Last Updated**: 2026-07-29
 **Scope repos**: `juniper-ml` (tooling home), `juniper-cascor`, `juniper-recurrence`, `juniper-data`, `juniper-data-client`, `juniper-deploy`
 
+Operator surface for the shipped suite driver (`util/experiments/run_suite.py`, Wave 7.1 / 7.5): [`docs/REFERENCE.md` § Suite driver](../docs/REFERENCE.md#suite-driver).
+
 ---
 
 ## 1. Purpose & Scope

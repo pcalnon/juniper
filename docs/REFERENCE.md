@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.40
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -25,6 +25,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [Suite Driver](#suite-driver)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
@@ -1684,7 +1685,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - **Inert stall window**: when `--stall-seconds >=` the resolved wall budget, the Q-2 stall detector can never fire (the budget ends the run first) — a healthy long candidate phase is then labeled `timed_out` rather than `stalled`. Reported as a WARNING plus `driver.stall_window_inert` on the manifest, never fatal: the run is valid, only its guard is weaker than declared.
   - The driver is the sole place both Q-2 knobs are resolved, so it is the only layer that can see their interaction — the suite gate structurally cannot, since a budget may be inherited from `base_config` (`pf3-cascor-pool-scaling` shipped exactly this shape: a 1200 s window against a 600 s inherited budget).
   - Exit codes: 0 success / 1 acceptance (stalled, timed_out, G-6 mismatch, missing essential artifact) / 2 misuse-validation / 3 unreachable / 4 FAILED-5xx. Tests: `tests/test_run_experiment.py`.
-- `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
+- `util/experiments/run_suite.py` -- Suite driver (Wave 7.1 / 7.5). Operator surface: [Suite driver](#suite-driver). `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
@@ -1828,7 +1829,7 @@ juniper-ml/
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
 │   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
-│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
+│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags, cascor parallel floor, PROJECT_DIR rebase; hermetic). Operator surface: Suite driver.
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
 │   ├── test_snapshot_classify.py         # Behavioral: util/snapshot_classify.py owner-scheme classifier (handoff 2026-08-22 §2.4) — the two-axis category/health rule (incl. the attributed zero-node row that made category 5 read empty), `readable`-is-not-loadable, iterations-not-epochs (inert meta.current_epoch), replace-not-append sidecar, fd-level stdout muffling, the train-stage scratch-root refusal, and an AST anti-resurrection guard that the tool stays READ-ONLY
@@ -1892,7 +1893,7 @@ juniper-ml/
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split; cascor parallel ≥ 0.10.0 on the launched tree)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -2256,7 +2257,7 @@ Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety`
 
 ## Experiment Stack Utilities
 
-`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`.
+`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`. Multi-cell campaigns go through [`run_suite.py`](#suite-driver) (Wave 7.1 / 7.5), which calls this launcher+driver pair once per cell.
 
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
@@ -2421,6 +2422,92 @@ ls "$RUN_DIR/artifacts/plots/"
 
 Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 
+### Suite driver
+
+`util/experiments/run_suite.py` expands a suite YAML into cells, then for each cell runs `--up` → `run_experiment.py` → `--down`. It is the Wave 7.1 / 7.5 multi-run layer (plan §13.1 / §13.2). Coverage: `tests/test_run_suite.py`. Shipped suites live under `util/experiments/suites/**` and must pass the R-6 load gate (`tests/test_experiment_suite_yamls.py`).
+
+```bash
+# Preview the expansion (writes nothing)
+python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml --dry-run
+
+# Run, then resume only the cells that have not already succeeded
+python util/experiments/run_suite.py --suite path/to/suite.yaml
+python util/experiments/run_suite.py --suite path/to/suite.yaml --resume <SUITE_ID>
+python util/experiments/run_suite.py --suite path/to/suite.yaml --only c000-deadbeef
+```
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every executed cell succeeded (and `--dry-run`) |
+| `1` | Suite finished with at least one failed / stalled / timed-out cell, or aggregation found none succeeded |
+| `2` | Misuse / suite-validation (`SuiteError`, unknown `--only` id, `--resume` dir missing) |
+
+`--compare-baseline TAG` pastes a standalone comparator verdict into `REPORT.md` and **never** changes this exit code. Use `util/experiments/compare_baseline.py` when you want the comparator's own 0/1/2.
+
+#### Suite YAML
+
+`schema_version` must be `1`. Allowed top-level keys: `schema_version`, `suite`, `execution`, `matrix`, `include`, `exclude`, `outputs`. Unknown keys exit `2` (the `stall_second` typo class).
+
+| `suite.` | Constraint |
+|----------|------------|
+| `name` | Required |
+| `app` | `cascor` or `recurrence` |
+| `base_config` | Non-empty list of experiment YAML paths, resolved relative to the suite file |
+| `seed_policy` | `fixed` (default) or `per_cell` (`experiment.seed` and `dataset.params.seed` become `base + cell.index`) |
+
+`matrix` is an `itertools.product` of dotted-path → non-empty lists. `exclude` drops an exact override match. `include` appends extra cells that carry **only** their own `overrides` — they do **not** inherit the matrix. PF-1's repeats are a matrix axis of `experiment.description` for that reason: expressing repeats as `include` while putting the workload in `matrix` would run one real cell and N inherited smokes.
+
+Cell ids are `c{index:03d}-{sha8(relative_config + sorted_overrides)}`. The hash uses the **relative** `base_config` string so ids stay identical between the canonical checkout and a `JUNIPER_EXP_PROJECT_DIR` rebase.
+
+#### Execution knobs
+
+| `execution.` | Default | Role |
+|--------------|---------|------|
+| `mode` | `sequential` | `parallel` + `max_parallel > 1` starts a bounded pool |
+| `max_parallel` | `1` | Worker count; ignored unless `mode: parallel` |
+| `continue_on_failure` | `true` | `false` stops submitting (parallel drains already-running cells) |
+| `per_run_timeout_seconds` | `3600` | **Subprocess** kill from the outside — records `timed_out` with no honest driver manifest |
+| `stall_seconds` | omitted | Forwarded as `--stall-seconds`; absent ⇒ driver keeps `120` |
+| `max_wall_seconds` | omitted | Forwarded as `--max-wall-seconds`; absent ⇒ driver keeps its YAML / `3600` default |
+
+Size `per_run_timeout_seconds` **above** the wall budget so the driver is the one that stops. The Q-2 stall detector watches `current_epoch`, which does not advance during candidate-pool training — pool ≥ 16 or cap ≥ 64 cascor cells need an explicit `stall_seconds` (R-6 enforces this on shipped suites). A dotted `outputs.max_wall_seconds` override is also accepted (E-I uses that form).
+
+**Cascor parallel is version-gated.** `app: cascor` + `max_parallel > 1` requires the **launched** cascor tree ≥ `0.10.0` (`CASCOR_PARALLEL_FLOOR`; `JUNIPER_CASCOR_LOG_DIR` / cascor#523). The version is read from that tree's `pyproject.toml`, not `importlib.metadata` (the driver env is not what uvicorn serves).
+
+Resolution: `JUNIPER_EXP_CASCOR_SRC_DIR` parent, else `$JUNIPER_EXP_PROJECT_DIR/juniper-cascor`, else an ancestor probe for a `juniper-cascor` sibling. Unreadable version **refuses** (exit `2`). Sequential cascor and any recurrence parallel are never gated.
+
+Parallel cells get the H-11 budget: `max(1, nproc // (2 * max_parallel))`. Cascor pins BLAS at 2 and sets `CASCOR_NUM_PROCESSES`; recurrence sets the BLAS vars to the split.
+
+#### Paths, resume, and outputs
+
+Default run root is `$JUNIPER_EXP_RUN_ROOT` (falls back to `~/.local/state/juniper-experiments`). Suite dir is `outputs.suite_dir` if set, else `$JUNIPER_EXP_RUN_ROOT/suites/<suite_id>`. A fresh `suite_id` is `<name>-<UTC yyyymmddTHHMMSSZ>`; `--resume SUITE_ID` reuses that id. When `outputs.suite_dir` is unset, pass the existing directory's basename.
+
+`--resume` skips only cells whose `registry.jsonl` outcome is `succeeded`. Failed / stalled / timed-out / not-run cells run again. `--dry-run` prints the expansion and the exact `--up` / driver / `--down` lines, creates no directory, and appends no `index.jsonl`.
+
+Each cell writes:
+
+- `$SUITE_DIR/cells/<cell_id>/experiment.yaml` — materialised, driver-validated YAML
+- `$SUITE_DIR/registry.jsonl` — append-only per-cell row (lock-safe under parallel)
+- `$JUNIPER_EXP_RUN_ROOT/index.jsonl` — `{suite_id, cell_id, run_id, outcome, run_dir}` (the suite's own index, not a directory-truth listing)
+- `$SUITE_DIR/suite_manifest.json`, `aggregate.csv`, `REPORT.md`
+
+`--up` is invoked with `--experiment <cell_id>` and the process env gets `JUNIPER_CASCOR_CELL_ID` plus `JUNIPER_CASCOR_EXPERIMENT=<suite.name>` so snapshots record both identities.
+
+`JUNIPER_SUITE_GRAFANA_BRIDGE=1` (also `true` / `yes` / `on`) adds `--grafana-bridge` to every `--up`. It is an **env toggle, not a suite key** — a suite key would change every cell's `config_sha256` between a bridged and an unbridged run of the same YAML. Off by default; unbridged runs stay `UNSCRAPED`. The host file_sd discover+scrape cycle is 15 s + 15 s, so a cell shorter than that still yields no step-duration histogram even with the bridge on (PF-1's duration is load-bearing for that reason).
+
+#### `JUNIPER_EXP_PROJECT_DIR` rebase
+
+Sibling `base_config` walks (`../../../../juniper-cascor/conf/experiments/…`) assume the canonical layout. When `JUNIPER_EXP_PROJECT_DIR` is set, the path is rebased onto it from the first `juniper-*` component. The override **wins** over a literal that also exists — otherwise a worktree-pinned cascor would take CODE from the worktree and CONFIG from the primary. A rebase that does not exist on disk falls back to the literal (stale override degrades; it does not hard-fail).
+
+Test seams (operator-visible): `JUNIPER_SUITE_LAUNCHER`, `JUNIPER_SUITE_DRIVER`, `JUNIPER_SUITE_PYTHON`.
+
+#### Suite-author pitfalls
+
+- **`include` does not inherit `matrix`.** Repeats of one workload belong on a matrix axis (see `suites/perf/pf1-cascor-spiral-repeats.yaml`).
+- **`max_epochs` and `output_epochs` are a matched pair** on the cascor service. Setting only `max_epochs` bounds the *initial* output pass; later passes fall back to 10000. Any CLI-vs-service comparison (and any suite that claims a duration) must set both to the same value. PF-1 pins both at 4000.
+- **Unknown `execution:` keys exit `2` immediately.** The R-6 gate exists because a `stall_second` typo otherwise surfaces hours into a GPU campaign.
+- Do not point suite ports at `plant_all` / isolated-stack ports. The suite driver never launches canopy.
+
 ### Environment overrides
 
 | Variable | Default | Description |
@@ -2436,6 +2523,8 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | `JUNIPER_EXP_HEALTH_TIMEOUT` | `90` | Per-service health wait (seconds) |
 | `JUNIPER_EXP_KILL_TIMEOUT` | `10` | SIGTERM → SIGKILL grace (seconds) |
 | `JUNIPER_EXP_CONDA_ACTIVATE` | `0` | `1` = `conda activate` instead of direct env-bin |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset | `1` / `true` / `yes` / `on` adds `--grafana-bridge` to every suite `--up` (never a suite-YAML key) |
+| `JUNIPER_SUITE_LAUNCHER` / `JUNIPER_SUITE_DRIVER` / `JUNIPER_SUITE_PYTHON` | in-tree defaults | Test / operator seams for the suite driver |
 
 ### Troubleshooting
 
@@ -2458,6 +2547,13 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Exit `1` with `matplotlib unavailable` | Install matplotlib in the driver env, or drop `outputs.plots` from the YAML. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
+| Suite exit `2` `unknown execution: keys` | Typo in `execution:` (`stall_second`, …). The R-6 gate (`tests/test_experiment_suite_yamls.py`) catches this on shipped suites. |
+| Suite exit `2` cascor `max_parallel > 1` | Launched tree below `0.10.0` or version unreadable. Use `mode: sequential`, or point `JUNIPER_EXP_CASCOR_SRC_DIR` / `JUNIPER_EXP_PROJECT_DIR` at a ≥ floor tree. |
+| Suite cells `stalled` at ~130 s then finish | Candidate-phase inert stall — set `execution.stall_seconds` (and size `per_run_timeout_seconds` above the wall). |
+| `--resume` re-runs a succeeded cell | Only `outcome == succeeded` is skipped; check `$SUITE_DIR/registry.jsonl`. `--resume` dir missing is exit `2`. |
+| Bridged vs unbridged PF-1 hashes differ | `JUNIPER_SUITE_GRAFANA_BRIDGE` leaked into the YAML. Keep it an env toggle. |
+| Worktree suite takes primary cascor YAML | `JUNIPER_EXP_PROJECT_DIR` rebase must win — confirm the rebased `juniper-cascor/conf/experiments/…` exists. |
+| Repeats are not repeats | `include` cells do not inherit `matrix`. Put the repeat axis on `matrix` (PF-1's `experiment.description` list). |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
@@ -3001,6 +3097,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.40  | 2026-09-04 | Suite driver operator surface (`util/experiments/run_suite.py`): expansion / resume / cascor parallel floor / `JUNIPER_EXP_PROJECT_DIR` rebase / Grafana env toggle |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
@@ -3336,7 +3433,7 @@ These variables are consumed by Juniper packages documented in this repository. 
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
 > REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment and suite-driver overrides in [Experiment Stack Utilities](#experiment-stack-utilities) / [Suite driver](#suite-driver), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
 Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
@@ -3346,6 +3443,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.40
 **Maintainer:** Paul Calnon
