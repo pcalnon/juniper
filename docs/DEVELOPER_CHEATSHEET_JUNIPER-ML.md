@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.56
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -41,6 +41,7 @@
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
 | `juniper-symbol-loss-check --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
+| `python3 util/ad-hoc/cascor_freeze_tell.py`            | Cascor-primary freeze tell (exit 1 = in force; 0 ≠ no importer) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
@@ -48,6 +49,8 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `./claudey`                                            | Launch default interactive Claude session       |
+
+**Cascor-primary freeze:** `python3 util/ad-hoc/cascor_freeze_tell.py`. Exit 1 = a user-owned process holds `/home/pcalnon/Development/python/Juniper/juniper-cascor` — do not edit it. Exit 0 is "no user-owned importer", not "no importer" (root-owned `/proc/<pid>/{fd,environ,maps}` are invisible). Sibling `juniper-cascor-client` / `-worker` and both worktree roots are not holds. [REFERENCE.md § Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell).
 
 ---
 
@@ -589,6 +592,8 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
+| Freeze tell exit 0, then editing primary corrupts a service | Exit 0 ≠ no importer — root-owned holds are invisible. Confirm with privileged `lsof` on `PRIMARY/src` before editing. |
+| Freeze tell flags `juniper-cascor-client` / a worktree | Live tell uses an exact prefix; siblings and both worktree roots are not holds. A remaining hit is importing the **primary**. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
@@ -708,11 +713,12 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
+- [Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell) -- exact-prefix hold test; exit 0 is "no user-owned importer"
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.56
 **Maintainer:** Paul Calnon

@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.44
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -18,6 +18,7 @@
 - [Host Orchestration Utilities](#host-orchestration-utilities)
 - [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane)
 - [Editable Install Drift Check](#editable-install-drift-check)
+- [Cascor Primary Freeze Tell](#cascor-primary-freeze-tell)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
@@ -660,6 +661,62 @@ python util/editable_install_drift_check.py --fix --json
 ```
 
 Coverage: open juniper-ml#802 (`test_run_fix_executes_and_reports_fixed`, `test_run_fix_reports_called_process_error`, `test_run_fix_reports_oserror`).
+
+The JuniperCascor1 editable finder maps every `juniper-cascor` import onto the primary checkout's `src`. That is why a live importer makes the primary unsafe to edit — see [Cascor Primary Freeze Tell](#cascor-primary-freeze-tell).
+
+---
+
+## Cascor Primary Freeze Tell
+
+`util/ad-hoc/cascor_freeze_tell.py` decides whether the **juniper-cascor primary checkout freeze** is in force. The freeze exists because the JuniperCascor1 editable finder maps every cascor package onto the primary's `src`: editing that tree under a live importer corrupts the running process.
+
+This is a **reader**. It prints holds and exits. It does not kill anything. Do not substitute the [Pytest Orphan Reaper](#pytest-orphan-reaper) (kills orphaned pytest children) or `juniper_chop_all.bash` (stops the plant tree).
+
+```bash
+python3 util/ad-hoc/cascor_freeze_tell.py
+```
+
+No flags. No env override for the primary path. `PRIMARY` is hardcoded to `/home/pcalnon/Development/python/Juniper/juniper-cascor`.
+
+### What counts as a hold
+
+`_is_primary_path` is an **exact path prefix** plus `os.sep` (after `os.path.normpath`). Two corrections over the round-28 handoff tell, which was unsound in both directions:
+
+| Old tell | What it got wrong | Live rule |
+|----------|-------------------|-----------|
+| `"juniper-cascor" in cwd` | Also matches `juniper-cascor-client` / `juniper-cascor-worker`, and every centralized `worktrees/juniper-cascor--*` | Exact prefix against `PRIMARY`. Sibling repos are not holds. |
+| cwd only | `cd /tmp && python -c "import cascade_correlation"` still resolves into the primary via the editable finder | Also scan cmdline, environ (`os.pathsep` parts), open fds, and mapped files. |
+
+Worktree roots are excluded even when they sit under a `juniper-cascor--*` name:
+
+- `/home/pcalnon/Development/python/Juniper/worktrees`
+- `<PRIMARY>/.claude/worktrees`
+
+An unreadable cwd does **not** abandon the process: cmdline is still world-readable, so a later arm can still catch the hold.
+
+`maps` entries that are not absolute paths are ignored (a relative `juniper-cascor/src/foo.so` is not evidence).
+
+### Exit codes
+
+| Exit | Stdout | Meaning |
+|------|--------|---------|
+| `1` | `HOLDS-PRIMARY  pid=…` then `FREEZE IN FORCE -- N process(es) hold the cascor primary.` | Do not edit the primary. |
+| `0` | `no user-owned process holds the cascor primary -- freeze NOT in force` plus `(root-owned processes are invisible to an unprivileged scan)` | No **user-owned** importer. Not "no importer exists". |
+
+`/proc/<pid>/{fd,environ,maps}` are unreadable for other users. A root-owned importer is invisible to this tell and to any unprivileged scan. Treat a clean result as "no user-owned importer".
+
+### Operator pitfalls
+
+| Symptom | Check |
+|---------|-------|
+| Tell freezes because you are in `juniper-cascor-client` / `-worker` | That was the substring bug. Live `_is_primary_path` does not treat siblings as holds. |
+| Tell freezes a `worktrees/juniper-cascor--*` checkout | Both worktree roots are excluded. If you still see a hold, a process is importing the **primary**, not the worktree. |
+| Exit 0 but `import cascade_correlation` from `/tmp` is live | The cwd-only tell missed this. Live tell should print `argv=` / `env=` / `fd=` / `map=`. If it does not, the importer is likely root-owned. |
+| Exit 0, then you edit the primary and a service dies | Root-owned or other-user importer. The banner already says they are invisible. Confirm with a privileged `lsof` / `fuser` on `PRIMARY/src` before editing. |
+| `PRIMARY` is not your checkout | There is no `--primary` / env override. The constant is the host primary. Do not fork a copy that substring-matches. |
+| Used this to *stop* cascor | Wrong tool. Chop the plant / experiment stack. This tell only classifies. |
+
+Dedicated unittest arm is **not on main** (open juniper-ml#1667). Complementary process-table gate that *is* on main: `tests/test_reap_pytest_orphans.py` (different predicate — do not reuse its orphan filter here).
 
 ---
 
@@ -1337,6 +1394,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
+- `tests/test_cascor_freeze_tell.py` -- **not on main** (open juniper-ml#1667). Pins exact-prefix + sibling/worktree exclusion, independent cmdline/environ/fd/maps arms, and `main()` exit 1 iff any hold. Operator surface: [Cascor Primary Freeze Tell](#cascor-primary-freeze-tell).
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
@@ -1593,6 +1651,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient vs. permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died due to a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes away from finishing.
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
+- `util/ad-hoc/cascor_freeze_tell.py` -- Read-only tell for whether a LIVE process holds the juniper-cascor primary checkout. Exit 1 = freeze in force; exit 0 is "no user-owned importer", not "no importer". Exact path prefix; sibling `juniper-cascor-client` / `-worker` and both worktree roots are not holds. Operator surface: [Cascor Primary Freeze Tell](#cascor-primary-freeze-tell).
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
   - `safe_conda_activate` nounset (juniper-ml#795 coverage): `set +u` → `conda activate` → `set -u` (ADDR2LINE class). A `+u`/`+u` restore silently disables nounset for the rest of host bring-up — isolated-stack `activate_conda` must match. Operator surface: `docs/REFERENCE.md` Host Orchestration + cheatsheet tip. Tests: `tests/test_juniper_plant_all.py` (`TestSafeCondaActivate`).
@@ -1859,7 +1918,7 @@ juniper-ml/
 │                                         #  juniper-doc-tools PyPI package).
 │
 └── util/                                 # Utility scripts and tools
-    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md)
+    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md); cascor_freeze_tell.py = cascor-primary freeze tell (REFERENCE § Cascor Primary Freeze Tell)
     ├── assert_release_tag.bash           # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
     ├── open_signed_pr.py                 # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
     ├── wait_for_checks.py                # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
@@ -2999,6 +3058,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.44  | 2026-09-04 | Cascor Primary Freeze Tell: `cascor_freeze_tell.py` exact-prefix hold test (not substring); sibling client/worker and both worktree roots excluded; exit 0 is "no user-owned importer", never "no importer" |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |

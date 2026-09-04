@@ -69,6 +69,16 @@ set -euo pipefail
 
 ---
 
+## Cascor primary freeze tell (operational)
+
+`cascor_freeze_tell.py` is the read-only tell for whether a LIVE process holds the juniper-cascor primary checkout. The JuniperCascor1 editable finder maps every cascor import onto that tree, so editing it under a live importer corrupts the process.
+
+Exit 1 = freeze in force. Exit 0 is **no user-owned importer**, not "no importer" — root-owned `/proc/<pid>/{fd,environ,maps}` are unreadable. Sibling `juniper-cascor-client` / `juniper-cascor-worker` and both worktree roots are not holds. There is no `--primary` override.
+
+Operator contract: [`docs/REFERENCE.md` § Cascor Primary Freeze Tell](../../docs/REFERENCE.md#cascor-primary-freeze-tell).
+
+---
+
 ## Snapshot sidecar chain (operational)
 
 `2026-08-24_regenerate_sidecar_chain.bash` (lands with juniper-ml#1333) regenerates index → classify → attribute → backfill in order. It is ad-hoc until a supported `util/` entry point exists.
