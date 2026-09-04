@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.37
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -47,6 +47,8 @@
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
+| `python3 util/ad-hoc/e2e_finding_triage.py`                | Canopy E2E ledger triage (header-only; ACCEPTED ≠ FIXED ≠ OPEN) |
+| `python3 util/ad-hoc/e2e_finding_triage.py --open-only`    | Same, hide FIXED/ACCEPTED rows (totals still include them) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -573,6 +575,8 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
 
+Tip: Phase 2 exit is "every P0 and P1 closed or explicitly deferred". Run `python3 util/ad-hoc/e2e_finding_triage.py` rather than a hand list. It reads only the finding **header**; ACCEPTED is a third disposition (not FIXED, not OPEN); `--open-only` still prints full totals; exit is always 0. See [REFERENCE — Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage).
+
 
 ### Host Stack Troubleshooting
 
@@ -603,6 +607,9 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
 | Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
 | Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| Finding triage still shows an OPEN P0 after the body says FIXED | Disposition is the last 170 chars of the **header**, not the body. Put `FIXED` / `HEALED` / `ACCEPTED` in `**F-… — …**`. |
+| Finding triage counts ACCEPTED as still blocking Phase 2 | ACCEPTED is owner-deferred, not OPEN. `--open-only` hides it; totals still list `accepted`. |
+| Finding triage exit 0 with open P0/P1 | Always exits 0. Read the totals block. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
@@ -707,12 +714,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
+- [Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) -- header-only parser; ACCEPTED is a third disposition
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.37
 **Maintainer:** Paul Calnon

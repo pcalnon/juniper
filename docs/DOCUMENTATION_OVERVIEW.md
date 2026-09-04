@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.20
+**Version:** 0.2.30
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -34,6 +34,7 @@
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
 | **Triage fleet PRs / sequence-safety**  | [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                                 | docs/    |
 | **Run the isolated E2E trio**           | [Isolated-stack E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md) + [REFERENCE — Isolated Stack](REFERENCE.md#isolated-stack-e2e-utilities) | notes/ + docs/ |
+| **Triage canopy E2E findings (P0/P1 exit)** | [REFERENCE — Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) (`e2e_finding_triage.py`; ACCEPTED ≠ FIXED ≠ OPEN) | docs/ |
 | **Triage Cursor-fleet / predicted-merge PRs** | [REFERENCE — Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                            | docs/    |
 | **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) (incl. partial-`--up` → `teardown_run`) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
@@ -176,6 +177,6 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.2.20
+**Last Updated:** 2026-09-04
+**Version:** 0.2.30
 **Maintainer:** Paul Calnon

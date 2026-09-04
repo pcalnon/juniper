@@ -79,6 +79,24 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Canopy E2E finding triage (operational)
+
+`e2e_finding_triage.py` is the mechanical P0/P1 open-count for Phase 2's exit criterion. It reads only line-starting `**F-<AREA>-<NNN> — …**` headers in the evidence ledger.
+
+- `FIXED` / `HEALED` in the last 170 characters of the header → closed.
+- `ACCEPTED` in that same tail, and not also FIXED → owner-deferred. Third disposition: not FIXED, not OPEN.
+- `--open-only` hides closed rows; the totals block still counts every finding.
+- Always exits 0. A green shell is not "no open P0/P1".
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.
