@@ -48,7 +48,6 @@
 from __future__ import annotations
 
 import ast
-import sys
 from pathlib import Path
 
 CANOPY_SRC = Path("/home/pcalnon/Development/python/Juniper/juniper-canopy/src")
