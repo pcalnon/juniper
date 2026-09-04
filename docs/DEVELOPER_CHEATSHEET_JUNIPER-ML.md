@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.50
+**Version**: 1.0.51
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -730,5 +730,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 1.0.50
+**Version:** 1.0.51
 **Maintainer:** Paul Calnon
