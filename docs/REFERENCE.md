@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.32
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -19,6 +19,7 @@
 - [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane)
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
+- [Pointer-Follow Soak](#pointer-follow-soak)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
@@ -724,6 +725,8 @@ Summary line: `N reaped, M kept (live parent), P protected (live experiment), K 
 
 Regression coverage: `tests/test_reap_pytest_orphans.py` (incl. candidate-filter + SKIPPED arms from juniper-ml#784).
 
+A live soak probe is also a P1 protectee: `util/soak_run_probe.py` writes `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid`. A pidfile under `reports/soak/runs/` is **not** scanned. Operator surface: [Pointer-Follow Soak](#pointer-follow-soak).
+
 Troubleshooting:
 
 | Symptom | Check / Fix |
@@ -731,6 +734,132 @@ Troubleshooting:
 | Expected orphan never listed | Confirm cmdline contains a `JuniperC*` env path or `Juniper/worktrees/`; other-user and non-Juniper python are intentionally excluded. |
 | High `skipped` count, zero reaped | Transient ps→gone race or incomplete `/proc/<pid>/status`; re-run `--dry-run --verbose` once the process table settles. |
 | Live pytest session would be killed | Parent still exists and is not init / `systemd --user` → script prints `KEEP` under `--verbose` and does not kill. |
+| Soak probe `WOULD REAP` | Guard pidfile missing from `$JUNIPER_EXP_RUN_ROOT/soak-probes/`, or the interpreter path is `JuniperC*` (`/usr/bin/python3` is not a candidate). |
+
+---
+
+## Pointer-Follow Soak
+
+The pointer-follow soak measures whether a **fresh, unprimed** Claude session retrieves a **relocated** fact from its pointer (usually a `docs/REFERENCE.md` heading) rather than from source. Owner decision 2026-09-03: the soak exists **to inform relocation decisions**, not to print a pooled pass/fail about "relocation in general."
+
+Protocol: [`notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`](../notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md). Trigger and characterisation: [`notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md`](../notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md) §§8–9.
+
+### Pieces
+
+| Piece | Role |
+|-------|------|
+| `conf/soak_probes.json` | Frozen seeded-arm registry. Never edit a probe that already has runs; add a new id. |
+| `reports/soak/pointer_follow_soak.jsonl` | Append-only ledger (observations, rescores, resolves, invalidates). |
+| `util/soak_next_probe.py` | Prints the **task only** (probe id on stderr). `--reveal` is scoring-only. `--status` is coverage, no task text. |
+| `util/soak_run_probe.py` | Headless `claude -p` wrapper: dispatch, capture, retrieval channel, scoring packet. |
+| `util/soak_ledger.py` | `probe-run` / `report` / `status` / `verify-probes` / `resolve` / `rescore`. |
+| `util/systemd/juniper-soak-probe.{service,timer,path}` | Unattended **user** units (same wrapper). |
+
+`verify-probes` is the residency gate: every probe's `must_be_absent_from_source` phrases must be absent from `AGENTS.md`, and every `pointer` anchor must resolve. The 2026-08-21 pilot ran nine probes whose facts had never left `AGENTS.md`; those tested nothing. CI runs `python3 util/soak_ledger.py verify-probes`.
+
+### Operator loop
+
+```bash
+python3 util/soak_run_probe.py --dry-run                    # no claude binary required
+python3 util/soak_run_probe.py                              # least-covered probe
+python3 util/soak_run_probe.py --probe-id P23-reaper-over-protection-bias
+python3 util/soak_run_probe.py --probe-id <ID> --force      # when status is BET-FAILING / HOLDS-AT-*
+python3 util/soak_next_probe.py --reveal --probe-id <id>    # AFTER the run, for scoring
+python3 util/soak_ledger.py probe-run --probe-id <id> \
+    --outcome follow|source-recovered|miss --session <uuid> --scored-by <who>
+python3 util/soak_ledger.py report
+python3 util/soak_ledger.py status
+```
+
+`--dry-run` must not print the task, fact, or discriminator: this wrapper's stdout is read by the operator who later **scores** the run, and echoing the task there re-primes at the far end of the pipeline.
+
+The terminal-verdict refuse in `soak_run_probe.py` runs **before** the `--dry-run` branch. `BET-FAILING` / `HOLDS-AT-*` makes even a dry run exit `2` unless `--force`. On current `main` the ledger is `INCONCLUSIVE` (interval spans 0.75), so the default invocation does run; `--force` is the characterisation override when a pooled verdict later goes terminal.
+
+Wrapper exit codes: `0` usable answer + scoring packet; `1` timeout / empty / error result; `2` misuse, or the harness failed before the probe started (including terminal-verdict refuse).
+
+Ledger: `probe-run` / `record` / `resolve` → `0` written / `2` rejected (`_reject`); `report` always `0`; `status` → `0` for `IN-PROGRESS` / `HOLDS-AT-*` / `INCONCLUSIVE` with no escalations, **`1` on `BET-FAILING` or an open escalation**, `2` for `NO-DATA` / `DEGRADED` / `NO-SEEDED-DATA`; `verify-probes` → `0` sound / `1` defective.
+
+### Automated vs judgement
+
+Automated (mechanical): probe selection, unprimed dispatch, transcript capture, the **retrieval channel** — did tool inputs **or the answer text** contain the pointer *document path* (anchor stripped)? That match is in `retrieval_channel`: `blob = tool_inputs + answer`. Reciting the path in the answer scores as a pointer hit even when no tool opened the document.
+
+Not automated: correctness against the frozen `discriminator`. The wrapper writes `reports/soak/runs/<stamp>-<probe>/scoring_packet.md` and stops. `soak_ledger.py probe-run` still needs a scorer to supply `--outcome`.
+
+Outcomes (`OUTCOMES` in `util/soak_ledger.py`):
+
+| Outcome | Meaning | Follow-rate |
+|---------|---------|-------------|
+| `follow` | Correct **and** retrieved via the pointer | numerator |
+| `source-recovered` | Correct, reached from source (helper / test / grep), not the pointer | stays in **denominator** |
+| `miss` | Acted without the fact | denominator |
+
+`rate` = follows / (follow + miss + source-recovered). `retention` = (follow + source-recovered) / n answers a different question — *did relocation lose the fact?* — and is printed beside the rate, never instead of it. Dropping source-recovered from the denominator was considered and rejected: it would convert `INCONCLUSIVE` into a pass by redefinition.
+
+### Least-covered vs characterisation
+
+Default `soak_next_probe.py` / `soak_run_probe.py` pick **least-covered, then registry order**. That evens the **pooled** estimate.
+
+For a relocation decision the pooled rate is a **mixture**. Characterisation runs (juniper-ml#1616, 2026-09-04; design-conversation §9) selected probes to test membership, not coverage:
+
+- Permutation test (15 probes, 40 seeded runs, 26 follows, 20,000 draws): heterogeneity statistic 30.84, **p = 0.0017**. The probes do not share one rate. Use the stratum, not ~65%, for a specific section.
+- **Per-probe membership is not resolved at n=2–4.** P23 left the "never-follow" group on its third run (0/2 → follow → 1/3). No probe's 95% CI excludes 50% or the pooled rate. Do not treat "P14 never follows" as a property from 0/3.
+- Next cheapest design: drive ambiguous probes (P21 / P23 at 1/3; the 0/3 set) to **n≈8–10**, not even coverage. The timer still fires least-covered — pass `--probe-id` for characterisation.
+- Stopping rule: `soak_run_probe.py` refuses when `status` starts with `BET-FAILING` or `HOLDS-AT-` unless `--force`. Under decision support a terminal **pooled** verdict does not answer the next relocation; `--force` is the deliberate override, not a way to ignore a real stop. Design-conversation §8.3 flagged that the guard is keyed on the demoted signal; it stays in place so unattended spend cannot run away.
+
+As of origin/main after #1616: `python3 util/soak_ledger.py report` prints **INCONCLUSIVE**, seeded 40/35, rate 65.0%, Wilson 95% CI [0.495, 0.779], **retention 95.0%**. Retention is high: relocation is not losing facts; pointer-following is not what prevents the loss.
+
+### Verdicts (seeded arm)
+
+Wilson 95% interval vs one reachable boundary (`DECISION_BOUNDARY = 0.75`). Named after what was proven. `BET-HOLDS` is **not** a printable verdict. `IN-PROGRESS` until `TARGET_PROBE_RUNS = 35` seeded runs **and** `MIN_DISTINCT_PROBES = 15`.
+
+| Verdict | Meaning |
+|---------|---------|
+| `IN-PROGRESS` | fewer than 35 seeded runs or 15 distinct probes |
+| `HOLDS-AT-0.75` | Wilson lower bound ≥ 0.75 |
+| `BET-FAILING` | Wilson upper bound < 0.75 |
+| `INCONCLUSIVE` | interval spans 0.75, or hazard stratum empty |
+| `DEGRADED` / `NO-DATA` / `NO-SEEDED-DATA` | instrument integrity; outranks a healthy-looking rate |
+
+Escalations (hazard rung 2, area-systematic rung 3, pointer-defect rung 0) print **alongside** the verdict, never instead of it. `status` exits `1` when they are open or the verdict is `BET-FAILING` — that is the design. `resolve` appends to an append-only ledger; there is no un-resolve. Do not discharge to make the exit code 0.
+
+The **organic** arm is descriptive only (an upper bound). Never used for a verdict.
+
+### Unattended path
+
+These are **user** units, not system units: the probe must see `~/.claude/projects/.../memory/MEMORY.md`. A system unit runs as root with a different `HOME` and measures nothing (same class that ruled out cloud routines).
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp util/systemd/juniper-soak-probe.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now juniper-soak-probe.timer   # or the .path unit
+systemctl --user start juniper-soak-probe                # one-off; no [Install] on the service
+```
+
+Enable the **timer** or **path** unit, not the service. An `[Install]` block on the service is deliberately absent: enabling it would fire an extra uncoordinated probe at every login.
+
+- `ExecStart=/usr/bin/python3 util/soak_run_probe.py --timeout 900` — the reaper candidate filter matches cmdline text `/JuniperC[a-z0-9]+/`; a conda interpreter is reapable from the same cwd. `/usr/bin/python3` is not a candidate.
+- `TimeoutStartSec=1500` must exceed dispatch (120s) + claude (900s) + `--reveal` (120s). If systemd wins the race it cgroup-kills the wrapper **before** `status.json` is written ("crash, not timeout").
+- Timer: `OnCalendar=*-*-* 03,09,15,21:23:00`, `Persistent=false` (a laptop resuming after two days must not stampede missed intervals).
+- Both the unit and the wrapper unset `ANTHROPIC_API_KEY` — a stale key fails with `Credit balance is too low` before the probe starts.
+- The wrapper resolves `claude` itself (`resolve_claude`); the unit still prepends `%h/.local/bin` because the user-manager `PATH` does not include it.
+- Reaper P1 pidfile: `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid` (default `~/.local/state/juniper-experiments`). A pidfile under `reports/soak/runs/` is **not scanned**.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Primed follow | `--reveal` or echoing the task **before** the run. Dry-run stdout is scored later; a leak cannot be un-primed. |
+| Registry leak | `conf/soak_probes.json` is inside the repo and carries every `fact` / `discriminator`. Scoring must run `util/ad-hoc/2026-08-21_soak_probe_evidence.py`; contaminated runs are discarded. |
+| Completed session, empty parse | `parse_events` used to do `ev.get("message") or {}`; a **string** `message` then raised `AttributeError` **after the session was spent**. Type guard is in-tree (juniper-ml#1616): `if not isinstance(msg, dict): continue`. Keep `stream.jsonl` and re-parse; do not re-run. |
+| Channel says follow, maybe not | Mechanical match is `pointer_doc in tool_inputs+answer`. If the task itself contains `--dest docs/REFERENCE.md` (P06), the path appears whether or not the doc was read. Verify by hand (`grep` headings, then a line-range read). |
+| `--dry-run` exits 2, no preview | Ledger verdict is terminal. Pass `--force`; the refuse is before the dry-run branch. |
+| Probe reaped mid-run | Interpreter was `JuniperC*`, or the pidfile was only in `reports/soak/runs/`. A lost run is **not** a miss. |
+| Timer keeps spending after a terminal verdict | Pass `--force` only for a deliberate characterisation probe; disable the timer if the pooled question is done. Characterisation also needs `--probe-id` — least-covered will not pick the ambiguous probes. |
+| Discriminator under-specifies | Enumerating acceptable answers (P06: "scope **or** refuse") mis-scores a better third path. Score the **property**; record tension in `--note`. Registry-author item. |
+| `status` exits 1 | Open escalation or `BET-FAILING`. Do not `resolve` to green it. |
+
+Coverage: `tests/test_soak_ledger.py`, `tests/test_soak_next_probe.py`, `tests/test_soak_run_probe.py` (hermetic — never launches `claude`). `util/` is outside every pre-commit Python hook, so those suites **are** the gate.
 
 ---
 
@@ -1337,6 +1466,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
+- `tests/test_soak_ledger.py` -- Gate for `util/soak_ledger.py` (pointer-follow soak). Pins Wilson verdicts vs `DECISION_BOUNDARY = 0.75`, `source-recovered` staying in the follow-rate denominator, `status` exit `1` on `BET-FAILING` / open escalation, and `verify-probes` residency. `util/` is outside every pre-commit Python hook, so this suite **is** the gate.
+- `tests/test_soak_next_probe.py` -- Gate for `util/soak_next_probe.py`: unprimed stdout (task only; no fact / discriminator / the word "soak"), `--reveal` scoring-only, `--status` coverage with no task text.
+- `tests/test_soak_run_probe.py` -- Gate for `util/soak_run_probe.py`. Hermetic: never launches `claude`. Pins `--dry-run` leaking neither task nor fact nor discriminator, and `retrieval_channel` treating a pointer miss as `source-recovered-or-miss` (never collapsing it to a scored `miss`). The `parse_events` string-`message` type guard is in the wrapper (juniper-ml#1616); a dedicated test for that arm is open juniper-ml#1620.
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
@@ -1477,6 +1609,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Two protection keys, either sufficient: **P1** the pid is in a run-dir `*.pid`; **P2** the pid's cmdline references a run root (`JUNIPER_EXP_RUN_ROOT`, default `~/.local/state/juniper-experiments`, or `JUNIPER_E2E_RUN_DIR`). Prints `PROTECT` **always** (not `--verbose`-gated) and counts separately.
   - Observed live 2026-08-16 on campaign `e-j-h2h-wide-cap6`: a dry run called the orchestrator, the experiment cascor service, and the watchdog all `WOULD REAP` while healthy. Over-protection is the deliberate safe direction — a stale pidfile still protects.
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
+- `util/soak_next_probe.py` -- Emits the next pointer-follow soak probe's **task only** (unprimed). Default pick is least-covered then registry order; `--probe-id` for characterisation; `--reveal` is scoring-only; `--status` is coverage with no task text. Tests: `tests/test_soak_next_probe.py`.
+- `util/soak_run_probe.py` -- Headless `claude -p` wrapper: dispatch, capture, mechanical retrieval channel, scoring packet. `--dry-run` does not require the `claude` binary and must not print the task. Refuses `BET-FAILING` / `HOLDS-AT-*` **before** the dry-run branch unless `--force`. Reaper P1 pidfile is `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid`, not `reports/soak/runs/`. Tests: `tests/test_soak_run_probe.py`. Operator surface: [Pointer-Follow Soak](#pointer-follow-soak).
+- `util/soak_ledger.py` -- Append-only soak ledger (`probe-run` / `report` / `status` / `verify-probes` / `resolve` / `rescore`). Seeded arm decides; organic describes. `source-recovered` stays in the follow-rate denominator. `status` exits `1` on `BET-FAILING` or an open escalation (by design). Tests: `tests/test_soak_ledger.py`.
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
@@ -2999,6 +3134,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.32  | 2026-09-04 | Pointer-follow soak operator surface: least-covered vs characterisation, `--force` before `--dry-run` on terminal verdicts, `source-recovered` denominator, retrieval channel searches tool inputs **and** answer text, soak-probes reaper pidfile |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3346,6 +3482,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.32
 **Maintainer:** Paul Calnon
