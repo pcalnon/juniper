@@ -32,12 +32,12 @@ pure-async ones. Confirmed by four independent lanes; the reconciler's own hypot
 (threadpool exhaustion) was **excluded** by a decisive counter-example: four concurrent *threadpool*
 blockers ran in parallel (6.0 s each, not 24 s) and left the loop at 2.4 ms.
 
-| condition | `GET /v1/health` | source |
-| --- | --- | --- |
-| cascor healthy | **5.7 ms** | reconciler, end-to-end |
-| cascor **stopped** (ECONNREFUSED) | **3.0 s** | Lane A1 + reconciler |
-| cascor **hung** (`SIGSTOP`) | **123.12 s** | reconciler, end-to-end |
-| recovery, no canopy restart | **5.1 ms** | reconciler |
+| condition                         | `GET /v1/health` | source                 |
+|-----------------------------------|------------------|------------------------|
+| cascor healthy                    | **5.7 ms**       | reconciler, end-to-end |
+| cascor **stopped** (ECONNREFUSED) | **3.0 s**        | Lane A1 + reconciler   |
+| cascor **hung** (`SIGSTOP`)       | **123.12 s**     | reconciler, end-to-end |
+| recovery, no canopy restart       | **5.1 ms**       | reconciler             |
 
 The 123 s is `timeout × (retries+1) + Σbackoff` = `30×4 + (0+1+2)`. It was derived by Lane A2,
 measured at the client (123.13 s) and confirmed end-to-end (123.12 s) — three routes to the same
@@ -112,12 +112,12 @@ first plan proposed applying the settings under which the defect was measured.
 Choosing *different* values also fails. Lane B1 computed utilisation and confirmed each row
 empirically (λ ≈ 1.47/s per tab; c = 20 offloaded):
 
-| setting | per-call cost | ρ, 1 tab | 2 tabs | 4 tabs |
-| --- | --- | --- | --- | --- |
-| today `t=30, r=3` | 123.1 s | 9.03 | 17.6 | 34.7 |
-| `t=10, r=1` | 20.0 s | **1.47** | 2.87 | 5.67 |
-| `t=5, r=1` | 10.0 s | 0.734 | **1.43** | 2.84 |
-| `t=2, r=0` | 2.0 s | 0.147 | 0.287 | 0.567 |
+| setting           | per-call cost | ρ, 1 tab | 2 tabs   | 4 tabs |
+|-------------------|---------------|----------|----------|--------|
+| today `t=30, r=3` | 123.1 s       | 9.03     | 17.6     | 34.7   |
+| `t=10, r=1`       | 20.0 s        | **1.47** | 2.87     | 5.67   |
+| `t=5, r=1`        | 10.0 s        | 0.734    | **1.43** | 2.84   |
+| `t=2, r=0`        | 2.0 s         | 0.147    | 0.287    | 0.567  |
 
 Only `t≤5, r≤1` reaches ρ<1, and `t=5/r=1` **saturates at two browser tabs**. Every ρ<1 setting
 still costs ≥1.0 s, which **exceeds C3** — so even the "working" settings leave every panel
