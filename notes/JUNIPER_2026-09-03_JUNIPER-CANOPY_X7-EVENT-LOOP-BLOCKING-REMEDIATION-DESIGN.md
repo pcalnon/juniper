@@ -6,6 +6,7 @@
 - **Status**: **Revision 4** — root cause settled; §§5-8 restructured onto **four exhaustive mechanism slices**, of which **1a closes X7 alone**. Ready to implement 1b then 1a; 1c/1d follow.
 - **Defect**: X7, first labelled in [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md) §6.1
 - **Evidence**: `reports/2026-09-02_canopy-selection-deadlock/` (X7 lanes: `x7_laneA{1,2,3}.md`, `x7_fix_F{1,2,3,4}.md`, `x7_laneB{1,2}.md`)
+- **Operator surface**: [`docs/REFERENCE.md` § X7 Off-Loop Census](../docs/REFERENCE.md#x7-off-loop-census). The canopy slice-1a gate is authority. This document's §5.2 count of **36** is superseded (52 as of canopy `d33ab0a`); do not stop at 36.
 
 ---
 
