@@ -2226,8 +2226,11 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--step", required=True, help="comma-separated step names (order preserved): " + ", ".join(STEPS))
     args = ap.parse_args()
-    wanted = [s.strip() for s in args.step.split(",") if s.strip()]
-    bad = [s for s in wanted if s not in STEPS]
+    # Loaded here (not at import) so a merge of the in-flight scorer extract does
+    # not collide on the top-of-file ``_load`` block, and so unit tests can
+    # exercise parse_step_arg without importing this Playwright driver.
+    parse_step_arg = _load("_stepcli", "e2e_topology_step_cli.py").parse_step_arg
+    wanted, bad = parse_step_arg(args.step, STEPS)
     if bad:
         print(f"unknown step(s): {bad}; valid: {list(STEPS)}", file=sys.stderr)
         return 2

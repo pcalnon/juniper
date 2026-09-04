@@ -917,6 +917,20 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_finding_triage_priority.py: complementary leftover of
+          # test_e2e_finding_triage.py (#1642). That suite puts the priority as the
+          # first (or only) severity token in the parenthetical, so it cannot see
+          # the F-037 close: prose P0/P1 before (LEDGER) is triaged P0/P1. Hermetic
+          # temp ledgers; the real evidence note is never read. util/ is not
+          # pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
+          # tests/test_e2e_topology_step_order.py: complementary leftover of
+          # test_e2e_topology_score_contracts.py (#1676). That suite pins M-18
+          # INDETERMINATE scoring, not the --step loop that walks `wanted`
+          # (operator order). A rewrite that iterates STEPS insertion order
+          # silently turns topostate,topo into topo,topostate. Imports the
+          # parse helper only — never the Playwright driver.
+          python3 -m unittest -v tests/test_e2e_topology_step_order.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
