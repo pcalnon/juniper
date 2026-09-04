@@ -834,6 +834,11 @@ jobs:
           # slowdown with matching work still passes), that a waiver cannot override a
           # refusal, and that the rendered text does not claim a waiver that had no effect.
           python3 -m unittest -v tests/test_compare_baseline.py
+          # tests/test_compare_baseline_defects.py: complementary A1–A7 refusals the
+          # happy-path matrix cannot see -- 4-of-5 unmeasured, timed_out cells,
+          # FAIL-vs-REFUSED priority when an extra suite is unreadable, zero-work,
+          # partial scenario coverage, and duplicate-fingerprint collapse.
+          python3 -m unittest -v tests/test_compare_baseline_defects.py
           # tests/test_make_baseline.py: hermetic tests for
           # util/experiments/make_baseline.py, the Q-8 run-level baseline writer (P2 item
           # 1.1, P1 design section 4). Mostly pins what the tool must REFUSE, because a

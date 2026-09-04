@@ -28,7 +28,10 @@
 #   EXIT CODES -- deliberately three, so a caller can tell the cases apart:
 #       0  PASS or WAIVED
 #       1  FAIL          -- same workload, work moved. The gate firing correctly.
-#       2  REFUSED       -- cannot compare (identity, host, or an incoherent candidate), or usage.
+#       2  REFUSED       -- cannot compare (identity, host, unmeasured/non-succeeded/zero-work,
+#                           partial coverage, duplicate fingerprints, or an incoherent candidate),
+#                           or usage. A real work FAIL is not converted to REFUSED by an extra
+#                           unreadable suite on the command line.
 #####################################################################################################################################################################################################
 """Compare a suite run against a named Q-8 baseline.
 
@@ -105,7 +108,17 @@ def compare(
     """Produce the typed verdict. Never raises on a comparison outcome -- only on load failure."""
     reasons: List[str] = []
     scenario_results: List[Dict[str, Any]] = []
-    by_fingerprint = {s.get("workload_fingerprint"): s for s in baseline_payload.get("scenarios", []) if s.get("workload_fingerprint")}
+    raw_scenarios = [s for s in baseline_payload.get("scenarios", []) if s.get("workload_fingerprint")]
+    fingerprints = [s.get("workload_fingerprint") for s in raw_scenarios]
+    # A7: a dict comprehension silently keeps the last duplicate. Comparing against the
+    # collapsed survivor produces a false FAIL when the discarded sibling had the matching count.
+    duplicate_fingerprints = len(fingerprints) != len(set(fingerprints))
+    by_fingerprint = {s.get("workload_fingerprint"): s for s in raw_scenarios}
+    if duplicate_fingerprints:
+        reasons.append(
+            "baseline has duplicate workload fingerprints -- collapsing them in a dict "
+            "picks one scenario arbitrarily and can produce a false FAIL"
+        )
 
     candidate_manifests: List[Dict[str, Any]] = []
     for suite_dir in suite_dirs:
@@ -113,8 +126,27 @@ def compare(
         if not rows:
             reasons.append(f"{Path(suite_dir).name}: no registry.jsonl or no cells")
             continue
-        summary = rrm.summarise(rows)
         candidate_manifests.extend(rrm._load_json(Path(r["run_dir"]) / "manifest.json") for r in rows)
+
+        # A2: make_baseline already refuses non-succeeded cells. Without this, a timed_out
+        # rerun whose last histogram row happens to match PASSes.
+        failed = [f"{r['run_id']} ({r.get('outcome')})" for r in rows if r.get("outcome") != "succeeded"]
+        if failed:
+            reasons.append(f"{Path(suite_dir).name}: cells did not succeed: {failed}")
+            continue
+        # A1: summarise() drops None step_counts, so 4-of-5 unmeasured with one matching
+        # count is work_invariant True. make_baseline already refuses the missing cells.
+        missing = [r["run_id"] for r in rows if r.get("step_count") is None]
+        if missing:
+            reasons.append(f"{Path(suite_dir).name}: no step-duration data for {missing} -- cannot compare an unmeasured run")
+            continue
+        # A4: bool([0.0, 0.0, 0.0]) is True, so a do-nothing run is work_invariant.
+        zeros = [r["run_id"] for r in rows if r.get("step_count") == 0]
+        if zeros:
+            reasons.append(f"{Path(suite_dir).name}: cells did zero work ({zeros}) -- a do-nothing run is not a comparable measurement")
+            continue
+
+        summary = rrm.summarise(rows)
 
         # An incoherent CANDIDATE cannot be compared to anything -- its own spread would not be a
         # property of the code. Refuse rather than pick a cell arbitrarily.
@@ -133,6 +165,10 @@ def compare(
             continue
         if not summary["work_invariant"]:
             reasons.append(f"{Path(suite_dir).name}: candidate step_count is not invariant across cells ({[int(c) for c in summary['step_counts']]}) -- not a set of repeats")
+            continue
+
+        if duplicate_fingerprints:
+            # Baseline is incoherent; any match against the collapsed dict would be arbitrary.
             continue
 
         fingerprint = summary["workload_fingerprints"][0]
@@ -168,6 +204,17 @@ def compare(
             }
         )
 
+    # A6: a candidate that only covers a subset of the blessed scenarios is not a PASS.
+    # Gated on scenario_results so a total miss (wrong workload, unreadable) keeps its own reason
+    # instead of also being called a "partial comparison".
+    compared_fps = {s["workload_fingerprint"] for s in scenario_results}
+    uncovered = [fp for fp in by_fingerprint if fp not in compared_fps]
+    if uncovered and scenario_results:
+        reasons.append(
+            f"candidate covers {len(compared_fps)} of {len(by_fingerprint)} baseline "
+            f"scenario(s) -- a partial comparison is not a PASS"
+        )
+
     host = compare_host(baseline_host, mb.collect_host(candidate_manifests) if candidate_manifests else {})
     if not host["match"]:
         reasons.append(
@@ -176,17 +223,24 @@ def compare(
             "would silently be cross-hardware"
         )
 
-    if reasons:
+    work_mismatched = [s for s in scenario_results if not s["work"]["match"]]
+    # A3: `if reasons: REFUSED` used to run BEFORE the work-mismatch branch, so adding one
+    # unreadable suite on the CLI converted a true FAIL(1) into REFUSED(2). A CI caller that
+    # treats exit 2 as "skip, cannot compare" would miss the regression. Host identity is
+    # still a refusal -- that check is "are these even the same machine", not extra junk.
+    if not host["match"]:
+        verdict = REFUSED
+    elif work_mismatched and accept_work_change:
+        verdict = WAIVED
+    elif work_mismatched:
+        verdict = FAIL
+    elif reasons:
         verdict = REFUSED
     elif not scenario_results:
         verdict = REFUSED
         reasons.append("no scenarios compared -- nothing to judge")
-    elif all(s["work"]["match"] for s in scenario_results):
-        verdict = PASS
-    elif accept_work_change:
-        verdict = WAIVED
     else:
-        verdict = FAIL
+        verdict = PASS
 
     return {
         "verdict": verdict,
