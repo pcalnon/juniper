@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-03
+**Last Updated**: 2026-09-04
 
 ---
 
@@ -133,6 +133,7 @@ python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py
 python3 -m unittest -v tests/test_require_context_safely.py
+python3 -m unittest -v tests/test_soak_handoff_consensus_checks.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.
