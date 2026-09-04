@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.16
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -34,6 +34,7 @@
 - [Claude.yml Access Validation](#claudeyml-access-validation)
 - [Claude Code Action](#claude-code-action)
 - [CodeQL Analysis](#codeql-analysis)
+- [Required-Context Ruleset Writer](#required-context-ruleset-writer)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -1150,6 +1151,11 @@ job in `ci.yml`.
 > there rather than through the Quality Gate `needs:` — a standalone job that skips on
 > `push` must never be able to fail the aggregate gate.
 >
+> A required context with **no** `integration_id` is satisfied by any app publishing that
+> name ([juniper-ml#1611](https://github.com/pcalnon/juniper-ml/issues/1611)). Pin the
+> publisher with `--amend-integration-id` — see [Required-Context Ruleset Writer](#required-context-ruleset-writer).
+> Do not hand-roll a ruleset PUT.
+>
 > **If it blocks you:** relocate the content to this file and leave a pointer that keeps
 > an accurate open/closed status. If the growth is genuinely warranted, add
 > `Allow-Budget-Overrun: AGENTS.md` and **carry it into the squash message** — that is a
@@ -1455,6 +1461,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - **Third contract — wide-cap suites must pin a wall budget**, via either `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I uses the latter, so accepting only the former would fail a correctly-budgeted suite). Thresholds are measured, not guessed: E-I at fixed pool 8 ran cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s** against a 3600 s inherited default, so 128 would have been truncated and 64 clears by only 693 s.
   - **Known limitation**: only the suite's own `matrix` / `include` are read, so a pool or cap inherited from `suite.base_config` is invisible — deliberate, because resolving `base_config` reaches into sibling repos and would turn a structural gate into one that skips whenever the ecosystem is not checked out.
   The Q-2 detector watches `current_epoch`, which does not advance while the CANDIDATE pool trains, so those cells are recorded `stalled` while perfectly healthy -- the P4 E-A grid lost its pool-16 cells to exactly that. Structural only: deliberately never calls `expand_cells`, which would resolve sibling-repo `base_config` and turn the gate into a skip. Carries a negative control plus an anti-resurrection check for the retired `util/ad-hoc/2026-08-10_driver_stall_shim.py`.
+- `tests/test_require_context_safely.py` -- Hermetic gate for `util/ad-hoc/2026-08-20_require_context_safely.py` (`util/` is outside every pre-commit Python hook). `gh_json` is monkeypatched; nothing talks to GitHub.
+  - Pins `find_ruleset` reporting a failed per-ruleset GET as an error (never an absence — ml#1429), genuine absence / ambiguity as the negative controls, and `TARGETS` lockstep with the census `ROSTER` in `util/ad-hoc/2026-08-26_p5_fleet_state.py` (a missing repo is a silent incomplete `--status`).
+  - As of [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612) also pins `observed_context_apps` (amend pre-flight): publisher from PR heads, `main` fallback, exact-name negative control, and `57789` (Bandit) must not count as a publisher of `Memory Budget`. Operator surface: [Required-Context Ruleset Writer](#required-context-ruleset-writer).
 - `scripts/test.bash` -- Manual end-to-end harness for session create/resume launcher flows
 - `scripts/test_resume_file_safety.bash` -- Regression script ensuring invalid `--resume <file.txt>` input does not delete the source file
 
@@ -1592,6 +1601,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - A `gh` non-zero exit is a `ProbeError` → exit 3, never a silently-empty result; that conflation is the same class as trap 1. A missing `required_status_checks` rule is likewise a hard error rather than a quiet downgrade.
   - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient vs. permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died due to a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes away from finishing.
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
+- `util/ad-hoc/2026-08-20_require_context_safely.py` -- Fleet writer that adds, or with `--amend-integration-id` ([juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612)) **re-pins**, one required status-check context. Dry-run default; `--apply` writes; `--status` never writes.
+  - Observed-only pre-flight (no `--require-observed` flag); amend asks *which app* publishes the exact name.
+  - Six invariants: `rules` verbatim, every *other* context keeps its own `integration_id`, `bypass_actors` verbatim, disk snapshot before the PUT, live re-read immediately before it, post-write verify (drift check stays live except the one intended amend pair).
+  - Do not hand-roll a ruleset PUT. Operator surface: [Required-Context Ruleset Writer](#required-context-ruleset-writer). Tests: `tests/test_require_context_safely.py`.
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
@@ -1827,6 +1840,7 @@ juniper-ml/
 │   ├── test_scaffold_template.py         # Behavioural: util/scaffold_template.py new-template generator (P5; drift-compliant output)
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
 │   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
+│   ├── test_require_context_safely.py    # Hermetic: ad-hoc ruleset writer (find_ruleset error-vs-absence, TARGETS↔census roster, observed_context_apps amend pre-flight)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
 │   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
@@ -2068,6 +2082,9 @@ close/re-open.
 
 **`stacked-pr` label.** Silences this guard for a deliberate stack. It does **not** make the
 PR mergeable into `main`, and it does **not** re-land the stack -- do that separately.
+
+To promote this context, or to re-pin its `integration_id`, use the
+[Required-Context Ruleset Writer](#required-context-ruleset-writer). Do not hand-roll a ruleset PUT.
 
 Rollout and rationale: [juniper-ml#434](https://github.com/pcalnon/juniper-ml/issues/434).
 
@@ -2881,6 +2898,100 @@ A User-owned repo cannot currently add the merge-queue **rule** ([enablement run
 
 ---
 
+## Required-Context Ruleset Writer
+
+[`util/ad-hoc/2026-08-20_require_context_safely.py`](../util/ad-hoc/2026-08-20_require_context_safely.py) is the fleet writer that adds — or, as of [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612), **re-pins** — one required status-check context on a repo ruleset. It is retained ad-hoc tooling (owner policy 2026-08-25): there is no general ruleset editor in `util/` proper, and a hand-rolled `gh api .../rulesets/N -X PUT` is the class of edit this module exists to prevent.
+
+Default `--context` is `Guard PR base branch`. Default `--integration-id` is `15368` (the GitHub Actions app). Dry-run is the default; `--apply` writes. `--status` reports and never writes.
+
+### Why a missing `integration_id` is a hole
+
+A required context with no `integration_id` is satisfied by **any** app that publishes a check-run of that name. [juniper-ml#1611](https://github.com/pcalnon/juniper-ml/issues/1611) is the concrete case: `Memory Budget` was the only one of this repo's 17 required contexts left unpinned (the other 16 pin `15368`), so the gate that enforces the memory-budget ratchet for the whole fleet could be satisfied by a namesake from the wrong app.
+
+The add path cannot fix that. An already-required context short-circuits:
+
+```text
+ALREADY REQUIRED (integration_id=...) — no-op
+```
+
+`--amend-integration-id` mutates that one entry in place and leaves every other context object untouched.
+
+### Two pre-flights, on purpose
+
+| Path | Question the pre-flight answers | Lookup |
+|------|----------------------------------|--------|
+| **Add** (default) | Does **anything** publish this exact context **name** here? | `observed_contexts`: check-run names on the 8 most recently updated PR heads, conclusion-agnostic |
+| **Amend** (`--amend-integration-id`) | Is **this app** the publisher of that exact name? | `observed_context_apps`: `{app_id: slug}` for check-runs whose name matches **exactly**; falls back to `main`'s check-runs when PR heads show nothing |
+
+Getting the amend question wrong is not hypothetical: a hardcoded id retargeted `Bandit` (`57789`) at an app that never reports it and left five repos' `main` unmergeable with nothing red — PRs `BLOCKED`, zero failing checks, every required context reporting `SUCCESS`.
+
+Both paths refuse unless the answer is yes. `--allow-unobserved` is the dangerous opt-out (a never-reporting required context blocks every PR, silently). There is **no** `--require-observed` flag — observed-only is simply the default.
+
+### Six invariants (unchanged on amend)
+
+1. `rules` is carried **verbatim** — never rebuilt from a schema-derived allowlist. REST emits `code_quality`, which is absent from the documented REST enum; an allowlist rebuild silently drops it.
+2. Each **other** existing context keeps its **own** `integration_id`. Never rewrite them from a constant: `Bandit` is `57789` on five repos, not Actions' `15368`. Amend mutates exactly one entry.
+3. `bypass_actors` carried verbatim (full-replacement; includes a `null` `actor_id` DeployKey row).
+4. Snapshot to disk **before** the PUT, outside the repo (`~/.local/state/juniper-ruleset-snapshots/`), so rollback does not depend on the history API.
+5. Re-read the live ruleset **immediately** before the PUT — concurrent sessions edit these.
+6. Post-write re-read: rule count, rule-type set, bypass count, enforcement, ref include, `strict`, every prior context still present. `integration_id` drift fails **except** the one intended `(context, new_id)` pair on an amend. Two extra amend assertions: the new id must have **taken**, and the context **count** must be unchanged.
+
+`find_ruleset` selects the ruleset that **carries** `required_status_checks` (by content, not by name). A failed per-ruleset GET is an error, never an absence (ml#1429). Two carrying rulesets is `AMBIGUOUS`.
+
+### Roster
+
+Default `--status` / no-`--repo` `--apply` walks `TARGETS` (nine repos, including `juniper-recurrence`). A repo missing here is silently absent from `--status` and reads as a complete census (ml#1403's class). `tests/test_require_context_safely.py` pins `TARGETS` to the census `ROSTER` in `util/ad-hoc/2026-08-26_p5_fleet_state.py`.
+
+### Usage
+
+```bash
+# Census (never writes)
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --status
+
+# Add: dry-run, then write (default context is Guard PR base branch)
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-cascor --context 'Memory Budget'
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-cascor --context 'Memory Budget' --apply
+
+# Amend: re-pin an already-required context (juniper-ml#1612). Dry-run first.
+python3 util/ad-hoc/2026-08-20_require_context_safely.py \
+  --repo juniper-ml --context 'Memory Budget' --amend-integration-id
+python3 util/ad-hoc/2026-08-20_require_context_safely.py \
+  --repo juniper-ml --context 'Memory Budget' --amend-integration-id --apply
+
+# Negative control: the Bandit app must refuse for Memory Budget
+python3 util/ad-hoc/2026-08-20_require_context_safely.py \
+  --repo juniper-ml --context 'Memory Budget' --amend-integration-id --integration-id 57789
+```
+
+`--integration-id` defaults to `15368` and is never `None`, so there is no "is the id explicit?" guard — the observed-publisher refusal is the real gate whether the id was typed or defaulted.
+
+On a failed post-write verify the script prints the rollback:
+
+```bash
+gh api repos/<owner>/<repo>/rulesets/<id> -X PUT --input ~/.local/state/juniper-ruleset-snapshots/<snap>
+```
+
+### Operator pitfalls
+
+| Symptom | What it actually is | What to do |
+|---------|---------------------|------------|
+| `ALREADY REQUIRED … — no-op` | Add path; the context is already on the ruleset | Use `--amend-integration-id` to change its `integration_id` (#1612). Do not hand-roll a PUT |
+| `REFUSING: app N has not been observed publishing` | Amend pre-flight: that app does not publish this exact name here | Pass the id the publishers line named, or land the workflow first. `--allow-unobserved` only with a reason |
+| `REFUSING: nothing in … recent check-runs publishes` | Add pre-flight: the name has never reported | Land the workflow and let it report once; a `pull_request`-only job reading `skipped` on `main` is still observed from PR heads |
+| `ALREADY PINNED` | Amend no-op: current id already equals `--integration-id` | Nothing to do |
+| PR `BLOCKED`, zero failing checks, every required context `SUCCESS` | A required context is pinned to an app that never reports it, or was required before anything published the name | Un-require or re-pin with this writer; then `update-branch`. This is the five-repo outage |
+| `--require-observed` is unknown | Not a flag; observed-only is the default | Drop it |
+| `--status` looks complete but a governed repo is missing | `TARGETS` omission; silent census | Confirm `juniper-recurrence` (and the other eight) appear; the unittest pins the roster |
+| Post-write `integration_id DRIFT` on a neighbour | Invariant 2 failed — some other context's id moved | Rollback from the snapshot; do not re-run `--apply` to "fix" it |
+
+Prefer this writer over `util/ad-hoc/2026-08-20_add_required_context.py`, which writes no snapshot, omits `integration_id` on the new context, and verifies contexts only.
+
+Gate: `python3 -m unittest -v tests/test_require_context_safely.py` (`util/` is outside every pre-commit Python hook). Hermetic: `gh_json` is monkeypatched. Coverage includes `find_ruleset` error-vs-absence (ml#1429), roster lockstep, and (as of #1612) `observed_context_apps` — including two negative controls: a near-miss name (`Memory Budget (Python 3.12)`) must not count as a publisher, and `57789` must not appear for `Memory Budget`.
+
+Related: [PR Base-Branch Guard](#pr-base-branch-guard) (the default context this writer was built to promote), [Memory File Size Budget](#memory-file-size-budget) (the #1611 pin), [CodeQL Analysis](#codeql-analysis) (soak-then-promote via the ruleset, never Quality Gate `needs:`).
+
+---
+
 ## Sibling Packages
 
 ### juniper-observability
@@ -2999,6 +3110,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.16  | 2026-09-04 | Required-context ruleset writer: add vs `--amend-integration-id` (#1612), observed-publisher pre-flight, six invariants, `Memory Budget` unpinned-id hole (#1611) |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
