@@ -599,6 +599,19 @@ jobs:
           # never reported as a scored miss: no pointer hit is consistent with a
           # correct source-recovered answer as well as a wrong one.
           python3 -m unittest -v tests/test_soak_run_probe.py
+          # tests/test_soak_wilson_resolving.py: the gate for the Wilson POWER
+          # contract that test_soak_ledger.py cannot see. That suite pins the
+          # interval at an observed rate. The 2026-09-04 consensus review (ml#1694
+          # round 2) overturned the reconciler on power over the sampling
+          # distribution: inside the handoff's n≈8-10 band the low-side resolving
+          # threshold is k<=1 at n=8, 9 AND 10, so runs 9 and 10 add trials
+          # against an unchanged cap and power at p=0.25 falls. A campaign
+          # planned on "n=10 is tighter" spends billed sessions that strictly
+          # reduce the chance of an answer. Also pins 26/42's 2.7e-06 clearance
+          # (a 4dp print cannot decide its side) and that binom_sf — used for
+          # this power and for area-systematic escalation — has the P(X>=k)
+          # edges. util/ is outside every pre-commit Python hook.
+          python3 -m unittest -v tests/test_soak_wilson_resolving.py
           # The probe registry is the seeded arm's denominator. A dangling pointer
           # silently invalidates a probe, so verify it in CI rather than on trust.
           python3 util/soak_ledger.py verify-probes
