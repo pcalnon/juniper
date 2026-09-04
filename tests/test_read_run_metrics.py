@@ -230,6 +230,32 @@ class WorkloadFingerprintTest(unittest.TestCase):
             suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
             self.assertFalse(rrm.summarise(rrm.read_suite(suite))["single_workload"])
 
+    def test_single_workload_false_when_some_identities_unknown(self):
+        # Vacuity: dropping Nones and then asking "is there one remaining hash?" would treat a
+        # mixed known+unknown suite as a single workload -- and make_baseline would bless it.
+        # Unknown on ANY cell is a refusal, the same way "fingerprint unknown on either side"
+        # is in the 1.5 decision table.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
+            self._cell(suite, "c000", "experiment:\n  seed: 42\ntraining:\n  params:\n    max_epochs: 4000\n")
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertFalse(summary["single_workload"])
+            self.assertEqual(len(summary["workload_fingerprints"]), 1)
+
+    def test_malformed_cell_yaml_is_none_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment: [\nunterminated\n")
+            self.assertIsNone(rrm.workload_fingerprint(suite, "c000"))
+
+    def test_non_dict_cell_yaml_is_none(self):
+        # A list (or scalar) is loadable YAML but is not a config; hashing it would invent an
+        # identity for something that is not a workload.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "- not\n- a\n- mapping\n")
+            self.assertIsNone(rrm.workload_fingerprint(suite, "c000"))
+
 
 class CliTest(unittest.TestCase):
     def test_json_mode_emits_parseable_payload(self):

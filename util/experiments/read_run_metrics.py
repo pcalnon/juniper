@@ -205,7 +205,12 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     counts = [r["step_count"] for r in rows if isinstance(r.get("step_count"), (int, float))]
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
-    fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
+    # Vacuity: dropping unknown identities and then asking "is there one remaining hash?" would
+    # treat a mixed known+unknown suite as a single workload -- the same hole work_invariant
+    # already guards with `bool(counts)`. Unknown on ANY cell is not "same workload"; callers refuse.
+    raw_fingerprints = [r.get("workload_fingerprint") for r in rows]
+    known_fingerprints = [fp for fp in raw_fingerprints if fp]
+    fingerprints = sorted(set(known_fingerprints))
     out: Dict[str, Any] = {
         "cells": len(rows),
         "step_counts": sorted(set(counts)),
@@ -214,7 +219,7 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         # step_count spread would be a fact about the configs rather than about the host or the
         # code. Recorded separately from work_invariant so the two failures stay distinguishable.
         "workload_fingerprints": fingerprints,
-        "single_workload": len(fingerprints) == 1,
+        "single_workload": bool(raw_fingerprints) and len(known_fingerprints) == len(raw_fingerprints) and len(fingerprints) == 1,
     }
     if drives:
         out["drive"] = _spread(drives)

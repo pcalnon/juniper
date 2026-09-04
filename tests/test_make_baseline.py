@@ -128,7 +128,34 @@ class BuildRefusalTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             suite = _write_suite(Path(tmp), [{}, {}])
             payload = mb.build_baseline("t", [suite])
-            self.assertIsNotNone(payload["scenarios"][0]["workload_fingerprint"])
+            recorded = payload["scenarios"][0]["workload_fingerprint"]
+            self.assertIsNotNone(recorded)
+            self.assertEqual(recorded, rrm.workload_fingerprint(suite, "c000"))
+            self.assertEqual(recorded, rrm.workload_fingerprint(suite, "c001"))
+
+    def test_refuses_when_workload_identity_is_unknown(self):
+        # The fixture docstring claims this refusal; without it a baseline records
+        # workload_fingerprint=None and every later comparison is an invalid comparison
+        # disguised as a blessed reference.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            for cell_id in ("c000", "c001"):
+                (suite / "cells" / cell_id / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("different workloads", str(ctx.exception))
+
+    def test_refuses_when_some_identities_are_unknown(self):
+        # Mixed known+unknown is the vacuity hole: filtering Nones then seeing one remaining
+        # hash would bless the suite and pin the known cell's fingerprint as the scenario
+        # identity. A later comparison against a cell whose YAML is missing would then look
+        # like "same workload" rather than REFUSE.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            (suite / "cells" / "c001" / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("different workloads", str(ctx.exception))
 
     def test_fingerprint_ignores_cosmetic_description(self):
         # The five cells differ by `experiment.description` and nothing else that matters; if the
