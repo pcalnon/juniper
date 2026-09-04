@@ -2,7 +2,7 @@
 
 ## Install Juniper Packages with juniper-ml
 
-**Version:** 0.3.12
+**Version:** 0.3.46
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -114,6 +114,7 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Documentation Overview](DOCUMENTATION_OVERVIEW.md) -- navigation index
 - [Reference](REFERENCE.md) -- extras, compatibility, and version reference
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
+- [Conda Env Torch Shadow Diagnostic](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- classify `import torch` / `torch._C` (exit **2** = P-5 free-threaded; exit **4** = May-7; does not rebuild)
 - [Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety) -- `predict_merge` + `Allow-Docs-Rewrite` trailer parity (#926)
 - [Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) -- G4 pre-commit split, advisory Sequence Safety / Fleet PR Lint, post-merge `main-verify` catch-up
 - [Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) -- G3 / G3.1 catch-up BASE, stable-title failure notify, trailers vs labels, battery path-gate
@@ -137,5 +138,5 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.3.12
+**Version:** 0.3.46
 **Status:** Active

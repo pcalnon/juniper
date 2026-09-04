@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.27
+**Version:** 0.2.61
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -31,6 +31,7 @@
 | **Operate the scheduled Duplicati backup lane** | [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane)                                | docs/    |
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
+| **Diagnose a broken conda `import torch`** | [REFERENCE — Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) (exit **2** = P-5 free-threaded; exit **4** = May-7 wheel layout; does not rebuild) | docs/    |
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
 | **Triage fleet PRs / sequence-safety**  | [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                                 | docs/    |
 | **Run the isolated E2E trio**           | [Isolated-stack E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md) + [REFERENCE — Isolated Stack](REFERENCE.md#isolated-stack-e2e-utilities) | notes/ + docs/ |
@@ -119,6 +120,8 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md**                             | Procedure   | Cut a GitHub Release + archive `notes/releases/` (mandatory for every PyPI deploy)               |
 | **JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md**                                  | Procedure   | Create an isolated git worktree for task work                                                    |
 | **JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md**                             | Procedure   | Merge/cleanup after a task (CWD-safe); includes batch stale-worktree sweep                       |
+| **JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md**                         | Procedure   | P-5 torch._C free-threaded shadow recovery (Option A/B). Classify first: [REFERENCE](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) |
+| **JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md**                                          | Fix         | May-7 regular-3.14 wheel-layout class + plant default `JuniperCascor1`. Classify first: [REFERENCE](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) |
 | **JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md**                       | Checklist   | Dedicated data/cascor/canopy E2E trio via `util/isolated_stack.bash` (compose contract also in [REFERENCE](REFERENCE.md#isolated-stack-e2e-utilities)) |
 | **JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md** | Plan   | Per-run experiment stack + driver (Waves 2.1–2.7); operator contract + partial-`--up` teardown in [REFERENCE](REFERENCE.md#experiment-stack-utilities) |
 | **JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md**                       | Findings    | Attribution floors + why the dataset instance must be pinned; operator surface in [REFERENCE](REFERENCE.md#snapshot-attribution-dataset-pin) |
@@ -179,5 +182,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.2.27
+**Version:** 0.2.61
 **Maintainer:** Paul Calnon

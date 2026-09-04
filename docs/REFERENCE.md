@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.56
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -20,6 +20,7 @@
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
+- [Conda Env Torch Shadow Diagnostic (P-5)](#conda-env-torch-shadow-diagnostic-p-5)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
@@ -348,7 +349,7 @@ Troubleshooting:
 |---------|-------------|
 | Port preflight fails | Run `ss -tlnp` and free the reported port (`8100`, `8201`, `8050`, or `8210` by default), or override the matching `JUNIPER_*_PORT` before startup. |
 | Mid-plant health timeout/abort | Read the failing service log under that repo's `logs/`. `cleanup_on_failure` already tried SIGTERM→SIGKILL on `STARTED_PIDS` and removed `JuniperProject.pid`. Confirm nothing is still listening (`ss -tlnp`) before re-planting; do not expect `chop_all` to find a pidfile after a failed plant. |
-| `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
+| `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. If it dies on `import torch`, run `util/check_conda_env_torch.bash` before flipping `JUNIPER_CASCOR_CONDA` (exit **2** = P-5 FT; **4** = May-7). Prefer `JuniperCascor1`. See [Conda Env Torch Shadow](#conda-env-torch-shadow-diagnostic-p-5). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup (`${JUNIPER_PROJECT_DIR}/juniper-ml/JuniperProject.pid`). Missing **and** empty (zero-byte) files both abort before the service-stop loop — see below. In non-standard layouts, rerun with `JUNIPER_PROJECT_DIR` set to that same project root. For systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead (no pidfile path). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte `JuniperProject.pid` is treated like missing: best-effort `orphaned_worker_cleanup`, then `exit 1`. Re-run `plant_all` (or restore a real pidfile); do not hand-create an empty file. |
@@ -470,7 +471,7 @@ Troubleshooting:
 |---------|-------------|
 | Port preflight fails | Run `ss -tlnp` and free the reported port (`8100`, `8201`, `8050`, or `8210` by default), or override the matching `JUNIPER_*_PORT` before startup. |
 | Mid-plant health timeout/abort | Read the failing service log under that repo's `logs/`. `cleanup_on_failure` already tried SIGTERM→SIGKILL on `STARTED_PIDS` and removed `JuniperProject.pid`. Confirm nothing is still listening (`ss -tlnp`) before re-planting; do not expect `chop_all` to find a pidfile after a failed plant. |
-| `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. Prefer the default `JuniperCascor1` env; the legacy `JuniperCascor` Python 3.14 / torch layout is a known health-startup trap. See [`notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
+| `juniper-cascor` never reaches `/v1/health` | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. If it dies on `import torch`, run `util/check_conda_env_torch.bash` before flipping `JUNIPER_CASCOR_CONDA` (exit **2** = P-5 FT; **4** = May-7). Prefer `JuniperCascor1`. See [Conda Env Torch Shadow](#conda-env-torch-shadow-diagnostic-p-5). |
 | Worker startup says binary missing | Activate the worker env and install the package: `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` completed successfully in `nohup` mode and check the PID path printed at startup. In non-standard layouts, rerun shutdown with `JUNIPER_PROJECT_DIR` set to that same project root. If using systemd mode, stop with `util/juniper_chop_all.bash --systemd` instead. |
 | systemd plant: `'curl' not found in PATH` | Install/expose `curl` before `--systemd` plant; no units were started. |
@@ -777,6 +778,62 @@ Troubleshooting:
 | Exit `2`: `no conda env maps to '…' in ecosystem.yaml` | Target `[project].name` has no `used_by` entry — pass `--env` / `--site-packages`, or add the mapping. |
 | Unexpected `BELOW_FLOOR` after a partial upgrade | Multi-interpreter env may still have an older site-packages tree — the tool reports the **highest** installed version; upgrade every tree or remove the stale one. |
 | `MISSING` but `pip show` works | Checker reads `METADATA` on disk under the resolved dirs only — confirm `--env` / `--site-packages` matches the interpreter you inspected. |
+| Floor / editable green, `import torch` still fails | Those checkers never import torch. Classify the ABI/`_C` layout with [Conda Env Torch Shadow Diagnostic](#conda-env-torch-shadow-diagnostic-p-5). |
+
+---
+
+## Conda Env Torch Shadow Diagnostic (P-5)
+
+`util/check_conda_env_torch.bash` classifies a conda env's `import torch` / `torch._C` layout. It does **not** rebuild, rename, or `mamba install`. A misread exit code sends the operator down the wrong recovery: the P-5 free-threaded rebuild versus the May-7 regular-3.14 wheel-layout class.
+
+Both notes surface the same `ImportError: Failed to load PyTorch C extensions` / `torch/_C` folder text. They are **not** the same ABI:
+
+| Note | Typical ABI | Script exit |
+|------|-------------|-------------|
+| [`JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md`](../notes/JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md) (P-5) | Free-threaded `cp*t` interpreter + regular (`cp*`, no `t`) torch wheel | **2** |
+| [`JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md) | Regular `cp314` + torch 2.9.1 ships `torch/_C/` stubs **and** `_C.cpython-314-*.so`; import prefers the directory | **4** |
+
+`util/juniper_plant_all.bash` already defaults `JUNIPER_CASCOR_CONDA` and `JUNIPER_WORKER_CONDA` to `JuniperCascor1`. Run the diagnostic before overriding either back to `JuniperCascor`.
+
+### Usage
+
+```bash
+util/check_conda_env_torch.bash JuniperCascor
+util/check_conda_env_torch.bash JuniperCascor1
+util/check_conda_env_torch.bash JuniperCanopy
+JUNIPER_CONDA_DIR=/opt/miniforge3 util/check_conda_env_torch.bash JuniperCascor1
+```
+
+`JUNIPER_CONDA_DIR` defaults to `/opt/miniforge3`. The script execs `${JUNIPER_CONDA_DIR}/envs/<name>/bin/python` directly — it never `conda activate`s. Missing argv or a non-executable `bin/python` is exit **1** (read stderr: `usage:` vs `env … not found`).
+
+### Exit codes
+
+| Exit | Meaning | What to do |
+|------|---------|------------|
+| 0 | `import torch` works and `torch._C.__file__` is the `.so` | Env is healthy. A free-threaded `EXT_SUFFIX` **warning** can still print; the warning alone is not a failure. |
+| 1 | No env-name argument, or `${CONDA_DIR}/envs/<name>/bin/python` is not executable | Fix the name or `JUNIPER_CONDA_DIR`. |
+| 2 | `EXT_SUFFIX` matches `*-cp*t-*` or `*t-x86_64*` **and** `import torch` failed **and** a `torch/_C/` directory exists | P-5 free-threaded shadow. Use Option A (`*1` env) or Option B (rebuild regular CPython) in the [rebuild procedure](../notes/JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md). Do **not** treat this as May-7. |
+| 3 | `import torch` failed and `find` (`-maxdepth 5`) found no `torch/_C/` directory | Not the shadow. Missing torch (`JuniperData` never ships it), a broken install, or a separate `LIBTORCH` / rust-mudgeon `LD_LIBRARY_PATH` leak. Isolated-stack `cascor_up` empties `LD_LIBRARY_PATH` for that last class. |
+| 4 | Non-FT interpreter + import fail + `torch/_C/` on disk, **or** imported `torch._C` has no `__file__` | May-7 namespace-package class. Prefer `JuniperCascor1` / `JuniperCanopy1`. See the [May-7 conda-env fix](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md). |
+
+### What the script does not do
+
+- It does not rebuild the env or write conda activate hooks. Recovery lives in the two notes above.
+- It does not inspect `LIBTORCH` or rust-mudgeon `LD_LIBRARY_PATH` (P-5 §5 / May-7 §2 secondary). Isolated stack and the env-local activate hooks own that. A leak with no `torch/_C/` directory classifies as exit **3**.
+- Floor-drift and editable-drift can stay green on a shadowed env — they read `METADATA`, they never `import torch`.
+
+Coverage: `tests/test_check_conda_env_torch.py` (hermetic stub `bin/python` under `JUNIPER_CONDA_DIR`; no real conda/torch). Wired in `.github/workflows/ci.yml` and `main-verify.yml`.
+
+Troubleshooting:
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Exit `2` after `mamba install python-freethreading` | Expected P-5 class. Do not repair in place (Option C usually fails). Switch to `*1` or rebuild regular CPython. Keep FT exploration in a sandbox env (`JuniperCascor-FT`). |
+| Exit `4` on regular 3.14 / torch 2.9.x | Expected May-7 class. Keep plant on `JuniperCascor1`; do not run the P-5 FT rebuild. |
+| Exit `3` on `JuniperData` | Expected — that env has no torch. The P-5 plan-doc entry that listed it was over-broad. |
+| Exit `0` but stdout warned `free-threaded` | Import and `_C.__file__` succeeded. The warning is ABI-only; do not rebuild from the warning alone. |
+| Cascor plant health timeout, log dies at `import torch` | Classify that env first. Default plant already uses `JuniperCascor1` for cascor **and** the worker. |
+| Floor / editable report `OK` / `FRESH` | Irrelevant to this failure. Re-run the torch diagnostic. |
 
 ---
 
@@ -1339,7 +1396,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
-- `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch)
+- `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch). Operator surface: [Conda Env Torch Shadow Diagnostic](#conda-env-torch-shadow-diagnostic-p-5).
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
 - `tests/test_editable_install_drift_check.py` -- Tests for `util/editable_install_drift_check.py`: FRESH / WORKTREE_PINNED / ORPHANED classification, `*-DEPRECATED` env exclusion, `--env` filtering, dedup across interpreter trees, CLI exit codes (0/1/2), JSON output, and `--fix --dry-run` canonical-source resolution (synthetic conda-dir fixture; no real pip)
   - `VersionDriftTest` (version axis): static + dynamic version resolution (setuptools `attr` flat and `src/` layouts, hatch `path`), MATCH/STALE classification, orthogonality (a WORKTREE_PINNED install still gets a version verdict), STALE soft by default / hard under `--strict-version` with `--strict` unaffected, the summary+JSON version fields, and `--fix-stale` repairing in place (`drift: "stale-metadata"`, canonical == the recorded path) while ORPHANED repair still resolves canonically
@@ -1493,6 +1550,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/env_floor_drift_check.py` -- Floor-drift checker (gap I-2): reads each installed `juniper-*` version from its `*.dist-info/METADATA` and compares to the target repo's `pyproject.toml` floors -> `OK` / `BELOW_FLOOR` / `MISSING` -- the below-floor plain-wheel case the pins/editable checkers miss. Env selection is data-driven (`--site-packages`/`--env`/`ecosystem.yaml`); exit 1 on `BELOW_FLOOR` (`--strict` also `MISSING`); `--json`; structural CI gate. Tests: `tests/test_env_floor_drift_check.py`.
   - `resolve_site_dirs` precedence: `--site-packages` → `--env` → `ecosystem.yaml` `used_by` for `[project].name`; unresolved paths exit 2 with the reason string (never invent an env name). Operator surface: `docs/REFERENCE.md` Environment Floor Drift Check.
   - Multi-site / multi-interpreter: `installed_juniper_versions` keeps the **highest** version across site-packages dirs; malformed / unreadable `METADATA` and non-`juniper-*` are skipped. Coverage: open #796 / #802.
+- `util/check_conda_env_torch.bash` -- Classifies a conda env's `import torch` / `torch._C` layout (P-5). Exit 0 healthy / 1 missing env / 2 free-threaded shadow / 3 other import fail / 4 namespace-package `_C` (May-7 regular-3.14 wheel class, or imported `_C` has no `__file__`). Does **not** rebuild. `JUNIPER_CONDA_DIR` default `/opt/miniforge3`. Tests: `tests/test_check_conda_env_torch.py`. Operator surface: [Conda Env Torch Shadow Diagnostic](#conda-env-torch-shadow-diagnostic-p-5).
 - `util/release_train/` -- PyPI release-train tooling (release-train plan §12). `registry.yaml`: the data-driven 18-package / 8-repo registry (§4.1). `detect.py`: the per-package "needs a PyPI deploy?" engine (§4.2/4.3, Phase 1, report-only) -- PyPI truth vs declared version, tag-matched diff base, `gh compare` (`--local-git` fallback past the 300-file cap), and a substantive-hunk SHIP filter discounting the notes-rename comment/docstring/link class; report-only, exit 0/1/2.
   - SHIP / SemVer edges: whitespace + pure comment deletion discounted; pure code deletion ships; `local_git_compare` A/D/R/**C** of a `.py` module is inherently substantive (no blob compare); Keep-a-Changelog `Security` → patch, `Changed`/`feat!`/`BREAKING CHANGE` → minor pre-1.0. Operator tables: release-train operator runbook §3.1.
   - Soft-fail `SHIP_UNCERTAIN` (unreadable declared version / missing tag / `comp.ok=False` / truncated empty window / patch-uncertain) is an action class — never silent `UP_TO_DATE`.
@@ -1868,6 +1926,7 @@ juniper-ml/
     ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
     ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
     ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
+    ├── check_conda_env_torch.bash        # P-5 / May-7 torch._C shadow diagnostic (exit 0/1/2/3/4; does not rebuild)
     ├── release_train/                    # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
     ├── prompt_discovery/                 # Custom-agent suite (PR 4): env-discovery probes -> JSON grounding bundle (path-invoked, --repo-root)
     ├── fleet_triage/                     # Flood §4 item 7 (Stage-0 supervisor script layer): predict_merge.py -- detached-clone predicted-merge per PR (4 verdicts, TRUE delta, cluster map + order; delegates the 2 screens to juniper-ci-tools console scripts); --pr N | --batch, exit 0/2
@@ -3104,6 +3163,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.56  | 2026-09-04 | Conda env torch shadow diagnostic: `util/check_conda_env_torch.bash` exit **2** is P-5 free-threaded, exit **4** is the May-7 regular-3.14 wheel-layout class; do not rebuild from the wrong code |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3443,6 +3503,7 @@ These variables are consumed by Juniper packages documented in this repository. 
 > REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
 Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
+`JUNIPER_CONDA_DIR` (default `/opt/miniforge3`) is also the conda root for `util/check_conda_env_torch.bash` — see [Conda Env Torch Shadow Diagnostic](#conda-env-torch-shadow-diagnostic-p-5).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
 Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
@@ -3453,5 +3514,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Version:** 0.6.56
 **Maintainer:** Paul Calnon

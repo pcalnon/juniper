@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
+**Version**: 1.0.68
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -42,6 +42,7 @@
 | `juniper-symbol-loss-check --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
+| `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
@@ -454,6 +455,7 @@ Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFEREN
 | `WTC_LOGS_DIR`                 | `logs/`            | Headless mode log directory                             |
 | `WTC_DEBUG`                    | `0`                | Enable launcher debug output                            |
 | `CLAUDE_SKIP_PERMISSIONS`      | `0`                | Add `--dangerously-skip-permissions` to default wrapper |
+| `JUNIPER_CONDA_DIR`            | `/opt/miniforge3`  | Conda root for `util/check_conda_env_torch.bash` (and plant/floor defaults) |
 | `JUNIPER_CASCOR_HOST`          | `localhost`        | Host stack cascor bind host for `util/juniper_plant_all.bash` |
 | `JUNIPER_CASCOR_PORT`          | `8201`             | Host stack cascor listen port for `util/juniper_plant_all.bash` |
 | `JUNIPER_DATA_HOST`            | `127.0.0.1`        | Host stack data-service bind host for `util/juniper_plant_all.bash` (loopback default; set `0.0.0.0` to expose) |
@@ -514,6 +516,8 @@ Tip: never set `HEALTH_CHECK_INTERVAL=0` to "poll faster" — that busy-loops fo
 Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782), invalid/zero intervals log a WARNING and clamp to `1s`. Prefer the default `2`.
 
 Tip: `python util/env_floor_drift_check.py --repo-root PATH [--env NAME|--site-packages DIR]` — precedence is `--site-packages` then `--env` then `ecosystem.yaml` `used_by`; exit `2` means resolution failed (not a floor finding). Multi-site keeps the **highest** installed version. Coverage: [#796](https://github.com/pcalnon/juniper-ml/pull/796) / [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Environment Floor Drift](REFERENCE.md#environment-floor-drift-check).
+
+Tip: `util/check_conda_env_torch.bash ENV` classifies `import torch` / `torch._C` — it does not rebuild. Exit **2** is P-5 free-threaded (`cp*t` + regular wheel); exit **4** is the May-7 regular-3.14 wheel-layout class. A free-threaded **warning** with exit 0 is not a failure. Floor/editable can stay green because they never import torch. See [REFERENCE — Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5).
 
 Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash --dry-run` first. The awk gate keeps only current-user python whose cmdline has `JuniperC*` or `Juniper/worktrees/`; `skipped` is a ps→gone / missing-`PPid:` race, not a kill. See [REFERENCE.md § Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper).
 
@@ -598,7 +602,7 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
-| Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
+| Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. If it dies on `import torch`, run `util/check_conda_env_torch.bash` first — exit **2** is P-5 FT, exit **4** is May-7. Keep default `JuniperCascor1`. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
@@ -634,6 +638,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
 | Plant WARNING `invalid health-check interval` / stuck health wait | Unset `HEALTH_CHECK_INTERVAL` or set a positive integer (default `2`); `0` was a busy-loop. |
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
+| `check_conda_env_torch` exit `2` | P-5 free-threaded shadow — use `*1` or rebuild regular CPython; do not treat as May-7. |
+| `check_conda_env_torch` exit `4` | May-7 `torch/_C/` namespace package on regular 3.14 — keep `JuniperCascor1`; do not run the P-5 FT rebuild. |
+| `check_conda_env_torch` exit `3` on `JuniperData` | Expected — that env has no torch. |
+| Floor/editable green, `import torch` fails | Those checkers never import torch. Classify with `util/check_conda_env_torch.bash`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
 | Sequence Safety red, Quality Gate green | Advisory by design — download `sequence-safety-report`; waive with trailers or (owner) labels |
@@ -723,6 +731,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- exit **2** is P-5 free-threaded; exit **4** is May-7 wheel layout
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
@@ -730,5 +739,5 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Version:** 1.0.68
 **Maintainer:** Paul Calnon
