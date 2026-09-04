@@ -599,6 +599,15 @@ jobs:
           # never reported as a scored miss: no pointer hit is consistent with a
           # correct source-recovered answer as well as a wrong one.
           python3 -m unittest -v tests/test_soak_run_probe.py
+          # tests/test_soak_probe_evidence.py: the gate for
+          # util/ad-hoc/2026-08-21_soak_probe_evidence.py. Complementary to
+          # soak_run_probe's retrieval_channel -- this extractor is the independent
+          # evidence the scorer is supposed to see (counts and paths only). It had
+          # zero tests. Pins the #1644 class (reciting docs/REFERENCE.md in answer
+          # prose is NOT a retrieval), the 2026-08-21 grep false-negative
+          # (tool_result content counts), answer-key contamination, and that CLI
+          # stdout never echoes transcript message text.
+          python3 -m unittest -v tests/test_soak_probe_evidence.py
           # The probe registry is the seeded arm's denominator. A dangling pointer
           # silently invalidates a probe, so verify it in CI rather than on trust.
           python3 util/soak_ledger.py verify-probes
