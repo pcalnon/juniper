@@ -179,6 +179,78 @@ this is 4000 uniform. The duration is restored, the workload is not the same one
 because the old one was incoherent by construction. This bears directly on item 1.1: PF-1 output is
 what becomes the Q-8 baseline, so the baseline must be cut from post-fix runs only.
 
+### 2.2 Item 1.5 decided — a `step_count` mismatch FAILS, behind an identity precondition
+
+**Owner decision, 2026-09-04: a `step_count` mismatch is a FAILURE, not a warning.** That is the
+tight half of the split gate doing its job — the work count is exact by construction and
+contention-immune, so a change in it is a real statement about the code, never about the host.
+
+The rest of this section is what the decision needs in order to survive contact, and it is the part
+the original 1.5 row warned about: *"without a documented waiver path the gate gets switched off the
+first time it fires correctly."*
+
+#### The precondition: identity before comparison
+
+A mismatch only means *"the code regressed"* when both sides ran the **same workload**. So the
+comparator's **first** check is identity, and the two outcomes are kept distinct:
+
+| condition | verdict | exit |
+|---|---|---|
+| workload fingerprints differ | **REFUSE** — invalid comparison, not a regression | non-zero, but a *different* code from a failure |
+| fingerprint unknown on either side | **REFUSE** — cannot compare what cannot be identified | as above |
+| same workload, `step_count` differs | **FAIL** — work regression | failure |
+| same workload, `step_count` matches | PASS; speed reported, never gated | 0 |
+
+Collapsing the first two rows into "fail" is how the gate would get switched off: an ordinary config
+edit would be reported as a code regression, everyone would learn the gate lies, and it would be
+disabled while still green.
+
+#### `config_sha256` cannot serve as that identity — measured, not assumed
+
+`registry.jsonl` carries a `config_sha256` per cell, and the obvious move is to compare it. It does
+not work: it hashes the whole materialised cell YAML **including `experiment.description`**, and
+PF-1's five repeats differ precisely there. Measured 2026-09-03 on
+`pf1-cascor-spiral-repeats-20260903T040803Z`: **five cells, five different `config_sha256` values.**
+A comparator using it would refuse every legitimate comparison, including a suite against its own
+baseline.
+
+`read_run_metrics.workload_fingerprint()` hashes the same YAML with the cosmetic keys
+(`experiment.description`, `experiment.name`) removed. `experiment.seed` is deliberately **not**
+cosmetic — two runs at different seeds are different workloads.
+
+Verified both directions:
+
+- **Stable across repeats** — `52184ba2…` for all five PF-1 cells.
+- **Moves when the workload moves** — pre-`cascor#618` reads `d09edcc1…`, post-fix reads
+  `52184ba2…`. So the "figures before and after 2026-09-02 are not comparable" boundary is detected
+  **mechanically**, not remembered.
+
+#### The waiver path
+
+A deliberate workload change is legitimate and must be landable. The escape is an explicit
+`--accept-work-change "<reason>"` on the comparator, which:
+
+- requires a **non-empty reason** (a bare flag is not an argument),
+- yields the verdict **`WAIVED`**, never `PASS` — the artifact records that the gate fired and a
+  human overrode it,
+- writes the reason into the comparison output, so the next reader sees *why* the work moved.
+
+This mirrors `make_baseline.py --accept-warnings`, which already refuses runs carrying
+`validation_warnings` unless the acceptance is recorded. Same principle: the escape exists, and
+using it leaves a trace.
+
+**The right response to a legitimate workload change is usually a NEW BASELINE, not a waiver** —
+baselines supersede by name and are cheap. The waiver is for the case where a comparison must be
+run before a new baseline can be blessed.
+
+#### What this does not decide
+
+Whether the run tier ever gates **CI** remains open (§6 of the P1 design,
+[`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md)).
+Item 1.5 fixes what the comparator *does*; wiring its exit code to a required check is a separate
+owner decision, and until it is taken the comparator is an operator tool whose failure is read by a
+person.
+
 ### Wave 1 — The gate contract (cascor only; the whole point of the lane)
 
 | #   | Item | Repo | Size | Depends on |
@@ -187,7 +259,7 @@ what becomes the Q-8 baseline, so the baseline must be cut from post-fix runs on
 | 1.2 | `util/experiments/compare_baseline.py` — the **split** comparator. Work half: `total_steps` must match the baseline **exactly**; any difference fails. Speed half: reports `overall_mean_seconds` delta and **never fails**, per decision 2 in §7 of the instrument-resolution results. Emits a typed verdict, and refuses to compare when `HOST.json` fingerprints differ. | juniper-ml | M | 1.1 |
 | 1.3 | `tests/test_compare_baseline.py` + `tests/test_make_baseline.py`, both **negative-controlled** — a synthetic `total_steps` change must fail the gate, and a synthetic 50% speed change must **not**. Wire both into `ci.yml` (the test list is hand-maintained; new suites do not self-register). | juniper-ml | S | 1.2 (same PR acceptable) |
 | 1.4 | Surface the comparator verdict in `run_suite.py`'s `REPORT.md` and add a `comparison` block to `aggregate.csv`. **`aggregate.csv` currently carries `wall_seconds` only**, which is the de-ratified metric — a reader who trusts it analyses the wrong quantity with nothing flagging it. | juniper-ml | S | 1.2 |
-| 1.5 | **Owner decision, not code**: what a `total_steps` mismatch *means* operationally. It is a true statement that work changed; it is not automatically a regression (a deliberate algorithm change moves it too). Needs a documented waiver path, or the gate will be disabled the first time someone legitimately changes the workload. | juniper-ml | S | 1.2 |
+| 1.5 | **DECIDED 2026-09-04 — a `step_count` mismatch FAILS.** Full rule, including the identity precondition and the waiver path, in §2.2 of this document. **Owner decision, not code**: what a `total_steps` mismatch *means* operationally. It is a true statement that work changed; it is not automatically a regression (a deliberate algorithm change moves it too). Needs a documented waiver path, or the gate will be disabled the first time someone legitimately changes the workload. | juniper-ml | S | 1.2 |
 
 ### Wave 2 — Execute the scenarios that have never run
 
