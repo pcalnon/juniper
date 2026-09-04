@@ -241,6 +241,25 @@ def retrieval_channel(parsed: dict, pointer: str) -> dict:
     }
 
 
+def redact_reveal_for_scorer(reveal_stdout: str) -> str:
+    """Drop the coverage tally from ``--reveal`` so the scorer cannot see corpus progress.
+
+    ``soak_next_probe.py --reveal`` prints ``post-interv.  : N run(s)``. An earlier
+    version embedded that stdout verbatim in ``scoring_packet.md``, so the isolated
+    scorer read a coverage number sitting beside the discriminator -- the one
+    artifact built to keep the scorer from having a stake in how the corpus is
+    progressing (finding 3 of
+    ``notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md``).
+
+    ``startswith("post-interv.")`` is load-bearing: a whole-line ``in`` search
+    would also drop a discriminator that merely *named* the coverage line.
+    """
+    return "".join(
+        ln + "\n" for ln in reveal_stdout.splitlines()
+        if not ln.startswith("post-interv.")
+    )
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe-id", default=None)
@@ -383,16 +402,7 @@ def main() -> int:
             pointer = ln.split(":", 1)[1].strip()
     channel = retrieval_channel(parsed, pointer)
 
-    # REDACTION. `--reveal` prints a "post-interv. : N run(s)" coverage line, and an
-    # earlier version embedded its stdout verbatim in the scoring packet -- so the
-    # supposedly isolated scorer read a coverage number sitting beside the
-    # discriminator. The whole point of separating the scorer from the orchestrator
-    # is that the scorer has no stake in how the corpus is progressing; handing it
-    # the tally defeats that in the one artifact built to implement it.
-    scorer_reveal = "".join(
-        ln + "\n" for ln in reveal.stdout.splitlines()
-        if not ln.startswith("post-interv.")
-    )
+    scorer_reveal = redact_reveal_for_scorer(reveal.stdout)
 
     ok = bool(parsed["answer"]) and not parsed["result"].get("is_error")
     status = {

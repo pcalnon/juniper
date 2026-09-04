@@ -599,6 +599,13 @@ jobs:
           # never reported as a scored miss: no pointer hit is consistent with a
           # correct source-recovered answer as well as a wrong one.
           python3 -m unittest -v tests/test_soak_run_probe.py
+          # tests/test_soak_run_probe_scorer_redaction.py: --reveal prints a
+          # "post-interv. : N run(s)" coverage line. An earlier version embedded
+          # that stdout verbatim in scoring_packet.md, so the isolated scorer
+          # read a coverage tally beside the discriminator (finding 3 of the
+          # soak session-role analysis). Complementary to test_soak_run_probe.py
+          # -- that suite never assembles a scoring packet.
+          python3 -m unittest -v tests/test_soak_run_probe_scorer_redaction.py
           # The probe registry is the seeded arm's denominator. A dangling pointer
           # silently invalidates a probe, so verify it in CI rather than on trust.
           python3 util/soak_ledger.py verify-probes
