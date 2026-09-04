@@ -857,6 +857,14 @@ jobs:
           # Documented in AGENTS.md but never wired into this job until R-6 -- so the stall_seconds
           # passthrough the P4 suites now depend on was itself ungated.
           python3 -m unittest -v tests/test_run_suite.py
+          # tests/test_run_suite_gate_metrics.py: complementary leftover ml#1643 cannot see.
+          # test_run_suite.py only asserts HARDCODED step_count / mean_step_seconds headers
+          # and the strings DE-RATIFIED / work invariant / single workload. Those labels
+          # are hardcoded in aggregate(), so _gate_metrics returning {} still PASSes.
+          # This suite pins the VALUES, HOLDS vs BROKEN vs not-measured, and that the
+          # sibling import is not wrapped in try/except ImportError (blank columns look
+          # identical to an unmeasured suite). Hermetic; no live stack.
+          python3 -m unittest -v tests/test_run_suite_gate_metrics.py
           # tests/test_list_runs.py: hermetic tests for util/experiments/list_runs.py, the Wave 7.2
           # safety-gated run lister/pruner -- state classification, --older-than, and the prune
           # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.
