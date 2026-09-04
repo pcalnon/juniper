@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.23
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,6 +22,7 @@
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Canopy E2E Matrix Writes](#canopy-e2e-matrix-writes)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
@@ -833,6 +834,8 @@ Troubleshooting:
 
 `util/isolated_stack.bash` brings up a **throwaway** data / cascor / canopy trio on non-default ports so the training-runtime E2E checklist can run without touching the operator host stack (`8100` / `8201` / `8050`) or the deploy Docker stack. The primary recipe is [`notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md`](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md); this section is the operator contract for the helper.
 
+Recording click-by-click verdicts into the 298-row matrix is a **separate write path**: [Canopy E2E Matrix Writes](#canopy-e2e-matrix-writes).
+
 | Utility | Purpose | Key Overrides |
 |---------|---------|---------------|
 | `util/isolated_stack.bash --up` | Create the data venv, then launch data → cascor → canopy (health-gated); a mid-leg failure tears the partial trio back down | `JUNIPER_E2E_DATA_PORT`, `JUNIPER_E2E_CASCOR_PORT`, `JUNIPER_E2E_CANOPY_PORT`, `JUNIPER_E2E_HEALTH_TIMEOUT`, `JUNIPER_E2E_DATA_EXTRAS`, `JUNIPER_E2E_RUN_DIR`, `JUNIPER_E2E_*_CONDA` / `*_DIR` |
@@ -966,6 +969,95 @@ Troubleshooting:
 | Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
 
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
+
+---
+
+## Canopy E2E Matrix Writes
+
+The ledger is [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md) (298 rows). Hand-editing a status cell is how a neighbouring row silently acquires a verdict nobody measured. Four ad-hoc tools write or read that ledger; they are **not** interchangeable.
+
+Companion plan: [`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md). Evidence: [`JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md). Bring-up stays in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
+
+### Which tool
+
+| Job | Tool | Default | Writes if some rows fail? |
+|-----|------|---------|---------------------------|
+| After a run, fill empty `status` cells from `statuses.tsv` / `rowlog.md` | `util/ad-hoc/e2e_matrix_fill.py` | **dry-run** (`--write` to apply) | No write unless `--write`. Exit `1` if nothing to fill. |
+| Set named rows that **all currently hold the same** status | `util/ad-hoc/2026-09-02_matrix_set_verdicts.py` | **writes immediately** (no dry-run) | **No.** Any missing / `--from` mismatch → exit `1`, file bytes unchanged. |
+| Re-score **exactly** the rows a fix re-opened, regardless of current status | `util/ad-hoc/e2e_matrix_rescore.py` | **dry-run** (`--write` to apply) | **Yes, the found rows.** Missing ids are a stderr WARNING; exit `0`. |
+| List placeholder `status` cells from the ledger | `util/ad-hoc/e2e_unfilled_rows.py` | read-only | n/a |
+
+Do **not** plan the next segment from `util/ad-hoc/e2e_row_coverage.py`. That script is an estimator over verdict records: it mis-reads compressed enumerations and over-credits rows whose only record is `pending …`. Segment 15's first handoff draft would have re-driven two already-`PASS` rows and dropped three unfilled ones. `e2e_unfilled_rows.py` reads the matrix with the filler's own pipe splitter and placeholder set.
+
+Do **not** use `e2e_matrix_fill.py --overwrite` to re-score a named subset. `--overwrite` rewrites **every** cell any verdict source covers, including hand-authored `INCONCLUSIVE` / `DIVERGENCE …` cells that no TSV reproduces. That is why `e2e_matrix_rescore.py` exists.
+
+### How to run
+
+```bash
+# Ledger: what is still a placeholder? (plan from this, not from e2e_row_coverage.py)
+python3 util/ad-hoc/e2e_unfilled_rows.py
+
+# After a drive: newest run FIRST (first source that carries a row wins)
+python3 util/ad-hoc/e2e_matrix_fill.py \
+  --verdicts reports/e2e/<NEWEST>/statuses.tsv \
+  --verdicts reports/e2e/<OLDER>/rowlog.md
+python3 util/ad-hoc/e2e_matrix_fill.py --verdicts reports/e2e/<NEWEST>/statuses.tsv --write
+
+# Named rows that all currently say BLOCKED (no dry-run — review the --from value)
+python3 util/ad-hoc/2026-09-02_matrix_set_verdicts.py \
+  --matrix notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md \
+  --from BLOCKED --set M-TOPOLOGY-09=PASS --set M-TOPOLOGY-12=FAIL
+
+# After a fix: touch only the re-opened rows (dry-run first)
+python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --row M-DATASET-02 --status PASS
+python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --write
+```
+
+### Contracts verified against source
+
+**Fill** (`e2e_matrix_fill.py`):
+
+- Locates the `status` column **by header name per table**. Column sets differ (C2.4 WS-badge vs M-*); a fixed index silently writes into the wrong column.
+- Splits on unescaped pipes only (`\|` stays inside its cell). A naive split turned C2.2-04 (`display:block\|none`) into an extra phantom cell and wrote the verdict into the previous column.
+- Refuses a write that would change the row's cell count (exit `2`).
+- Namespaces with a status cell: `C2.*` and `M-*` only. W-lane ids (`W3-*`, `W5-*`, …) are numbered prose steps — reported as no-matrix-row, not an error.
+- `--verdicts` is repeatable. Sources are consulted in order; **first source wins**. Pass the newest run first.
+- Range / slash tokens (`M-TOPOLOGY-01..06,09..18`, `M-PARAMETERS-01/02/03`) expand; lane suffixes `-L` / `-D` become `PASS (LIVE arm)` / `PASS (DEMO arm)` so a single-arm drive cannot fold onto the other arm.
+- Non-terminal prefixes (`pending`, `todo`, `in progress`, `deferred`, `not run`) never reach a status cell.
+- Default `--max-len 44`; `shorten` drops a trailing rider rather than amputating a finding id mid-parenthesis.
+- Without `--overwrite`, an already-filled cell is left alone (placeholders: empty, `—`, `-`, `--`, `TBD`, `n/a`).
+- Exit: `0` ok, `1` nothing to fill, `2` misuse / unreadable input / cell-count refuse.
+
+**Set-verdicts** (`2026-09-02_matrix_set_verdicts.py`):
+
+- **No dry-run.** A successful `--from` match writes the file.
+- `--from` is required and applies to **every** named row. Mixed current statuses need two invocations (or use rescore).
+- Status is `cells[-2]` after a **naive** `line.split("|")` — last data cell. Do **not** use this tool on a row whose cells contain `\|`; use fill/rescore, which share `split_row`.
+- Row identity is `cells[1]` exact match (`M-TOPOLOGY-09` will not retarget `M-TOPOLOGY-090`). An id that appears only in a later cell is ignored.
+- Atomic: one bad `--set` among two updates **neither** row.
+- Exit: `0` all updated, `1` any missing / `--from` mismatch, `2` bad `ROW=VERDICT` syntax.
+
+**Rescore** (`e2e_matrix_rescore.py`):
+
+- Reuses fill's `split_row` / `status` header lookup. Cell-count change → exit `3`, no write of that line.
+- Refuses a status that starts with `pending` (exit `2`).
+- Missing `--row` ids: stderr WARNING, **still writes the found rows**, exit `0`. Confirm the printed list before `--write`.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Neighbouring row now says PASS | Hand-edit, or `set_verdicts` on a row with an escaped pipe (naive split). Use the tools; dry-run fill/rescore first |
+| `set_verdicts` wrote immediately | It has no dry-run. Review `--from` / `--set` before invoking |
+| `rescore --write` landed 1 of 3 rows | Missing ids warn and still write. Check the WARNING list |
+| `--overwrite` clobbered `DIVERGENCE D-1 …` | Expected. Use `e2e_matrix_rescore.py --row` for a named subset |
+| W-lane verdict "didn't fill" | Those rows have no status cell. Expected `no-matrix-row` |
+| Older `rowlog.md` overwrote a newer TSV | First source wins. Pass newest `--verdicts` first |
+| Planned from `e2e_row_coverage.py` | Estimator. Use `e2e_unfilled_rows.py` against the ledger |
+| Fill wrote into the FA / AUTO column | Old index-guessing class. Current fill uses the `status` header; do not reintroduce a fixed index |
+| `pending demo lane` in a status cell | Non-terminal. Fill drops it; rescore refuses `pending*` |
+
+Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § Canopy E2E matrix writes.
 
 ---
 
@@ -1478,6 +1570,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Observed live 2026-08-16 on campaign `e-j-h2h-wide-cap6`: a dry run called the orchestrator, the experiment cascor service, and the watchdog all `WOULD REAP` while healthy. Over-protection is the deliberate safe direction — a stale pidfile still protects.
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
+- Canopy E2E matrix writes (ad-hoc) -- `e2e_matrix_fill.py` (dry-run default; `status` header per table; escaped-pipe split), `2026-09-02_matrix_set_verdicts.py` (**no dry-run**; `--from` + last-cell write; naive `line.split("|")`), `e2e_matrix_rescore.py` (named rows; missing ids warn and still write). Ledger reader: `e2e_unfilled_rows.py`. Do not plan from `e2e_row_coverage.py`. Operator surface: [§ Canopy E2E Matrix Writes](#canopy-e2e-matrix-writes).
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
@@ -2999,6 +3092,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.23  | 2026-09-04 | Canopy E2E matrix writes: fill is dry-run / header-located; set-verdicts has no dry-run and is atomic `--from`; rescore writes found rows even when some `--row` ids are missing. Do not plan from `e2e_row_coverage.py`. Skipped 0.6.16–0.6.22 (in-flight docs PRs) |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |

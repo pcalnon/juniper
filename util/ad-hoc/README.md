@@ -79,6 +79,21 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Canopy E2E matrix writes (operational)
+
+The 298-row ledger is `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`. Do not hand-edit status cells.
+
+| Script | Default | Load-bearing constraint |
+|--------|---------|-------------------------|
+| `e2e_matrix_fill.py` | dry-run (`--write` to apply) | Locates `status` by header per table; splits on unescaped pipes; first `--verdicts` source wins (newest first). `--overwrite` clobbers hand-authored `DIVERGENCE` cells — use rescore for a named subset. |
+| `2026-09-02_matrix_set_verdicts.py` | **writes immediately** | `--from` must match every named row. Atomic: one miss updates nothing. Naive split on every pipe — do not use on escaped-pipe rows. |
+| `e2e_matrix_rescore.py` | dry-run | Named `--row` only. Missing ids warn **and still write** the found rows. |
+| `e2e_unfilled_rows.py` | read-only | Ledger reader. Do **not** plan from `e2e_row_coverage.py` (estimator). |
+
+W-lane ids have no status cell (`no-matrix-row`, not an error). Operator contract: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../../docs/REFERENCE.md#canopy-e2e-matrix-writes).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

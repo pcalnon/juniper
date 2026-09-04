@@ -8,6 +8,7 @@
 **Status**: **DRAFT — AWAITING OWNER APPROVAL**
 **Date**: 2026-08-08
 **Companion document**: `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md` (the master plan; scope, phases, stack bring-up, exit criteria)
+**Operator write path**: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../docs/REFERENCE.md#canopy-e2e-matrix-writes) — fill / set-verdicts / rescore. Do not hand-edit status cells.
 
 **Validation record**:
 
