@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.20
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -1000,7 +1000,7 @@ Constraints (verified in the checkers):
 - Qualified symbols only (`func:name`, `method:Class.name`, …). Bare-name relocation is **not** a downgrade (SF3).
 - `Allow-Symbol-Loss: *` / blanket wildcards are **rejected** (waive nothing).
 - `Allow-Docs-Rewrite: *` **is** accepted (waives every deleted `.md` in scope) — opposite of the symbol wildcard rule.
-- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the advisory CI job via `--advisory` (WARN-only exit 0). They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
+- Per-PR labels `allow-symbol-loss` / `docs-rewrite` only demote the per-PR job via `--advisory` (WARN-only exit 0). That greens the required `Sequence Safety` context on the PR. They are invisible to `push:main` `main-verify` — use the commit trailer for post-merge green.
 - Exit codes: `0` clean, `1` ≥1 unwaived FAIL, `2` usage / bad ref. Gates: `tests/test_symbol_loss_check.py`, `tests/test_docs_additions_check.py`.
 
 ### `predict_merge.py` operator contract
@@ -1951,7 +1951,8 @@ Jobs:
 7. **release-train-archive-guard** (`pull_request` + `merge_group`) -- Runs `util/release_train/archive_guard.py` over the PR's changed files to prove the exempt notes-archive PR is add-only / path-confined / name-valid / single-purpose (plan §7.2 / step 3.1). SKIPs (passes) for any PR that doesn't touch `notes/releases/`, so it never blocks a normal PR; a violation fails only this check (the PR falls back to the standard owner gate).
     It also admits `merge_group` so the required context re-posts on a queued merge commit — but `merge_group` has no `github.base_ref`, so the job short-circuits to a green notice before any checkout and every real work step stays
     `if: github.event_name == 'pull_request'`. Standalone (and absent from the Quality Gate `needs:`) so the owner can later mark it a **required** status check (step 3.3). Gate: `tests/test_archive_guard_workflow.py`.
-8. **sequence-safety** (ADVISORY; `pull_request` + `merge_group`) -- Installs `juniper-ci-tools` (>=0.8.0) + runs `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` over the PR base..HEAD (P2 G1/G2); uploads `sequence-safety-report` (G5-vi). Standalone, ABSENT from the Quality Gate `needs:` so its skip-on-push never fails the gate — soak-advisory, promoted in the ruleset later, never via the QG `needs:`. WARN-only `allow-symbol-loss` / `docs-rewrite` label hatch.
+8. **sequence-safety** (`pull_request` + `merge_group`) -- Installs `juniper-ci-tools` (>=0.8.0) + runs `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` over the PR base..HEAD (P2 G1/G2); uploads `sequence-safety-report` (G5-vi).
+    Standalone, ABSENT from the Quality Gate `needs:` so its skip-on-push never fails the gate. **Required** in `juniper-ml-rules` (context `Sequence Safety`, live GET 2026-09-04) — Quality Gate green does not mean mergeable. Never fold this job into QG `needs:`. WARN-only `allow-symbol-loss` / `docs-rewrite` label hatch greens the PR check; trailers cover `main-verify`.
 9. **fleet-pr-lint** (ADVISORY; `cursor/*` PRs only) -- Warnings-only signals to the step summary (P2 G5-iv; flood §4 item 8 phase 4): commit count, `black --check`, fan-out, and AGENTS.md / cheatsheet hotspot notes. Never fails, never comments.
 10. **required-checks** -- Quality gate enforcing all checks must pass
 
@@ -2076,7 +2077,7 @@ Rollout and rationale: [juniper-ml#434](https://github.com/pcalnon/juniper-ml/is
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
 
 - `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the `Sequence Safety` and advisory `Fleet PR Lint` (`cursor/*`) standalone jobs, build, docs, security, dependency docs.
-  - **`Sequence Safety` is a REQUIRED status check**, despite reading as advisory. Its `allow-symbol-loss` / `docs-rewrite` labels are WARN-only and do **not** unblock a merge; only an `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite: <path>` **commit trailer** waives a finding.
+  - **`Sequence Safety` is a REQUIRED ruleset context**, despite the job banner still saying advisory and despite being absent from Quality Gate `needs:`. Labels `allow-symbol-loss` / `docs-rewrite` add `--advisory` (WARN, exit 0) and **do** green the PR check; they do **not** cover post-merge `main-verify`. Only an `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite: <path>` **commit trailer** waives the finding inside the screens and travels in history.
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (P2 gate G3): on `push:main` (per-SHA, no-cancel) it installs `juniper-ci-tools` (>=0.8.0) and runs the `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror + failure-only `notify`. G3.1 CATCH-UP BASE = last successful main-verify tip that is an ancestor of HEAD, else `github.event.before`, else `HEAD^1`.
 - `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI **Gate 1** two-phase verify (TestPyPI-only download, then local-wheel bare -> `[clients]` -> `[tools]` against PyPI only; never `--no-deps` on the installs, never `--extra-index-url`, never the heavy extras; provenance fetch is a 10×6s poll, not `sleep 30`), then PyPI (`needs: testpypi`, OIDC).
   The `build` job is tag-guarded to `v*` Releases so a `juniper-<pkg>-v*` Release cannot fire the meta publisher.
@@ -2252,7 +2253,7 @@ gh run download <run-id> -n sequence-safety-report
 | Tracking issue still open after green | Expected — notify does not auto-close. Owner closes after adjudication. |
 | Battery list drift vs `ci.yml` | Keep both enumerations in lockstep in the same PR (see SYNC NOTE in `main-verify.yml`). |
 
-Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety` job (absent from the Quality Gate `needs:`). Fleet predicted-merge shells out to the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py` → the `juniper-symbol-loss-check` console script (juniper-ci-tools >=0.8.0); the 2026-07-28 flood-census ad-hoc screens are retired under `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix).
+Related: the per-PR `sequence-safety` job in `ci.yml` is a **required** ruleset context (absent from Quality Gate `needs:`). Fleet predicted-merge shells out to the same symbol CLI on a throwaway merge result (`util/fleet_triage/predict_merge.py` → the `juniper-symbol-loss-check` console script (juniper-ci-tools >=0.8.0); the 2026-07-28 flood-census ad-hoc screens are retired under `util/ad-hoc/retired/` with a `_RETIRED-2026-08-05` suffix).
 
 ## Experiment Stack Utilities
 
@@ -3001,7 +3002,8 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
-| 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
+| 0.6.20  | 2026-09-04 | Sequence Safety is a **required** `juniper-ml-rules` context (live GET 2026-09-04), not advisory: Quality Gate green does not mean mergeable. Labels green the PR check only; trailers cover `main-verify`. QG `needs:` also lists `ruleset-scope-guard` + `sops-validation`. |
+| 0.6.15  | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
 | 0.5.0   | 2026-05-21 | Added `[servers]` and `[tools]` extras; expanded `[all]` to install every Juniper package                                                                                |
@@ -3116,11 +3118,11 @@ Design context: [`notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATIO
 | Surface | Workflow / job | When | Gate role |
 |---------|----------------|------|-----------|
 | G4 pre-commit split | `ci.yml` → `pre-commit` | every CI event | **Required** (Quality Gate) |
-| Per-PR sequence-safety | `ci.yml` → `sequence-safety` | `pull_request` + `merge_group` only | **Advisory** (absent from Quality Gate `needs:`) |
+| Per-PR sequence-safety | `ci.yml` → `sequence-safety` | `pull_request` + `merge_group` only | **Required** in the branch ruleset (`Sequence Safety`); **absent** from Quality Gate `needs:` |
 | Fleet PR lint | `ci.yml` → `fleet-pr-lint` | `pull_request` whose head starts with `cursor/` | **Advisory** (never fails, never comments) |
 | Post-merge net | `main-verify.yml` | every `push:main` + dispatch | **Bypass-proof** (owner/Cursor App cannot skip by merging green) |
 
-Quality Gate (`required-checks`) needs exactly the following: `pre-commit`, `tests`, `build`, `docs`, `security`, `claude-yaml-audit`, `dependency-docs`. Folding `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` into that `needs:` would fail every `push:main` (those jobs skip on push while the gate is `if: always()`).
+Quality Gate (`required-checks`) needs exactly the following: `pre-commit`, `tests`, `build`, `docs`, `security`, `claude-yaml-audit`, `ruleset-scope-guard`, `dependency-docs`, `sops-validation`. Folding `sequence-safety` / `fleet-pr-lint` / `release-train-archive-guard` into that `needs:` would fail every `push:main` (those jobs skip on push while the gate is `if: always()`). The Quality Gate can therefore be green while Sequence Safety is red — that does **not** mean the PR is mergeable.
 
 #### Security soft-fail
 
@@ -3163,13 +3165,15 @@ Constraints (from the workflow comments / Proposal P2 §4):
 
 Runs `juniper-symbol-loss-check` then `juniper-docs-additions-check` (juniper-ci-tools console scripts) over `<BASE>..HEAD`, uploads `sequence-safety-report` (`symbol-report.json` + `docs-report.json`, 30-day retention).
 
+**Required in the branch ruleset; absent from Quality Gate `needs:`.** Live `juniper-ml-rules` `required_status_checks` (GET 2026-09-04) includes the context `Sequence Safety`. A red Sequence Safety check **blocks merge** even when Quality Gate is green. The job stays out of `required-checks.needs` because it skips on `push:main` while that gate is `if: always()` — folding it in would fail every push. Promotion already landed (2026-08-18); do not add it to Quality Gate `needs:`.
+
+The `ci.yml` job banner still says "ADVISORY" (soak-convention wording from before the ruleset promotion). Believe the ruleset, not the banner. `Fleet PR Lint` is the one that is still truly advisory (always `exit 0`, not a ruleset context).
+
 | Lever | Effect |
 |-------|--------|
-| PR label `allow-symbol-loss` / `docs-rewrite` | Adds `--advisory` for that screen only → WARN findings, exit 0. Read live via `gh pr view` (re-run job; no re-push). |
+| PR label `allow-symbol-loss` / `docs-rewrite` | Adds `--advisory` for that screen only → WARN findings, exit 0. That **does** green the required PR context. Read live via `gh pr view` (re-run job; no re-push). Invisible to `main-verify`. |
 | Commit trailer `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` | Primary, auditable waiver inside the modules; travels in history → also covers post-merge `main-verify`. |
 | `merge_group` event | No PR object → **strict** (label hatch unavailable). |
-
-Promote to REQUIRED later in the **branch ruleset**, never by adding the job to Quality Gate `needs:`. Soak convention mirrors [CodeQL](#codeql-analysis).
 
 Local repro:
 
@@ -3201,7 +3205,7 @@ Gate: `tests/test_ci_fleet_pr_lint.py` (the G4 pre-commit split and the label ha
 
 | Symptom | Check / Fix |
 |---------|-------------|
-| Per-PR Sequence Safety red, Quality Gate green | Expected while advisory — inspect the `sequence-safety-report` artifact; waive with commit trailers (or owner label for WARN-only) |
+| Per-PR Sequence Safety red, Quality Gate green | Expected split: Sequence Safety is not in QG `needs:`, but it **is** a required ruleset context, so the PR stays BLOCKED. Inspect `sequence-safety-report`; waive with commit trailers (owner labels green the PR check only) |
 | Label greens Sequence Safety but `main-verify` fails after merge | Labels are PR-only; put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a commit in the landed range |
 | Merge queue stuck with no required check | Confirm `ci.yml` **and** `codeql.yml` still have `on.merge_group`; `Analyze (python)` must re-post on queue runs |
 | Rapid main merges “lost” a CI run | `ci.yml` push group must be per-SHA with cancel disabled; `main-verify` is always per-SHA / no-cancel |
@@ -3346,6 +3350,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.20
 **Maintainer:** Paul Calnon
