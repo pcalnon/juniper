@@ -1,0 +1,16 @@
+[t=    573ms] navigating to http://127.0.0.1:8051
+[t=   6131ms]   welcome modal not present/visible
+[t=  14269ms]   modal cleared after 1 attempt(s)
+[t=  50769ms] wake_topology: {'already': False, 'woke': True, 'elapsed_s': 30.8, 'attempts': 1}
+[t=  66650ms] heatmap rendered=True in 12.8s  plot_area=0.7 n_yaxes=41
+[t=  66650ms]   (a rendered heatmap PROVES -raw-topology-store holds data; anything reading it as empty is broken)
+[t=  67389ms]   network-visualizer-raw-topology-store      el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->None truthy=False
+[t=  69945ms]   network-visualizer-topology-store          el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->None truthy=False
+[t=  72506ms]   network-visualizer-view-state              el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->None truthy=False
+[t=  75703ms]   network-visualizer-selected-nodes          el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->None truthy=False
+[t=  78352ms]   metrics-panel-metrics-store                el=False dashprivate=<absent>               redux=<not-found-in-layout>    _store->None truthy=False
+[t=  78352ms] 
+[t=  78352ms]   VERDICT: _store() returned falsy for 0 of 5 present stores
+[t=  78352ms]   !! -raw-topology-store reads EMPTY while its heatmap is RENDERED -- the READER is broken,
+[t=  78352ms]      not the product. Do not score M-TOPOLOGY-18 off this reader.
+[t=  78352ms] probe -> /tmp/juniper-e2e/store_read_probe.json

@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Status**: Living register — verified against working copies on 2026-08-14
-**Last Updated**: 2026-09-02
+**Last Updated**: 2026-09-03
 **Source**: [`JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md`](JUNIPER_2026-08-13_JUNIPER-ECOSYSTEM_API-DESIGN-AND-IMPLEMENTATION-PRIMER.md)
 
 ---
@@ -40,6 +40,95 @@ Where a claim was arguable, it is included with **Confidence: low** and a note, 
 
 Every `OPEN` in this document was confirmed by reading the file **today**. Line numbers are current and may differ from the primer's, which are preserved separately so both anchors resolve. Four extraction passes ran independently over disjoint ranges of the primer; overlapping findings were merged, and each merged entry carries the union of its evidence. A fifth pass audited every primer line anchor for faithfulness, which is what produced the `†` markers above.
 
+### Closing a row — the five touches (resident: do not move this to a handoff)
+
+**Recorded here 2026-09-03, after it went missing.** This protocol governed every close from
+round ~25 onward, but it was written down **only in the handoff chain** — each round's document
+restating it for the next. Round 32 dropped the section, and a residency check then found the
+definition in no `notes/` document, no `docs/` page, no `AGENTS.md`, and no agent memory —
+while §4.1's correction note dated 2026-08-28 still *cites* it by name ("the fifth touch is
+necessary but not sufficient").
+A rule that lives only in the document that hands off the work stops existing the first time one
+successor omits it, and nothing fails loudly when it does. It lives in the register now.
+
+Closing one entry touches **five** places. Miss one and the register disagrees with itself while
+every count-based check still passes:
+
+1. Its **§4 table row** — status cell becomes `**FIXED (<pr>)**`.
+2. Its **§3 detail entry** Status field — *only if the row has one*; most do not. **A row with no §3
+   entry needs four touches, not five** — do not go looking for a detail entry to edit.
+3. Its **§5.1 verification row** — the PR and what was actually verified.
+4. The **§2 Status paragraph** — add the id to the enumerated list and update the open count.
+5. The header **`Last Updated`** date.
+
+Then run a whole-file **`grep -n 'APD-<ID>'`** and **read every hit** — ids also live in prose
+notes, cross-references and other rows' cells. That same 2026-08-28 note records why reading is
+required and not
+just grepping: a closure once left a sentence standing because it named the ids *inside a
+parenthetical about a different row*, so the grep found it and the author skimmed past it.
+
+**`**FIXED` is the machine-readable token.** `util/ad-hoc/register_open_set.py` keys on it
+(`\| (APD-[A-Z]+-\d+[ab]?) ` then `"**FIXED" in line`). A WON'T FIX close still writes `**FIXED`
+with the qualification *inside* the marker. Inventing a second marker leaves the row counted OPEN.
+
+**A correction-only register PR is legitimate** — closing nothing, fixing what drifted.
+
+**Cite this document by anchor text, not by its own line numbers.** Intra-document `:NNN` citations
+have gone stale in this register on essentially every round that edited it, and the handoff lineage
+has twice had to publish whole remapping tables (a `+15` shift after one PR, a `+16` after another).
+The failure is quicker than that suggests: the session that wrote this very section measured three
+line numbers, then added a note **earlier** in the file, and shipped all three pointing ~19 lines
+short — inside the same PR, in the paragraph warning about stale anchors. **Measuring a line number
+and then editing above it invalidates the measurement**, and nothing in review catches it. Quote the
+section name or a distinctive phrase; those survive edits, and a reader can `grep` them.
+
+### "Parked" has three shapes, and that is why the count keeps changing
+
+**Recorded 2026-09-03.** Successive rounds have counted the parked/unparked split as **14/8**, then
+**16/6**, then **14/4** — each session concluding its predecessor had miscounted, each re-deriving
+carefully from source. Nobody miscounted. **The register never defined what parks a row**, and park
+text is written in three structurally different places:
+
+| Shape | Where the sentence physically sits | Example |
+|---|---|---|
+| **Row-level** | In the row's own §4 entry or §3 detail | `APD-CASCOR-005` — "owner decision, not a task"; `APD-ML-001` — "Record it; do not action it" |
+| **Group-level** | One sentence parking a *named set*, with nothing in the member rows | `APD-DATA-026`–`-032` etc. — "Treat the remaining ten as one owner decision; do not action any of them unilaterally". **`APD-DATA-028` has no row-level park at all**, only this |
+| **Foreign-cell** | Park language for row X living inside **row Y's** §5.1 verification cell | `APD-ECO-001` — "blocked on `APD-ECO-001`'s owner decision", inside `APD-CCLIENT-005`'s cell; `APD-ECO-003` — "which of their methods warrant the kwarg is part of that row's decision", inside `APD-RCLIENT-002`'s cell |
+
+Count only the first shape and 4 rows are parked. Count the first two and it is 14. Count all three
+and it is 16. **All three numbers are correct**; they answer three different questions, and the
+lineage has been arguing about arithmetic when the disagreement was definitional.
+
+**Operating rule: all three shapes park a row.** A park exists to stop a session actioning a row
+unilaterally; where the sentence ended up is an artifact of which round wrote it, not a statement
+about its force. The conservative reading can only ever *prevent* unilateral action, never license
+it, so it is the one that fails safe. That makes the split **16 parked / 2 unparked** at 18 open,
+the unparked two being `APD-DATA-018` and `APD-DATA-019` — which §4.1's note **"`APD-DATA-018` /
+`-019` — re-verified 2026-09-02"** restates as
+deliberately *not* part of the `juniper-data` REST group.
+
+**A "row-level park only" rule was proposed and is rejected here**, because it reads `APD-DATA-028`
+as disposable: that row's *only* protection is the group sentence. Adopting it would re-run the
+`APD-ECO-002` mis-park from the opposite direction — there, a row was parked by a bucket label with
+no reason of its own; here, a row would be *un*parked because its reason lives one paragraph away.
+
+**This does not license the reverse, either.** Unparked ≠ actionable. Both unparked rows still
+require an owner decision before any code can be written — `-018`'s cap is a rejection-vs-truncation
+and rows-vs-bytes question, `-019`'s remedy needs `total` estimated, cached or absent, and the last
+is a response-shape change for existing clients. **As of 2026-09-03 the set of rows a session may
+action without asking the owner first is empty**, and that is a fact about how far this register has
+been worked, not an obstacle to route around.
+
+**The limit of the sweep, found 2026-09-03: it is ID-keyed, so it cannot see a claim that names no
+ID.** `grep -n 'APD-<ID>'` finds every mention of an id; it finds nothing in a sentence like "three
+prefixes read zero" or "the third grouping to reach zero", which is *about* the register's state
+but names nothing. Such a sentence went stale for three days at `:139` after a correctly-executed
+four-touch close, precisely because the close was complete and the sweep was clean. **After a
+close, also re-read any sentence that counts or ranks something** — those are the ones no grep will
+route you to. `util/ad-hoc/register_status_crosscheck.py` covers the ID-keyed half by checking §4,
+§2 and §5.1 name the same ids from three independent reads; the ID-free half has no automation and
+is why this paragraph exists.
+
 ---
 
 ## 2. Summary
@@ -59,7 +148,9 @@ Every `OPEN` in this document was confirmed by reading the file **today**. Line 
 
 **Status:** the 96 entries above were all confirmed present in current source on 2026-08-14.
 **Seventy-eight have since been fixed** — `APD-DATA-002`, `APD-DATA-006`, `APD-DATA-034`, `APD-DATA-036`, `APD-CASCOR-002`, (2026-08-16) `APD-DATA-001` † / `APD-CASCOR-004` †, (2026-08-17) `APD-DATA-003` / `APD-CASCOR-006` † plus `APD-SVCCORE-003` / `APD-SVCCORE-010` / `APD-OBS-001`, and (2026-08-20) `APD-DATA-035` † / `APD-CASCOR-001b` plus `APD-CASCOR-001a`, then `APD-DATA-004`, and (2026-08-21) `APD-DCLIENT-001` / `APD-DCLIENT-003`, then `APD-CCLIENT-004` / `APD-RCLIENT-001` and `APD-CCLIENT-002`, then `APD-SVCCORE-008` / `APD-OBS-002`, and `APD-OBS-003` / `APD-OBS-004`, then (2026-08-22) `APD-DATA-009`, and (2026-08-23) `APD-DATA-013` / `APD-DATA-014`, then `APD-DATA-007`, and `APD-DATA-011` / `APD-DATA-012`, then `APD-DATA-010`, and `APD-SVCCORE-006` / `APD-SVCCORE-014`, then `APD-SVCCORE-009` / `APD-SVCCORE-017`, and (2026-08-24) `APD-SVCCORE-004` / `APD-SVCCORE-007`, then `APD-DCLIENT-002` and `APD-DCLIENT-007`, then `APD-CCLIENT-010` and `APD-RCLIENT-003`, and `APD-DCLIENT-005` / `APD-DCLIENT-006`, then `APD-DCLIENT-004` / `APD-CCLIENT-005`, and (2026-08-25) `APD-RCLIENT-002`, then `APD-CCLIENT-006`, and `APD-DCLIENT-008`, then `APD-CCLIENT-007` / `APD-CCLIENT-009` / `APD-CCLIENT-013`, and `APD-CCLIENT-012`, then `APD-CCLIENT-011`, and `APD-DATA-015`, then `APD-DATA-020` / `APD-DATA-021`, and (2026-08-26) `APD-DATA-023`, then `APD-DATA-025`, and `APD-ECO-002`, then `APD-DATA-005` / `APD-DATA-024`, and `APD-CASCOR-003` (partial), then (2026-08-28) `APD-CCLIENT-001`, and `APD-DATA-033`, then `APD-ECO-005`, and `APD-SVCCORE-011` / `APD-SVCCORE-015`, then `APD-SVCCORE-012`, and `APD-SVCCORE-001`, then `APD-SVCCORE-005`, and (2026-08-29) `APD-SVCCORE-013` / `APD-SVCCORE-016`, and `APD-ECO-006`, then (2026-08-30) `APD-RCLIENT-005`, and (2026-08-31) `APD-CCLIENT-008`, then (2026-09-01) `APD-ECO-007`, and (2026-09-02) `APD-DATA-016` — leaving **18 open**; each is marked at its detail entry and in its §4 table row, and all seventy-eight are recorded in [§5](#5-fixed-findings-before-and-since-the-primer) with their PR and verification.
-**`juniper-service-core` now has no open row at all** — the **third** grouping in this register to reach zero, after `juniper-observability` (4/4, closed by [ml#1245](https://github.com/pcalnon/juniper-ml/pull/1245)) and `juniper-data-client` (8/8, closed by [dclient#171](https://github.com/pcalnon/juniper-data-client/pull/171)). Re-derive with `util/ad-hoc/register_open_set.py`, grouping the open set by prefix; three prefixes read zero. Two of the sixteen closed as decisions rather than code changes (`APD-SVCCORE-007` disclosure, `APD-SVCCORE-016` won't-fix) and one as a docstring with its name deliberately unchanged (`APD-SVCCORE-013`); those three are closed, not waived, and each records the reasoning where the next reader will meet it.
+**Four groupings now have no open row at all**, in the order they reached zero: `juniper-observability` (4/4, closed by [ml#1245](https://github.com/pcalnon/juniper-ml/pull/1245)), `juniper-data-client` (8/8, closed by [dclient#171](https://github.com/pcalnon/juniper-data-client/pull/171)), `juniper-service-core` (16/16, 2026-08-29) and `juniper-cascor-client` (12/12 — thirteen `APD-CCLIENT-*` ids exist, but `-003` is retired into `-004`; closed by [cascor#610](https://github.com/pcalnon/juniper-cascor/pull/610) / [cclient#148](https://github.com/pcalnon/juniper-cascor-client/pull/148), 2026-08-31). **Do not trust that list to be current** — re-derive with `util/ad-hoc/register_open_set.py` and read which prefixes are absent from its open set. Of `juniper-service-core`'s sixteen, two closed as decisions rather than code changes (`APD-SVCCORE-007` disclosure, `APD-SVCCORE-016` won't-fix) and one as a docstring with its name deliberately unchanged (`APD-SVCCORE-013`); those three are closed, not waived, and each records the reasoning where the next reader will meet it.
+
+> *(Corrected 2026-09-03. This sentence read "the **third** grouping … three prefixes read zero" for the three days after `APD-CCLIENT-008` closed and made it four. **The close was not sloppy — it was complete.** `APD-CCLIENT-008` took all four of its touches: §4 table row, §5.1 verification row, the §2 status list above, and the header date. The sentence survived anyway because the §4 close protocol's whole-file sweep is **`grep -n 'APD-<ID>'`**, and this sentence **names no ID at all**. That is one step past `:634`'s warning, where the missed sentence at least contained IDs and only needed reading. **A claim about the register's own state that names no ID is invisible to the ID-keyed protocol** — so the ordinal and the derived count are now gone, and the standing instruction is to re-derive rather than read. Cross-checking the whole register for other ID-free state claims found no second instance; the severity claims below survive because they are about closed classes, which cannot go stale by closing more rows. `util/ad-hoc/register_status_crosscheck.py` pins the ID-keyed half: §4's `**FIXED` set, the §2 prose list and the §5.1 verification rows must name the same ids, and it reads all three independently.)*
 **The `Security` class and all three §2.3 drift groups are now closed.** What remains is `C` / `R` / `M` / `E` work with no shared theme left to exploit — each open row is now its own item rather than an instance of a pattern.
 **Every `Security` entry in this register is now `FIXED`.** All seven — `APD-DATA-001`–`-004`, `APD-CASCOR-004`, `APD-CASCOR-006`, `APD-SVCCORE-003` — are closed; every remaining open row is `C` / `R` / `M` / `E`. **`juniper-data` now has no open `Correctness` row either** — all ten are closed, and what is left there is `R` / `M` / `E`. That is a statement about this register's contents, not about the services: coverage is uneven by construction (§6), and `juniper-canopy` / `juniper-cascor-worker` were barely visited by the primer at all.
 That closes every item in §2.2's ranked list **and every copy-drift row in §2.3** — the `OPTIONS`/CORS row was the last one open, and fixing it in both forks is what finally made it encodable as a drift gate.
@@ -180,6 +271,25 @@ The first group is the actionable one, and it is the argument for a drift check:
 No drift gate can enforce this — three separately released packages share no code — so the enforcement is documentary: each package's `AGENTS.md` now carries an "exception context" section naming the three constraints a refactor must not break, and each cites the other two. That is weaker than `test_service_fork_drift.py` and is *supposed* to be: inventing a gate for packages with no shared code would be the same error as inventing a drift marker with no reference implementation.
 
 **`juniper-recurrence-client` is not a standalone repository.** It is a sub-package of the `pcalnon/juniper-recurrence` monorepo at `juniper-recurrence-client/juniper_recurrence_client/`. The §4.6 anchors are written bare and read as though the repo were its own; they are relative to that subdirectory.
+
+**Unfiled fork-drift observation — worker-disconnect cleanup, named differently in each fork.**
+*Not a numbered entry: it is register-original, was never asserted by the primer, and adding a row
+would perturb the 96-entry accounting the rest of this document rests on. Recorded here because it
+was otherwise living in exactly one place — the squashed commit body of cascor#604 (`3af59bd`),
+where no reader of this register would ever meet it.* Verified 2026-09-03:
+
+| Fork | Symbol | Defined | Called |
+|---|---|---|---|
+| `juniper-service-core` (shared) | `WorkerCoordinator.release_worker_tasks` | — | `websocket/worker_stream.py:203`, `:358` |
+| `juniper-cascor` (fork) | `WorkerCoordinator.handle_worker_disconnect` | `src/api/workers/coordinator.py:185` | `src/api/websocket/worker_stream.py:158` |
+
+Both forks already have the remedy, so **nothing is broken today** — which is precisely what makes
+it drift rather than a defect. The two public names cannot be checked against each other, and
+`tests/test_service_fork_drift.py` covers neither symbol (`grep -c` over both names → **0**). The
+guard registry described above keys on *named guards present or absent*, so a divergence in which
+name the guard wears is invisible to it: the shape it cannot see is **same behaviour, different
+public API**. Filing this as a row, or extending the registry to carry a per-fork symbol alias, is
+an owner call — recording it is not.
 
 ---
 
@@ -555,7 +665,7 @@ That is a stronger finding than a single stray hit would have been: the one pack
 | APD-DATA-016   | **FIXED ([data#313](https://github.com/pcalnon/juniper-data/pull/313))** — `download_artifact` is named streaming but fully materialises the body                                                                 | R   | `api/routes/datasets.py:693-704` (dead; the route is now `:837-878`)                                         | 3999                  | High |
 | APD-DATA-017   | No `ETag`/`Cache-Control`/conditional requests despite a stored SHA-256                                                                | R   | `api/routes/datasets.py:700-704`; validator at `core/artifacts.py:50-63` | 3647                  | High |
 | APD-DATA-018   | No async job pattern — generation runs inside the request                                                                              | R   | `api/routes/datasets.py:150` (dead; generation is `:175`, via `to_thread`)                                             | 3853                  | High |
-| APD-DATA-019   | Every page does full-population work; exact `total` recomputed per page                                                                | R   | `storage/base.py:348-378` (dead; `total = len(filtered)` is `:504`)                                                | 4390                  | High |
+| APD-DATA-019   | Every page does full-population work; exact `total` recomputed per page                                                                | R   | `storage/base.py:462` (`filter_datasets`); `total = len(filtered)` is `:537`, cursor path `:545-548` — re-read 2026-09-03 | 4390                  | High |
 | APD-DATA-020   | **FIXED (data#289)** — `/v1` is a repeated literal in five places; no `API_VERSION` constant                                           | M   | `api/app.py:140-142`, `api/routes/datasets.py:138`, `:253`               | 3278                  | High |
 | APD-DATA-021   | **FIXED (data#290)** — `DatasetListFilter` declared and never used; route re-declares 12 params                                        | M   | `core/models.py:132-144` vs `api/routes/datasets.py:278-289`             | 4538                  | High |
 | APD-DATA-022   | No `responses={}` anywhere — entire error surface absent from OpenAPI                                                                  | M   | all route decorators                                                     | 5189                  | High |
@@ -624,8 +734,8 @@ Both findings hold exactly as filed; only their anchors had rotted (corrected in
   **judgement call** — "202 the moment work outlives a sensible request timeout … That works until a generator outlives the
   client's socket timeout" — so the precondition worth measuring first is whether any generator actually does. The remedy is a job
   store, status transitions, retention, and polling endpoints: a wire contract every client must adopt, not a local change.
-- **`-019` (full-population work per page).** Confirmed: `total = len(filtered)` (`storage/base.py:504`) materialises the entire
-  filtered set, then slices — **and it does so on the cursor path too** (`:515`), so `APD-DATA-011`'s keyset pagination did not
+- **`-019` (full-population work per page).** Confirmed: `total = len(filtered)` (`storage/base.py:537`) materialises the entire
+  filtered set, then slices — **and it does so on the cursor path too** (`:545-548`), so `APD-DATA-011`'s keyset pagination did not
   address this. That is the useful relationship to record: `-011` fixed pagination's **correctness** half (drift under concurrent
   writes); `-019` is the untouched **performance** half. `LocalFSDatasetStore.list_datasets` still globs and sorts the whole
   directory per page. A real fix needs a storage index so filtering and ordering stop requiring full materialisation, plus making
@@ -886,7 +996,7 @@ What reproduces is broader: `self.base_url = base_url.rstrip("/")` (`:82`) is th
 |-------------|--------------------------------------------------------------------------------|-----|----------------------------------------------------------------------------------------------------------------------------------------------|-----------|------|
 | APD-ECO-001 | No `Idempotency-Key` mechanism anywhere in the stack — zero occurrences        | R   | ecosystem-wide                                                                                                                               | 1592      | High |
 | APD-ECO-002 | **FIXED (data-client#175 / cascor-client#141 / recurrence#133)** — No retry jitter in any of the three clients — synchronised retry storms | R   | all three `client.py` `Retry(...)` sites                                                                                                     | 346       | High |
-| APD-ECO-003 | One flat 30 s scalar timeout in all three clients; no per-call override        | R   | data `client.py:248`, cascor `:363`, recurrence `:217`                                                                                       | 378       | High |
+| APD-ECO-003 | One flat 30 s scalar timeout in all three clients; no per-call override        | R   | Scalar declared: data `client.py:178`, cascor `:127`, recurrence `:182`. Applied: data `:302`, cascor `:544`, recurrence `:265` — re-read 2026-09-03 | 378       | High |
 | APD-ECO-004 | 45+ public methods return `Dict[str, Any]`; zero `TypedDict`, zero `@overload` | M   | all three `client.py`                                                                                                                        | 6709      | High |
 | APD-ECO-005 | **FIXED ([dclient#177](https://github.com/pcalnon/juniper-data-client/pull/177) / [cclient#144](https://github.com/pcalnon/juniper-cascor-client/pull/144))** — No version-lockstep test in any client repo | M   | all three `tests/`                                                                                                                           | 7339      | High |
 | APD-ECO-006 | **FIXED (dclient#178 / cclient#145 / rec#138)** — No client type-checks a consumer-shaped probe | M | `juniper-data-client/.pre-commit-config.yaml:167`, `juniper-cascor-client/.pre-commit-config.yaml:167`, `juniper-recurrence/.pre-commit-config.yaml:134-144` | 7676      | Low  |

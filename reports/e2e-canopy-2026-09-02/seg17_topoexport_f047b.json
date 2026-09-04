@@ -1,0 +1,53 @@
+{
+  "topoexport": {
+    "wake": {
+      "already": false,
+      "woke": true,
+      "elapsed_s": 35.8,
+      "attempts": 1
+    },
+    "config": {
+      "camera_button_present": true,
+      "n_modebar_buttons": 9,
+      "format": "png",
+      "scale": 2,
+      "filename": "canopy_network_20260903_144123",
+      "format_ok": true,
+      "scale_ok": true,
+      "filename_ok": true,
+      "graph_css": {
+        "w": 1102,
+        "h": 600
+      }
+    },
+    "download": {
+      "caught": true,
+      "suggested_filename": "canopy_network_20260903_144123.png",
+      "saved": "/tmp/juniper-e2e/m14_download/canopy_network_20260903_144123.png",
+      "bytes": 2266057,
+      "png": [
+        2204,
+        1200
+      ]
+    },
+    "M-TOPOLOGY-14": {
+      "verdict": "PASS",
+      "filename_ok": true,
+      "png_w": 2204,
+      "png_h": 1200,
+      "scale_seen": 2.0,
+      "raster_ok": true,
+      "camera_button_present": true,
+      "n_modebar_buttons": 9,
+      "format": "png",
+      "scale": 2,
+      "filename": "canopy_network_20260903_144123",
+      "format_ok": true,
+      "scale_ok": true,
+      "graph_css": {
+        "w": 1102,
+        "h": 600
+      }
+    }
+  }
+}

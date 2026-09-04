@@ -1,0 +1,16 @@
+[t=    557ms] navigating to http://127.0.0.1:8051
+[t=  12943ms]   welcome modal dismissed
+[t=  15749ms] STEP topoexport -- M-TOPOLOGY-14 (modebar camera / PNG export)
+[t=  54449ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 27.8, 'attempts': 1}
+[t=  69077ms]   modebar buttons: 9; camera=yes
+[t=  69077ms]   toImageButtonOptions: format='png' scale=2 filename='canopy_network_20260903_023439'
+[t=  69077ms]     format_ok=True scale_ok=True filename_ok=True
+[t=  72252ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/878ee7ce-6619-4fa2-a3d1-14325873c14d' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 160233ms]   CONSOLE[error] Loading the image 'blob:http://127.0.0.1:8051/4d7b21e4-94c0-4533-a147-bc64265f02b7' violates the following Content Security Policy directive: "img-src 'self' data:". The action has been blocked.
+[t= 162519ms]   SVG raster control: blob:={'ok': False, 'why': 'img.onerror'} data:={'ok': True, 'len': 170}
+[t= 162519ms]   M-TOPOLOGY-14 -> FAIL (F-CANOPY-047): data: rasterises, blob: is CSP-blocked.
+[t= 162519ms]      The camera button and its config are correct; canopy's own `img-src` header breaks the export
+[t= 162519ms]      for every user in every browser — this is NOT a headless quirk.
+[t= 168458ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topoexport.png
+[t= 168459ms]   topoexport verdicts: [('M-TOPOLOGY-14', 'FAIL')]
+[t= 168459ms] results -> /tmp/juniper-e2e/seg17_topoexport_C.json
