@@ -861,6 +861,11 @@ jobs:
           # safety-gated run lister/pruner -- state classification, --older-than, and the prune
           # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.
           python3 -m unittest -v tests/test_list_runs.py
+          # tests/test_list_runs_classify_guards.py: complementary leftover the happy-path
+          # suite cannot see -- teardown wins over a live pid, recycled-PID cmdline
+          # mismatch, empty cmdline, a junk pidfile must not hide a live sibling,
+          # --state up/down/stale, corrupt ports.json. Same hermetic RUN_ROOT fixtures.
+          python3 -m unittest -v tests/test_list_runs_classify_guards.py
           # tests/test_snapshot_index.py: hermetic tests for util/snapshot_index.py, the design
           # §6.2 snapshot index/query -- bytes-attr decode, append-only rescan, the
           # deferred-vs-present --limit counting, the D-C provenance filters, and the AST
