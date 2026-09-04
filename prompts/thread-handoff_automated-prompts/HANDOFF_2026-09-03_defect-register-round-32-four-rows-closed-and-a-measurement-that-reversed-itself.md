@@ -89,24 +89,24 @@ and five only if juniper-ml is excluded, which holds 13 of them. All 28 verified
 squash commits reachable from the relevant `main`; the round-30 pre-squash-tip failure did not
 recur.
 
-| # | PR | Result |
-|---|---|---|
-| 1 | recurrence#143 | `APD-RCLIENT-005` doc fix — the monorepo/name disclosure |
-| 2 | ml#1507 | register close `APD-RCLIENT-005` → 75/21 |
-| 3 | ml#1512 | `juniper-service-core` **0.7.0** (re-filed under `### Added`) + 4 ungated pin strings |
-| 4 | ml#1513 | observability CHANGELOG backfill (4 entries) |
-| 5 | data#304, recurrence#144, cascor#604 | service-core ceilings → `<0.8.0` |
-| 6 | **Release** `juniper-service-core-v0.7.0` | live on PyPI; verified by clean-venv install |
-| 7 | data#306, cascor#606, canopy#546 | lockfiles adopt 0.7.0 |
-| 8 | ml#1514, ml#1516 | release-notes renderer: wrong CHANGELOG section claim; wrong link target + DRAFT block |
-| 9 | canopy#547 | five first-party pins gain ceilings |
-| 10 | cascor#610 + cclient#148 | `APD-CCLIENT-008` — API-09 422 envelope completed |
-| 11 | ml#1526 | register close `APD-CCLIENT-008` → 76/20 |
-| 12 | cclient#151 + ml#1535 | `APD-ECO-007` — `auto_pong` dated (removal 0.9.0) + policy documented → 77/19 |
-| 13 | data#313 + ml#1539 | `APD-DATA-016` — artifact streaming → 78/18 |
-| 14 | ml#1558, ml#1565, ml#1580, ml#1584 | `APD-DATA-018` analysis, measurements, two revisions |
-| 15 | **data#318** | `arc_agi` empty-dataset fix (536 s → 1.30 s, `(0,900)` → `(1717,900)`) |
-| 16 | **ml#1515** | release-notes archive for 0.7.0 — **omitted from the first draft**; it is the gate-exempt archive half of row 6's Release, so a successor auditing the publish ceremony would have found it apparently missing |
+| #  | PR                                        | Result                                                                                                                                                                                                         |
+|----|-------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1  | recurrence#143                            | `APD-RCLIENT-005` doc fix — the monorepo/name disclosure                                                                                                                                                       |
+| 2  | ml#1507                                   | register close `APD-RCLIENT-005` → 75/21                                                                                                                                                                       |
+| 3  | ml#1512                                   | `juniper-service-core` **0.7.0** (re-filed under `### Added`) + 4 ungated pin strings                                                                                                                          |
+| 4  | ml#1513                                   | observability CHANGELOG backfill (4 entries)                                                                                                                                                                   |
+| 5  | data#304, recurrence#144, cascor#604      | service-core ceilings → `<0.8.0`                                                                                                                                                                               |
+| 6  | **Release** `juniper-service-core-v0.7.0` | live on PyPI; verified by clean-venv install                                                                                                                                                                   |
+| 7  | data#306, cascor#606, canopy#546          | lockfiles adopt 0.7.0                                                                                                                                                                                          |
+| 8  | ml#1514, ml#1516                          | release-notes renderer: wrong CHANGELOG section claim; wrong link target + DRAFT block                                                                                                                         |
+| 9  | canopy#547                                | five first-party pins gain ceilings                                                                                                                                                                            |
+| 10 | cascor#610 + cclient#148                  | `APD-CCLIENT-008` — API-09 422 envelope completed                                                                                                                                                              |
+| 11 | ml#1526                                   | register close `APD-CCLIENT-008` → 76/20                                                                                                                                                                       |
+| 12 | cclient#151 + ml#1535                     | `APD-ECO-007` — `auto_pong` dated (removal 0.9.0) + policy documented → 77/19                                                                                                                                  |
+| 13 | data#313 + ml#1539                        | `APD-DATA-016` — artifact streaming → 78/18                                                                                                                                                                    |
+| 14 | ml#1558, ml#1565, ml#1580, ml#1584        | `APD-DATA-018` analysis, measurements, two revisions                                                                                                                                                           |
+| 15 | **data#318**                              | `arc_agi` empty-dataset fix (536 s → 1.30 s, `(0,900)` → `(1717,900)`)                                                                                                                                         |
+| 16 | **ml#1515**                               | release-notes archive for 0.7.0 — **omitted from the first draft**; it is the gate-exempt archive half of row 6's Release, so a successor auditing the publish ceremony would have found it apparently missing |
 
 Also merged: data#307, recurrence#147 (a shell-escaping artifact **I shipped** in the ceiling PRs).
 
@@ -191,12 +191,14 @@ driven by unrelated repo-wide commits; and a PR **BLOCKED with all 20 required c
 ## 5. Traps
 
 ### 5.1 Sandbox refuses shell STRUCTURE
+
 `for … do … done`, `${PIPESTATUS[0]}`, heredocs inside `&&` lists, and any command the worktree
 guard cannot prove stays in-tree are refused — **including a heredoc whose body merely looks
-complex**. A standalone heredoc (`> `) runs; `;` and `&&` alone run. Fall back to the Edit tool when
+complex**. A standalone heredoc (`>`) runs; `;` and `&&` alone run. Fall back to the Edit tool when
 Bash is refused. **cwd does not persist** — use absolute paths or `cd X && cmd` in one call.
 
 ### 5.2 `safe_merge.py` livelocks under a fast-moving main
+
 Two runs returned **exit 0 without merging** ("went BEHIND while waiting" ×2, then "auto-merge net
 disarmed"). juniper-ml `main` takes merges every ~5-10 min; a 17-context check cycle loses the race.
 **Use GitHub auto-merge instead**: `gh pr merge N --auto --squash` (prints **nothing** on gh 2.46.0
@@ -204,20 +206,24 @@ disarmed"). juniper-ml `main` takes merges every ~5-10 min; a 17-context check c
 goes BEHIND. Every PR in §2 landed this way.
 
 ### 5.3 Verify the checkout is current before editing a sibling
+
 `juniper-cascor-client` was **3 commits behind** and `juniper-data` **4**, both caught only by a
 suite count changing (497 vs 502). `git fetch && git rev-list --left-right --count HEAD...origin/main`
 before touching any sibling.
 
 ### 5.4 juniper-data runs **two** mypy hooks
+
 Production *and* tests. `ruff check` passing locally is not enough — `data#313` failed CI on
 `str(tmp_path)` where a `Path` was typed. Run `pre-commit run --files <changed set>` before pushing.
 
 ### 5.5 Sequence Safety fires on intended test removals
+
 Removing/renaming test symbols FAILs the screen. Waive with `Allow-Symbol-Loss: method:Class.name`
 commit trailers — they work in **any commit** of base..HEAD (no force-push needed), accept the full
 key or the stripped form, and reject a `*` wildcard. Enumerate each with its reason.
 
 ### 5.6 Unfiled ledger
+
 CARRIED: `raise_on_status=False` for data-/recurrence-client; the canopy / cascor-worker audit
 (eleventh carry); juniper-recurrence the service still has zero register rows; cascor-client WS
 `rstrip("/")`-only base URL; recurrence app/model py.typed; MEMORY.md compaction; py.typed packaging
@@ -242,7 +248,14 @@ sessions were active continuously; `git fetch` + `gh pr list` before every push.
 
 **VALIDATED, one round, 2026-09-03** — three REFUTE lenses (PRs/counts; the `arc_agi` claim and the analysis; routing/parks). Every finding below was re-derived in source before being applied, and the two lenses that disagreed on register line numbers were adjudicated: `:887`/`:889` are the §4 table rows, `:974`/`:975` the §5.1 rows carrying the only park-ish mentions — both were right about different lines.
 
-**Falsified and corrected in this document:** the "~92 000 images" figure (really **17,232** populated of 92,000 cells — arithmetic presented as a count, the section's own lesson recurring inside it); "fourteen PRs across five repos" (really **28 across six**); the omission of **ml#1515**; "no unparked rows left" (really **14 parked / 4 unparked**, with `APD-ECO-003` the cheapest open row); every register line citation except `:598` (stale by ~15 after this session's own ml#1539); and `APD-DATA-019`'s anchors (`:537`/`:545-548`, not `:504`/`:515` — invalidated by this session's own data#313 ten minutes later).
+**Falsified and corrected in this document:**
+
+- the "~92 000 images" figure (really **17,232** populated of 92,000 cells — arithmetic presented as a count, the section's own lesson recurring inside it)
+- "fourteen PRs across five repos" (really **28 across six**)
+- the omission of **ml#1515**
+- "no unparked rows left" (really **14 parked / 4 unparked**, with `APD-ECO-003` the cheapest open row)
+- every register line citation except `:598` (stale by ~15 after this session's own ml#1539)
+- `APD-DATA-019`'s anchors (`:537`/`:545-548`, not `:504`/`:515` — invalidated by this session's own data#313 ten minutes later)
 
 **Survived every attack:** the 74→78 / 22→18 move and all four intermediate counts; all 28 merge SHAs on main; the four-groupings claim and its ordering; §1's expected values; the 0.7.0 release; the `(0, 900)` mechanism, reproduced end-to-end from the pre-fix module; the post-fix `1717 = 1301 + 416`; and the retraction being genuinely recorded in both directions.
 
@@ -252,6 +265,7 @@ rounds were needed there and that **round 2 reversed round 1's routing twice** �
 is not sufficient evidence.
 
 For the successor validating this document, attack in this order:
+
 1. **§2's fourteen-PR table** — verify each merge SHA is an ancestor of the right `main`, and that
    the attributed PR number matches. Round 30 shipped pre-squash branch tips here.
 2. **§1's expected values** — re-derive all three independently; they must agree with each other.
@@ -276,3 +290,5 @@ For the successor validating this document, attack in this order:
 
 **If context ends before a box is ticked, the unticked ones are the successor's first work**, in
 that order, before §0.2.
+
+---
