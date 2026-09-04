@@ -917,6 +917,12 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_register_close_protocol.py: complementary leftover #1648/#1717
+          # cannot see -- the operator pair the close protocol actually runs (live
+          # AGREE + open-set/crosscheck count lockstep), first-status-line-wins,
+          # and §5.1 "(partial)" first-cell extraction. Does not touch their
+          # production extracts. util/ is not pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_register_close_protocol.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
