@@ -731,3 +731,68 @@ class ProvenanceEnvTest(unittest.TestCase):
         env = self._capture_up_env(suite_name=None)
         self.assertNotIn("JUNIPER_CASCOR_EXPERIMENT", env)
         self.assertEqual(env["JUNIPER_CASCOR_CELL_ID"], "c007-9f3ab12c")
+
+
+class GateInputsInAggregateTest(MainLoopTest):
+    """P2 item 1.4: the aggregate must not offer ``wall_seconds`` as the only number.
+
+    ``wall_seconds`` is DE-RATIFIED -- it absorbs plot rendering and stack bring-up, and enabling
+    the Grafana bridge alone moves it ~5%. Before this, it was the only timing column in
+    ``aggregate.csv``, so a reader analysed the wrong quantity with nothing flagging it.
+    """
+
+    def test_aggregate_csv_carries_both_gate_inputs(self) -> None:
+        root, suite_dir, _, _ = self._setup()
+        rc, out = self._main("--suite", str(root / "suite.yaml"))
+        self.assertEqual(rc, 0, msg=out)
+        header = (suite_dir / "aggregate.csv").read_text().splitlines()[0]
+        self.assertIn("step_count", header)
+        self.assertIn("mean_step_seconds", header)
+        self.assertIn("wall_seconds", header, "the de-ratified column stays for continuity")
+
+    def test_report_states_that_wall_seconds_is_de_ratified(self) -> None:
+        root, suite_dir, _, _ = self._setup()
+        self._main("--suite", str(root / "suite.yaml"))
+        report = (suite_dir / "REPORT.md").read_text()
+        self.assertIn("DE-RATIFIED", report)
+        self.assertIn("work invariant", report)
+        self.assertIn("single workload", report)
+
+
+class ComparisonReportingTest(MainLoopTest):
+    """The verdict is REPORTED, never enforced by this tool."""
+
+    def test_missing_baseline_is_reported_not_fatal(self) -> None:
+        root, suite_dir, _, _ = self._setup()
+        rc, out = self._main("--suite", str(root / "suite.yaml"), "--compare-baseline", "no-such-tag")
+        self.assertEqual(rc, 0, msg=out)
+        self.assertIn("comparison could not run", (suite_dir / "REPORT.md").read_text())
+
+    def test_a_failing_verdict_does_NOT_change_the_suite_exit_code(self) -> None:
+        """The load-bearing property of item 1.4.
+
+        Wiring a comparator verdict to run_suite's exit status would silently make the run tier a
+        gate -- and §6 of the P1 design records that as a SEPARATE owner decision, still open. If
+        this test ever fails, someone has made that decision by accident.
+        """
+        root, suite_dir, _, _ = self._setup()
+
+        def _always_fail(_tag, _suite_dir):
+            return "verdict: FAIL  (baseline 'x')\n  work  MOVED step_count baseline=1 candidate=2"
+
+        # run_suite is loaded via spec_from_file_location, so mypy sees a bare ModuleType and
+        # cannot know its attributes -- same reason DEFAULT_RUN_ROOT is ignored above.
+        original = run_suite._run_comparison  # type: ignore[attr-defined]
+        run_suite._run_comparison = _always_fail  # type: ignore[attr-defined]
+        self.addCleanup(lambda: setattr(run_suite, "_run_comparison", original))
+
+        rc, out = self._main("--suite", str(root / "suite.yaml"), "--compare-baseline", "whatever")
+        self.assertEqual(rc, 0, msg=f"a FAIL verdict must not fail the suite; got rc={rc}\n{out}")
+        report = (suite_dir / "REPORT.md").read_text()
+        self.assertIn("verdict: FAIL", report, "the verdict must still be visible")
+        self.assertIn("exit code does NOT reflect this verdict", report)
+
+    def test_no_comparison_section_without_the_flag(self) -> None:
+        root, suite_dir, _, _ = self._setup()
+        self._main("--suite", str(root / "suite.yaml"))
+        self.assertNotIn("## Baseline comparison", (suite_dir / "REPORT.md").read_text())
