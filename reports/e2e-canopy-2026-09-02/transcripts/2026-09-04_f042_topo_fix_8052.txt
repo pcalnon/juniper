@@ -1,0 +1,28 @@
+[t=    546ms] navigating to http://127.0.0.1:8052
+[t=  12421ms]   welcome modal dismissed
+[t=  15225ms] STEP topo -- the topology control surface
+[t=  15267ms]   SERVER truth: {'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'}
+[t=  47245ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 17.0, 'attempts': 1}
+[t=  52097ms]   painted: counts={'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'} traces=1891 sig=355301 annotations=0
+[t=  52097ms]   M-TOPOLOGY-08 stats bar == server: True ({'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'} vs {'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'})
+[t=  84513ms]     layout Hierarchical: driven=True sig=355301 hash=9358ec15 settled=2.8s traces=1891 counts={'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'}
+[t=  95781ms]   .. dropdown network-visualizer-layout-selector: 'Staggered' absent on attempt 1; seen ['Enable multi-node layers', 'Enable multi-candidate selection', '', 'Node Graph', 'Weight Matrix', '2D', '3D', '']
+[t= 127741ms]     layout Staggered: driven=True sig=386826 hash=faae2e28 settled=2.8s traces=1891 counts={'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'}
+[t= 169493ms]     layout Spring: driven=True sig=435166 hash=2cdf244c settled=2.8s traces=1891 counts={'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'}
+[t= 205266ms]     layout Circular: driven=True sig=435585 hash=c07e8b3f settled=2.8s traces=1891 counts={'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'}
+[t= 205266ms]   M-TOPOLOGY-01 layouts: driven=4/4 distinct_figs=4 (sigs=4) counts_stable=True
+[t= 285934ms]   M-TOPOLOGY-02 show-weights: on=9358ec15 off=a586ea06 back=9358ec15 transitions_observed=True -> PASS
+[t= 307261ms]   M-TOPOLOGY-03 weight matrix: heatmap=True plot_area=0.7 n_yaxes=41 types=['heatmap', 'heatmap', 'heatmap', 'heatmap', 'heatmap', 'heatmap'] conn='—'
+[t= 329625ms]   M-TOPOLOGY-04 back to node graph: counts={'input': '2', 'hidden': '40', 'output': '2', 'conn': '944'} -> True
+[t= 337948ms]   CONSOLE[warning] Canvas2D: Multiple readback operations using getImageData are faster with the willReadFrequently attribute set to true. See: https://html.spec.whatwg.org/multipage/canvas.html#concept-canvas-will-read-frequently
+[t= 345175ms]   CONSOLE[warning] [.WebGL-0x1d2c00148800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[t= 345446ms]   M-TOPOLOGY-05 3-D: True types=['scatter3d', 'scatter3d', 'scatter3d', 'scatter3d', 'scatter3d', 'scatter3d']
+[t= 346527ms]   CONSOLE[warning] [.WebGL-0x1d2c00148800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[t= 346527ms]   CONSOLE[warning] [.WebGL-0x1d2c00148800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels
+[t= 346528ms]   CONSOLE[warning] [.WebGL-0x1d2c00148800]GL Driver Message (OpenGL, Performance, GL_CLOSE_PATH_NV, High): GPU stall due to ReadPixels (this message will no longer repeat)
+[t= 351842ms]   M-TOPOLOGY-07 depth container: display='block' label='all' want='all'
+[t= 446179ms]   M-TOPOLOGY-06 depth=20: idiom=drag label='20 of 40' hidden='20 of 40' want='20 of 40' (label_ok=True counts_ok=True)
+[t= 568214ms]   M-TOPOLOGY-17 re-entry refresh: True after 7.0s
+[t= 574170ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topo.png
+[t= 574171ms]   topo verdicts: [('M-TOPOLOGY-08', 'PASS'), ('M-TOPOLOGY-01', 'PASS'), ('M-TOPOLOGY-02', 'PASS'), ('M-TOPOLOGY-03', 'PASS'), ('M-TOPOLOGY-04', 'PASS'), ('M-TOPOLOGY-05', 'PASS'), ('M-TOPOLOGY-07', 'PASS'), ('M-TOPOLOGY-06', 'PASS'), ('M-TOPOLOGY-17', 'PASS')]
+[t= 574172ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f042_fix_8052.json

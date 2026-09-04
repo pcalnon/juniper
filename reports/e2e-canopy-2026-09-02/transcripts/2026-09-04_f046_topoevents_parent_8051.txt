@@ -1,0 +1,17 @@
+[t=    561ms] navigating to http://127.0.0.1:8051
+[t=  12109ms]   welcome modal dismissed
+[t=  14917ms] STEP topoevents -- M-TOPOLOGY-09/-10/-12/-15 (graph event surface)
+[t=  49110ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 20.3, 'attempts': 1}
+[t=  50512ms]   node traces: [('Input Units', 1888, 2), ('Hidden Units', 1889, 40), ('Output Units', 1890, 2)]
+[t=  67922ms]   baseline selection: {'present': True, 'display': 'none', 'text': ''}
+[t=  84125ms]   M-TOPOLOGY-10 node click: shown=True names_node=True layer_ok=True -> PASS
+[t= 126567ms]   !! timed out after 20s waiting for -selection-info to clear (last=False)
+[t= 127862ms]   M-TOPOLOGY-12 clear: control={'present': False, 'visible': False, 'clicked': False} cleared=False -> BLOCKED
+[t= 127862ms]      (empty-space click, recorded not scored: plotly_click_events=0 cleared=False)
+[t= 127862ms]   !! no -clear-selection control in this build -- the row is BLOCKED, not FAILED:
+[t= 127862ms]      the empty-space gesture emits no plotly_click at all, so there is nothing for the product to have got wrong
+[t= 147319ms]   M-TOPOLOGY-15 hover inert: hovered=True dom_unchanged=True api_delta=0 -> PASS
+[t= 167028ms]   M-TOPOLOGY-09 stats bar theme: rgb(248, 249, 250) -> rgb(52, 58, 64) recoloured=True -> PASS
+[t= 180076ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topoevents.png
+[t= 180077ms]   topoevents verdicts: [('M-TOPOLOGY-10', 'PASS'), ('M-TOPOLOGY-12', 'BLOCKED'), ('M-TOPOLOGY-15', 'PASS'), ('M-TOPOLOGY-09', 'PASS')]
+[t= 180078ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f046_parent_8051.json
