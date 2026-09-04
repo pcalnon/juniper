@@ -158,5 +158,102 @@ class TargetRosterTest(unittest.TestCase):
         self.assertEqual(len(mod.TARGETS), len(set(mod.TARGETS)))
 
 
+class ObservedContextAppsTest(unittest.TestCase):
+    """The amend path's pre-flight: WHICH app publishes this exact context name.
+
+    ``observed_contexts`` answers "does anything publish this name", which is the right
+    question for ADDING a context. Amending an ``integration_id`` asks a harder one -- "is
+    THIS app the publisher" -- and a wrong answer reproduces the outage the module docstring
+    records: a context pinned to an app that never reports it is never satisfied, so the PR
+    sits BLOCKED with nothing red.
+    """
+
+    def setUp(self):
+        self._orig = mod.gh_json
+
+    def tearDown(self):
+        mod.gh_json = self._orig
+
+    @staticmethod
+    def _runs(*pairs):
+        return {"check_runs": [{"name": n, "app": {"id": i, "slug": s}} for n, i, s in pairs]}
+
+    def test_returns_the_publishing_app_from_pr_heads(self):
+        mod.gh_json = _fake(
+            {
+                "repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=8": (
+                    [{"head": {"sha": "abc"}}],
+                    None,
+                ),
+                "repos/o/r/commits/abc/check-runs?per_page=100": (
+                    self._runs(("Memory Budget", 15368, "github-actions"), ("Other", 99, "x")),
+                    None,
+                ),
+            }
+        )
+        self.assertEqual(mod.observed_context_apps("o", "r", "Memory Budget"), {15368: "github-actions"})
+
+    def test_falls_back_to_main_when_pr_heads_show_nothing(self):
+        """A job that only reports on ``main`` must not be mistaken for unpublished."""
+        mod.gh_json = _fake(
+            {
+                "repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=8": (
+                    [{"head": {"sha": "abc"}}],
+                    None,
+                ),
+                "repos/o/r/commits/abc/check-runs?per_page=100": (self._runs(), None),
+                "repos/o/r/commits/main/check-runs?per_page=100": (
+                    self._runs(("Memory Budget", 15368, "github-actions")),
+                    None,
+                ),
+            }
+        )
+        self.assertEqual(mod.observed_context_apps("o", "r", "Memory Budget"), {15368: "github-actions"})
+
+    def test_a_different_context_name_does_not_count_as_a_publisher(self):
+        """NEGATIVE CONTROL. The name match must be exact.
+
+        If a near-miss counted, the refusal that protects the amend would pass on any repo
+        with a similarly-named check -- and that refusal is the whole guard.
+        """
+        mod.gh_json = _fake(
+            {
+                "repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=8": (
+                    [{"head": {"sha": "abc"}}],
+                    None,
+                ),
+                "repos/o/r/commits/abc/check-runs?per_page=100": (
+                    self._runs(("Memory Budget (Python 3.12)", 15368, "github-actions")),
+                    None,
+                ),
+                "repos/o/r/commits/main/check-runs?per_page=100": (self._runs(), None),
+            }
+        )
+        self.assertEqual(mod.observed_context_apps("o", "r", "Memory Budget"), {})
+
+    def test_bandit_app_is_not_a_publisher_of_memory_budget(self):
+        """NEGATIVE CONTROL for the concrete incident.
+
+        57789 is the ``Bandit`` app id the module docstring names as the one that, hardcoded
+        onto the wrong context, left five repos' ``main`` unmergeable. Pinning ``Memory
+        Budget`` to it must NOT be reported as observed.
+        """
+        mod.gh_json = _fake(
+            {
+                "repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=8": (
+                    [{"head": {"sha": "abc"}}],
+                    None,
+                ),
+                "repos/o/r/commits/abc/check-runs?per_page=100": (
+                    self._runs(("Memory Budget", 15368, "github-actions")),
+                    None,
+                ),
+            }
+        )
+        publishers = mod.observed_context_apps("o", "r", "Memory Budget")
+        self.assertIn(15368, publishers)
+        self.assertNotIn(57789, publishers)
+
+
 if __name__ == "__main__":
     unittest.main()
