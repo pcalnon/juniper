@@ -844,6 +844,15 @@ jobs:
           # override is recorded in baseline.json). Also pins HOST.json's fidelity caveat
           # when the tool's interpreter differs from the runs'.
           python3 -m unittest -v tests/test_make_baseline.py
+          # tests/test_work_countable_contract.py: complementary pins for the
+          # work_countable third state (P2 item 3.1 / ml#1683). The trigger PR
+          # already tests the reader row and make_baseline refusal; this suite
+          # pins the leftover those cannot see -- compare() REFUSED (exit 2) with
+          # the honest "no countable work" reason rather than FAIL or "not a set
+          # of repeats", that a waiver cannot override it, that planted matching
+          # cascor histogram counts do not make an uncountable suite invariant,
+          # and that drive wins when both timing keys are present.
+          python3 -m unittest -v tests/test_work_countable_contract.py
           # tests/test_experiment_config_schemas.py: Wave 3.5 drift gate over the
           # sibling repos' conf/experiments/*.yaml (auto-skips here -- siblings are
           # not cloned in this job; the always-on AST-extractor self-check still
