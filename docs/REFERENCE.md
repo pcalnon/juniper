@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.34
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -25,6 +25,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [Run lister / pruner (`list_runs.py`)](#run-lister--pruner-list_runspy)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
@@ -1447,6 +1448,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   shape-assert pass/mismatch, unstageable-generator refusal), the recurrence path (synchronous train 200/409/422/socket-timeout arms, predict/crossval `dataset_id` refs +
   record-and-continue on failure, the G-18 `save_model` CLI re-run via a PATH stub + missing-CLI acceptance failure), `ports.json` endpoint resolution, the §13.4 manifest
   written for every outcome, and the full 0/1/2/3/4 exit matrix incl. `RedactedEnv` subprocess arms.
+- `tests/test_list_runs.py` -- Hermetic tests for `util/experiments/list_runs.py` (Wave 7.2). Pins convention-name recognition, `down` / `stale` / `up?` classification (including a dead pid with a recorded cmdline → `stale`), cell enumeration, `--older-than` JSON filtering, and the prune safety contract: `--prune` without `--yes` (or under `--dry-run`) removes nothing; a live recorded pid is never pruned. Synthetic `RUN_ROOT` only. Operator surface: [Run lister / pruner](#run-lister--pruner-list_runspy).
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
@@ -1687,6 +1689,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
+- `util/experiments/list_runs.py` -- Safety-gated lister / pruner for experiment `RUN_DIR`s (Wave 7.2, plan §13.3). Directory-truth: scans convention-named children of `--run-root`; does **not** read `run_suite`'s `index.jsonl` and does **not** honor `JUNIPER_EXP_RUN_ROOT` (pass `--run-root`). States `down` / `up?` / `stale`; `--prune` deletes only `down`/`stale` and only with `--yes` (never under `--dry-run`; never `up?`). Distinct from `--down`, which keeps `artifacts/`. Tests: `tests/test_list_runs.py`. Operator surface: [Run lister / pruner](#run-lister--pruner-list_runspy).
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -2256,7 +2259,7 @@ Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety`
 
 ## Experiment Stack Utilities
 
-`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`.
+`util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`. `util/experiments/list_runs.py` (Wave 7.2) lists and safety-gated-prunes those `RUN_DIR`s — see [Run lister / pruner](#run-lister--pruner-list_runspy).
 
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
@@ -2421,6 +2424,36 @@ ls "$RUN_DIR/artifacts/plots/"
 
 Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 
+### Run lister / pruner (`list_runs.py`)
+
+`util/experiments/list_runs.py` is the Wave 7.2 safety-gated lister for experiment `RUN_DIR`s (CLI experimentation plan §13.3). It is **directory-truth**: it scans convention-named children of `--run-root` and never reads `run_suite.py`'s append-only `index.jsonl` (Wave 7.1 does write that file). `--down` stops services and keeps `artifacts/`; `--prune --yes` deletes the whole directory.
+
+```bash
+python util/experiments/list_runs.py
+python util/experiments/list_runs.py --json --state down
+python util/experiments/list_runs.py --older-than 7 --state stale
+python util/experiments/list_runs.py --prune --older-than 7 --dry-run
+python util/experiments/list_runs.py --prune --older-than 7 --yes   # destructive
+```
+
+`--run-root` defaults to `~/.local/state/juniper-experiments`. Unlike the launcher and `run_suite.py`, this tool **does not** read `JUNIPER_EXP_RUN_ROOT` — pass `--run-root "$JUNIPER_EXP_RUN_ROOT"` when you overrode the default.
+
+A directory is a run only when its name matches `<UTC yyyymmddThhmmssZ>-<4 hex>` (the launcher's `RUN_ID`). Everything else — `suites/`, `index.jsonl`, soak probe dirs, ad-hoc folders — is ignored.
+
+| State | Meaning |
+|-------|---------|
+| `down` | `teardown.json` present (checked first) |
+| `up?` | no teardown, and at least one `*.pid` whose pid is alive **and** still running the sibling `*.cmdline` (F-6, read-only here) |
+| `stale` | no teardown and no live recorded pid (crash, reap, or dead pidfile) |
+
+`--state up` matches the tentative `up?` label. A malformed pidfile or missing `.cmdline` is skipped; if none qualify, the run is `stale`. A dead pid with a recorded cmdline is `stale` (pinned).
+
+`--prune` removes only `down` / `stale` rows that also match `--older-than` (when given). `up?` always prints `SKIP (live recorded pid)` and is never removed, even with `--yes`. `--prune` without `--yes`, or any `--dry-run`, prints `WOULD PRUNE` and deletes nothing. `main()` returns `0` on every successful invocation; argparse misuse is exit `2`.
+
+`--json` emits `{run_root, runs, pruned}`. Each row carries `run_id`, `created_utc`, `state`, `experiment` / `ports` from `ports.json` (`data` / `cascor` / `recurrence` only), `cells` (relative paths with `manifest.json` one or two levels down), `has_root_manifest`, and `path`. `--older-than` drops rows whose `created_utc` is missing.
+
+Coverage: `tests/test_list_runs.py` (hermetic `RUN_ROOT` fixtures; no live launcher state).
+
 ### Environment overrides
 
 | Variable | Default | Description |
@@ -2451,7 +2484,10 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
 | Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
 | Missing correlation / empty plot | Correlation is only in the driver's `metrics_series.csv` (not `/v1/metrics/history`). A `/metrics` 404 degrades sampling (G-3), not the run. |
-| `--down` deleted results | It must not — `artifacts/` is preserved; if results are gone, check you pointed at the wrong `RUN_ROOT` or cleaned the durable home dir manually. |
+| `--down` deleted results | `--down` must keep `artifacts/`. If results are gone, you either pointed at the wrong `RUN_ROOT` or ran `list_runs.py --prune --yes` (that path deletes the whole `RUN_DIR`). |
+| `list_runs.py` shows `No experiment runs` but the stack wrote a RUN_DIR | Default `--run-root` ignores `JUNIPER_EXP_RUN_ROOT`. Pass `--run-root` to the overridden root. Non-convention names (soak probes, `suites/`) are invisible by design. |
+| `WOULD PRUNE (missing --yes)` / `--dry-run` | Expected — nothing was removed. Destructive prune needs `--prune --yes` without `--dry-run`. |
+| `SKIP (live recorded pid)` after `--prune --yes` | The run classified `up?` (F-6 pid+cmdline still match). `--down` it first; do not delete a live listener by hand from this tool. |
 | `--up` exited `0` but a listener remains / the next `--up` starves | OR-list false-green class — confirm the `\|\| return 1` pins (`rg -n 'wait_for_health.*\|\| return 1' util/experiment_stack.bash`). Run `--down <RUN_ID>`, then clear any stale `$JUNIPER_EXP_LOCK_ROOT/<port>.lock`. |
 | `grafana bridge failed — tearing the run back down` | Expected when `--grafana-bridge` cannot preflight `socat` / `docker`, relay, or write the target file after the services are healthy — the run is already torn down. Install the tools or omit the flag. |
 | Port range exhausted after a failed `--config` | Staging aborted after `allocate_port` and before `ports.json`, so `--down` cannot release the lockdirs (open #979). Clear `*.lock` under `JUNIPER_EXP_LOCK_ROOT` only once no live listener holds the port. |
@@ -2999,6 +3035,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.34  | 2026-09-04 | Experiment run lister / pruner (`list_runs.py`): directory-truth scan, `down`/`up?`/`stale`, `--prune` ≠ `--down`, `--run-root` ignores `JUNIPER_EXP_RUN_ROOT` |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3346,6 +3383,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.34
 **Maintainer:** Paul Calnon
