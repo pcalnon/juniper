@@ -1,5 +1,7 @@
 # Performance lane — P1 Design of record
 
+> **Operator surface (2026-09-04).** Q-8 writer + split comparator are on main. The work half's "deterministic, therefore gate exactly" premise is **not** established ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)). Do not wire `compare_baseline.py` to CI. Operator contract: [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
+
 **Closes**: phase **P1** of the four-phase gate in
 [`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md` §1.1](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md).
 That table's P1 deliverable: *"Design-of-record note: what is measured, on which tier, against which
