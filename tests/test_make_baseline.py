@@ -58,13 +58,29 @@ def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outco
     return run_dir
 
 
-def _write_suite(root: Path, cells, name="suite") -> Path:
+def _write_suite(root: Path, cells, name="suite", workload="A") -> Path:
+    """Synthetic suite. ``cells`` entries may carry ``workload`` to force a differing fingerprint.
+
+    Each cell gets a materialised ``cells/<cell_id>/experiment.yaml`` because that is what
+    ``workload_fingerprint`` reads -- and a baseline REFUSES a scenario whose workload identity is
+    unknown, so a fixture without one would exercise the refusal rather than the happy path.
+    """
     suite_dir = root / name
-    suite_dir.mkdir(parents=True, exist_ok=True)
+    (suite_dir / "cells").mkdir(parents=True, exist_ok=True)
     lines = []
     for idx, kwargs in enumerate(cells):
+        kwargs = dict(kwargs)
+        cell_workload = kwargs.pop("workload", workload)
+        cell_id = f"c{idx:03d}"
         run_dir = _write_run(root, f"{name}-run{idx}", **kwargs)
-        lines.append(json.dumps({"cell_id": f"c{idx:03d}", "run_dir": str(run_dir), "overrides": {"training.params.max_epochs": 4000}}))
+        (suite_dir / "cells" / cell_id).mkdir(parents=True, exist_ok=True)
+        # `experiment.description` differs per cell and is COSMETIC -- the fingerprint must ignore
+        # it, exactly as PF-1's five repeats do in the field.
+        (suite_dir / "cells" / cell_id / "experiment.yaml").write_text(
+            f"experiment:\n  description: repeat {idx}\n  name: cell-{cell_id}\n  seed: 42\n" f"training:\n  params:\n    max_epochs: {4000 if cell_workload == 'A' else 500}\n",
+            encoding="utf-8",
+        )
+        lines.append(json.dumps({"cell_id": cell_id, "run_dir": str(run_dir), "overrides": {"training.params.max_epochs": 4000}, "config_sha256": f"sha-{cell_id}"}))
     (suite_dir / "registry.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return suite_dir
 
@@ -97,6 +113,32 @@ class BuildRefusalTest(unittest.TestCase):
             with self.assertRaises(mb.BaselineError) as ctx:
                 mb.build_baseline("t", [suite])
             self.assertIn("cannot baseline an unmeasured run", str(ctx.exception))
+
+    def test_refuses_cells_that_ran_different_workloads(self):
+        # Distinct from the work invariant: a step_count spread across DIFFERENT configs is a fact
+        # about the configs, not about the host or the code. A baseline scenario must be ONE
+        # workload, or every later comparison against it is meaningless.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{"workload": "A"}, {"workload": "B"}])
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("different workloads", str(ctx.exception))
+
+    def test_records_the_workload_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            payload = mb.build_baseline("t", [suite])
+            self.assertIsNotNone(payload["scenarios"][0]["workload_fingerprint"])
+
+    def test_fingerprint_ignores_cosmetic_description(self):
+        # The five cells differ by `experiment.description` and nothing else that matters; if the
+        # fingerprint saw that field, a suite could never be a set of repeats.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}, {}])
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertTrue(summary["single_workload"])
+            self.assertEqual(len(summary["workload_fingerprints"]), 1)
+            self.assertEqual(len({r["config_sha256"] for r in rrm.read_suite(suite)}), 3, "fixture must vary config_sha256, as the real registry does")
 
     def test_refuses_empty_suite(self):
         with tempfile.TemporaryDirectory() as tmp:

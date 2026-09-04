@@ -168,6 +168,13 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
         # from it fixes a work count that was never stable. This is the split gate's own premise.
         if not summary["work_invariant"]:
             refusals.append(f"{suite_dir.name}: step_count is NOT invariant across cells ({[int(c) for c in summary['step_counts']]}) -- these are not repeats")
+        # Distinct from the work invariant: cells that ran DIFFERENT workloads would give a
+        # step_count spread that is a fact about the configs, not about the host or the code.
+        if not summary["single_workload"]:
+            refusals.append(
+                f"{suite_dir.name}: cells ran {len(summary['workload_fingerprints'])} different workloads "
+                f"(fingerprints {[f[:12] for f in summary['workload_fingerprints']]}) -- a baseline scenario must be ONE workload"
+            )
         missing = [r["run_id"] for r in rows if r.get("step_count") is None]
         if missing:
             refusals.append(f"{suite_dir.name}: no step-duration data for {missing} -- cannot baseline an unmeasured run")
@@ -192,6 +199,10 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
                 "cells": summary["cells"],
                 "run_ids": [r["run_id"] for r in rows],
                 "overrides": rows[0].get("overrides"),
+                # The comparator's FIRST check (P2 item 1.5): a differing fingerprint means the
+                # comparison is INVALID, not that the code regressed. Recorded here so a later
+                # comparison can tell those apart instead of blaming the code for a config edit.
+                "workload_fingerprint": summary["workload_fingerprints"][0] if summary["single_workload"] else None,
                 "work": {"step_count": summary["step_counts"][0] if summary["work_invariant"] else None, "invariant": summary["work_invariant"]},
                 "speed": summary.get("mean_step"),
                 "drive": summary.get("drive"),

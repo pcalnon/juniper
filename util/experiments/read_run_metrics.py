@@ -48,10 +48,13 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import json
 import statistics
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
+
+import yaml
 
 STEP_SUM_COLUMN = "juniper_cascor_training_step_duration_seconds_sum"
 STEP_COUNT_COLUMN = "juniper_cascor_training_step_duration_seconds_count"
@@ -118,6 +121,41 @@ def read_run(run_dir: Path) -> Dict[str, Any]:
     }
 
 
+# Fields that identify a cell to a HUMAN but do not affect the computation. Stripping them is what
+# turns a per-cell hash into a WORKLOAD identity. `experiment.seed` is deliberately NOT here: it
+# changes the computation and two runs at different seeds are different workloads.
+COSMETIC_EXPERIMENT_KEYS = ("description", "name")
+
+
+def workload_fingerprint(suite_dir: Path, cell_id: str) -> Optional[str]:
+    """Identity of the WORKLOAD a cell ran, stable across repeats of it.
+
+    Why not ``registry.jsonl``'s ``config_sha256``: that hashes the whole materialised cell YAML,
+    including ``experiment.description``. PF-1's five repeats differ only by "repeat 1".."repeat 5",
+    so their ``config_sha256`` values are all DIFFERENT -- using it as a "same workload" test would
+    refuse every legitimate comparison, including a suite against its own baseline.
+
+    This hashes the same YAML with the cosmetic keys removed. Measured 2026-09-03: identical across
+    all five PF-1 repeats, and different between the pre- and post-cascor#618 workloads (which set
+    ``output_epochs`` and re-calibrated the epoch budget) -- so it detects the "figures before and
+    after are not comparable" boundary mechanically instead of by memory.
+    """
+    cell_yaml = Path(suite_dir) / "cells" / cell_id / "experiment.yaml"
+    if not cell_yaml.is_file():
+        return None
+    try:
+        config = yaml.safe_load(cell_yaml.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return None  # unreadable cell -> "unknown identity", which callers must treat as a refusal
+    if not isinstance(config, dict):
+        return None
+    experiment = config.get("experiment")
+    if isinstance(experiment, dict):
+        for key in COSMETIC_EXPERIMENT_KEYS:
+            experiment.pop(key, None)
+    return hashlib.sha256(json.dumps(config, sort_keys=True).encode("utf-8")).hexdigest()
+
+
 def read_suite(suite_dir: Path) -> List[Dict[str, Any]]:
     """One row per cell, in registry order. Empty list when the registry is absent."""
     registry = Path(suite_dir) / "registry.jsonl"
@@ -135,6 +173,8 @@ def read_suite(suite_dir: Path) -> List[Dict[str, Any]]:
         row["cell_id"] = entry.get("cell_id")
         row["overrides"] = entry.get("overrides")
         row["grafana_bridge"] = entry.get("grafana_bridge")
+        row["config_sha256"] = entry.get("config_sha256")
+        row["workload_fingerprint"] = workload_fingerprint(Path(suite_dir), str(entry.get("cell_id"))) if entry.get("cell_id") else None
         rows.append(row)
     return rows
 
@@ -165,10 +205,16 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     counts = [r["step_count"] for r in rows if isinstance(r.get("step_count"), (int, float))]
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
+    fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
     out: Dict[str, Any] = {
         "cells": len(rows),
         "step_counts": sorted(set(counts)),
         "work_invariant": len(set(counts)) == 1 and bool(counts),
+        # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
+        # step_count spread would be a fact about the configs rather than about the host or the
+        # code. Recorded separately from work_invariant so the two failures stay distinguishable.
+        "workload_fingerprints": fingerprints,
+        "single_workload": len(fingerprints) == 1,
     }
     if drives:
         out["drive"] = _spread(drives)
