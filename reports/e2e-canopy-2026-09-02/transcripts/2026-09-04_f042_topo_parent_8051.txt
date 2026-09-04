@@ -1,0 +1,6 @@
+[t=   2186ms] navigating to http://127.0.0.1:8051
+[t= 376870ms]   M-TOPOLOGY-07 depth container: display='block' label='0 of 40' want='all'
+[t= 480629ms]   M-TOPOLOGY-06 depth=20: idiom=drag label='0 of 40' hidden='20 of 40' want='20 of 40' (label_ok=False counts_ok=True)
+[t= 616049ms]   topo verdicts: [('M-TOPOLOGY-08', 'PASS'), ('M-TOPOLOGY-01', 'PASS'), ('M-TOPOLOGY-02', 'PASS'), ('M-TOPOLOGY-03', 'PASS'), ('M-TOPOLOGY-04', 'PASS'), ('M-TOPOLOGY-05', 'PASS'), ('M-TOPOLOGY-07', 'FAIL'), ('M-TOPOLOGY-06', 'FAIL'), ('M-TOPOLOGY-17', 'PASS')]
+
+[exited with code 0]

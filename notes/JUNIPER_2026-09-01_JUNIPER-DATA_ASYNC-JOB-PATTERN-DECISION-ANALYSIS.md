@@ -476,11 +476,19 @@ should not be read as though both were.
 - ~~Actual cold/warm timings for `mnist`, `equities`, `arc_agi`, `csv_import`~~ — **all measured**
   (§1.6): Class B on 2026-09-02, `arc_agi` re-measured after juniper-data#318, and `csv_import`
   scaling on 2026-09-03. No generator timing gap remains.
-- **Not measured, and now the nearest open question:** whether `csv_import`'s cap should be rows or
-  bytes. Rows track the conversion cost more directly; bytes are what an operator can enforce
-  without parsing. The measurement here gives the per-row constant (~0.023 ms) and the bytes-per-row
-  for a 20-column file, but a cap decision needs a view on realistic column counts, which this did
-  not survey.
+- ~~**Not measured, and now the nearest open question:** whether `csv_import`'s cap should be rows or
+  bytes.~~ — **SETTLED by the owner, 2026-09-04: bytes.** Exceeding the cap **truncates** rather than
+  rejecting outright, but only against two non-optional obligations: a *blocking* notification to
+  the caller, and a *permanent* truncated annotation on the dataset. Shipped in
+  [juniper-data#326](https://github.com/pcalnon/juniper-data/pull/326) (`cf387a82`) — 128 MiB from a
+  fresh measurement of the whole `generate()` path (median **14.4 MB/s**, so ~8.9 s), a **422**
+  refusal until the caller opts in, and `DatasetMeta.truncation` persisted with the artifact.
+
+  Two things worth carrying from building it. **The "blocking notification" half is what makes the
+  truncation ruling safe**, and it is the half a summary drops first: without it this is exactly the
+  silent-partial-data class §4's own risk paragraph called "the failure to design against". And the
+  cap must not be raisable by the caller it bounds — the first implementation let a request's
+  `max_bytes` win outright, which made the whole bound decorative.
 - Whether canopy's demo-mode path (`juniper-canopy/src/demo_mode.py:918`) shares the 30 s exposure;
   it constructs its own client and was not traced here.
 - `APD-DATA-019` (pagination) is a separate row with a separate remedy; the two are sometimes

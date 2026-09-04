@@ -871,7 +871,7 @@ the congestion hypothesis (ii) depends on — so re-measuring **after** that mer
 > > investigation.
 
 
-**F-CANOPY-042 — the depth-filter LABEL never updates when the user moves the slider; only the graph and the stats bar do (P2, OPEN; found 2026-09-02, and only visible once the slider could be driven at all).**
+**F-CANOPY-042 — the depth-filter LABEL never updates when the user moves the slider, and reads `"0 of 40"` at rest on an unfiltered network (P2; found 2026-09-02, and only visible once the slider could be driven at all; FIXED canopy#570, merged 2026-09-04, squash `28c0fa19`).**
 Drag the depth slider to 20 on a 40-unit cascade and the filter works: the figure re-renders
 (`de463bff` -> `ab8c6d50`, 1891 -> 551 traces) and the stats bar updates (`hidden` `40` -> `20 of 40`,
 `conn` `944` -> `274`). **The depth label beside the slider stays `"0 of 40"`.**
@@ -889,6 +889,69 @@ with it.
 **It was undiscoverable until the harness could drive the slider.** M-TOPOLOGY-06's expectation is
 `label == want OR counts["hidden"] == want`, and it now passes on the counts branch, so the row's PASS
 does not cover this. Recorded separately for that reason.
+
+---
+
+**A SECOND DEFECT UNDER THE SAME ID, found reading the code to write the fix brief
+(`JUNIPER_2026-09-04_JUNIPER-CANOPY_F042-F046-FIX-DECISION-BRIEF.md`), and wrong AT REST.**
+
+`0` meant two different things:
+
+| consumer | rule | at `value=0`, `n_hidden=40` |
+|---|---|---|
+| filter (`_apply_hierarchy_filter`) | `depth is None or depth <= 0 or depth >= total` → no filter, label `"all"` | shows **all 40** |
+| label (clientside) | `(v === nHidden) ? "all" : v + " of " + nHidden` | renders **`"0 of 40"`** |
+
+The slider ships `min=0, max=0, value=0` and the label's static default is `"all"`, so a freshly loaded
+40-unit network read **`"0 of 40"` while all 40 units were on screen** — before anyone touched anything.
+**Fixing the wiring alone would not have fixed this**; the label would still have said `"0 of 40"` at
+rest. Both had to be settled together, which is why the fix went through a decision brief rather than
+straight to a patch.
+
+**The obvious repair was structurally unavailable.** Adding `Input(-depth-slider, "value")` to the
+bounds-sync callback makes one component-property both an Input and an Output of a single callback,
+which Dash rejects at registration as a circular dependency. Hence the split: the label now has its own
+clientside callback (Inputs: the slider value *and* the topology store, the second because a
+`cascade_add` changes the denominator with no user action), and the bounds-sync callback returns three
+elements instead of four.
+
+Routing the label out of `update_network_graph` — which already computes exactly the right string and
+**throws it away** — was rejected on measurement, not taste: that callback is the starvation-prone one
+(1.5–31 s; F-CANOPY-037 / -039 / -043), so the number under the user's thumb would update seconds after
+the drag. The clientside rule is now a condition-for-condition transliteration of the server guard, and
+both sides carry a comment saying so.
+
+**FIXED AND VERIFIED LIVE — A/B, same fixture, minutes apart (canopy#570).** A second canopy was
+launched on `:8052` from the fix branch beside the arc's `:8051` instance, both pointed at the same
+cascor (`:8202`) and juniper-data (`:8101`), so the only thing differing between the two runs is which
+code the process imported. The 2/40/2/944 fixture was never touched.
+(`util/ad-hoc/2026-09-04_canopy_verify_instance.bash`, written for this and reused for F-CANOPY-046.)
+
+| row | `:8051` parent `ee2ec79` | `:8052` fix branch |
+|---|---|---|
+| M-TOPOLOGY-07 (at rest, no gesture) | `display='block' label='0 of 40'` → **FAIL** | `display='block' label='all'` → **PASS** |
+| M-TOPOLOGY-06 (drag to depth 20) | `label='0 of 40' hidden='20 of 40'` (`label_ok=False counts_ok=True`) → **FAIL** | `label='20 of 40' hidden='20 of 40'` (both `True`) → **PASS** |
+| `--step topo` total | 7 PASS / 2 FAIL | **9 PASS / 0 FAIL** |
+
+**BOTH SCORERS WERE TIGHTENED IN THE SAME PASS, and that is why they read FAIL on parent.**
+
+- **M-TOPOLOGY-06** was `label == want **OR** counts["hidden"] == want` and had been passing on the
+  counts branch — the stats bar tracked the filter while the label sat at `"0 of 40"`. **An `OR` over
+  two independent claims scores the easier one.** That is why this row was green while half of what it
+  names was broken, and why F-CANOPY-042 had to be found by eye instead of by its own scorer.
+- **M-TOPOLOGY-07** *read* the label and never asserted it: `label` went into the record as decoration
+  while the verdict turned on `display` alone. It logged `'0 of 40'` on every run of this arc and scored
+  PASS. Defect B was sitting in that scorer's own output the whole time.
+
+**Unit coverage** (`src/tests/unit/frontend/test_f042_depth_filter_label.py`, 11 tests) is layered so
+the JavaScript is not merely *described*: wiring is asserted against `app._callback_list` after a real
+`register_callbacks`; **the rule is checked by executing the registered clientside function under node**
+over a 48-case grid and comparing it case-for-case against `_apply_hierarchy_filter`, with the Python
+function as the oracle and the arguments built from the callback's declared Input order; and a
+source-level backstop asserts all four arms of the server guard are present clientside so a missing node
+cannot leave the zero-semantics uncovered by a skip. **5 of 11 fail against parent** — driven through
+its own registered Input list, parent's label writer ignores the depth entirely and returns `"all"` for
+all 48 cases, including the 9 where the filter really is filtering.
 
 ---
 
@@ -1325,7 +1388,7 @@ casually. A regression test pinning `blob:` alongside the existing `data:` asser
 
 ---
 
-**F-CANOPY-046 — clicking empty space cannot clear the selection: plotly emits `plotly_click` only for POINT hits, so `clickData` never changes and the clear path is unreachable by that gesture (P2, OPEN; found 2026-09-02 by the new `topoevents` scorer).**
+**F-CANOPY-046 — clicking empty space cannot clear the selection: plotly emits `plotly_click` only for POINT hits, so `clickData` never changes and the clear path is unreachable by that gesture (P2; found 2026-09-02 by the new `topoevents` scorer; FIXED canopy#573, merged 2026-09-04).**
 
 `handle_node_selection` ends with `return [], [], hidden_style` — the "no valid selection, clear" path
 the matrix cites for M-TOPOLOGY-12 — and the panel's own text tells the user *"(Click again or elsewhere
@@ -1356,6 +1419,70 @@ all, which before #564 nothing could. The empty-space gesture has produced no ev
 **Fix direction NOT asserted.** A `plotly_relayout`/`plotly_deselect` Input, or a container-level click
 handler, would each reach it; both add a trigger to a callback family this arc has repeatedly starved
 (F-CANOPY-037 / -039 / -043), so the cost needs measuring before choosing.
+
+---
+
+**A SECOND COST UNDER THE SAME ID, found reading the code to write the fix brief
+(`JUNIPER_2026-09-04_JUNIPER-CANOPY_F042-F046-FIX-DECISION-BRIEF.md`), and part of no proposed option.**
+
+The clear path wrote `[]` **unconditionally**. `-selected-nodes` is a real Input of
+`update_network_graph`, and Dash fires every consumer of a store on *any* write, identical or not — the
+property canopy#542 had to suppress for the topology store. So **failing** to clear an already-empty
+selection bought a full 1.5–31 s rebuild: the waste class of F-CANOPY-037 / -039 / -043, reached by the
+most ordinary gesture there is (a click that lands on nothing).
+
+**FIXED AND VERIFIED LIVE (canopy#573, merged 2026-09-04), and the fix does NOT implement the gesture.**
+The decision (D4 = B1 + B2) was to make the panel's text true *and* ship a control:
+
+- a **"Clear selection" button**, wired as an **Input** to the selection callback (the click on it *is*
+  the trigger) and revealed by a fourth Output only while something is selected;
+- the click branch keeps `"(Click again to deselect)"` — that half was always true, via the toggle
+  branch, and dropping it would lose a working gesture. `"or elsewhere"` goes;
+- the box branch loses its hint **entirely**: no click gesture clears a box selection, so there is no
+  true sentence to write there;
+- both clear paths return `dash.no_update` when the selection is already empty.
+
+A clientside listener on the graph container (B3) would literally satisfy the old sentence and was
+rejected: it races plotly's own event path, in the callback family this arc keeps starving.
+
+**A/B on the same 2/40/2/944 fixture, minutes apart** — a second canopy on `:8052` from the fix branch
+beside the arc's `:8051`, same cascor and juniper-data, so the only difference is which code the process
+imported (`util/ad-hoc/2026-09-04_canopy_verify_instance.bash`):
+
+| row | `:8051` parent | `:8052` fix branch |
+|---|---|---|
+| M-TOPOLOGY-12 | `control={present:False, visible:False}`, `cleared=False` → **BLOCKED** | `control={present:True, visible:True, clicked:True}`, `cleared=True` → **PASS** |
+| empty-space click *(recorded, not scored)* | `plotly_click_events=0`, `cleared=False` | `plotly_click_events=0`, `cleared=False` |
+| `--step topoevents` total | 3 PASS / 1 BLOCKED | **4 PASS / 0 BLOCKED** |
+
+**The empty-space row is identical on both builds, and that is the point.** The fix withdraws a claim
+rather than implementing a gesture. **M-TOPOLOGY-12 was restated in the same pass** — from *"click empty
+space, selection clears"* to *"a selection can be cleared"* — because scoring a deliberately withdrawn
+promise as a product FAIL forever would be measuring the matrix, not the app. The empty-space click is
+**kept and still counted**: it is the evidence for why the contract changed, and a future build that
+does wire a container-level listener should show up there as a behaviour change rather than as silence.
+A build with no control now scores **BLOCKED**, not FAIL — a product without the affordance cannot be
+asked whether its affordance works. Same three-state discipline as the `{ok, value, via}` readers.
+
+**Unit coverage**: `src/tests/unit/frontend/test_f046_clear_selection.py` (canopy), 17 tests, all
+reaching the real callback. **16 of 17 fail against parent**, each for its own reason — the harness
+builds its argument list from the callback's *actual* signature, deliberately, so the falsification does
+not collapse into a single arity error that would prove only that the signature changed. Parent's
+failures name the real strings, including
+`'Selected: Hidden 0  Layer: Hidden  (Click again or elsewhere to deselect)'`.
+
+**Two assertions were vacuous on the first falsification pass and were tightened.** An Output the build
+does not return reads as `None` in that harness, and `None != "none"` is **true** — so
+`assert clear_style.get("display") != "none"` passed against a build with no button at all. They now
+assert a positive display value. This is the fourth instrument in this arc that was well-formed and
+answering an adjacent question.
+
+**Adding an Input changed the callback's arity, and a grep for the symbol name found only ONE of the
+three files that invoke it.** `test_network_visualizer_callbacks.py` and
+`regression/test_dark_mode_info_panels.py` locate the callback by its **Output key**
+(`f"{component_id}-selected-nodes.data"`) and never mention `handle_node_selection`, so they were
+invisible to the audit and were caught by the full suite instead — one of them only on the *second*
+run. **When a callback's signature changes, grep the Output key as well as the symbol.**
 
 ---
 

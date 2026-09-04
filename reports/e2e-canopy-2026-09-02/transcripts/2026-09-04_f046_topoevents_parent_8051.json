@@ -1,0 +1,127 @@
+{
+  "topoevents": {
+    "wake": {
+      "already": false,
+      "woke": true,
+      "elapsed_s": 20.3,
+      "attempts": 1
+    },
+    "node_traces": [
+      {
+        "curve": 1888,
+        "name": "Input Units",
+        "n": 2,
+        "is3d": false,
+        "first_text": "Input 0"
+      },
+      {
+        "curve": 1889,
+        "name": "Hidden Units",
+        "n": 40,
+        "is3d": false,
+        "first_text": "Hidden 0"
+      },
+      {
+        "curve": 1890,
+        "name": "Output Units",
+        "n": 2,
+        "is3d": false,
+        "first_text": "Output 0"
+      }
+    ],
+    "M-TOPOLOGY-10": {
+      "verdict": "PASS",
+      "clicked": {
+        "ok": true,
+        "x": 1027.92,
+        "y": 754.63375,
+        "plot": {
+          "l": 469,
+          "t": 289.59375,
+          "w": 1062,
+          "h": 540
+        }
+      },
+      "want_label": "Hidden 3",
+      "selection": {
+        "present": true,
+        "display": "block",
+        "text": "Selected: Hidden 3\nLayer: Hidden\n(Click again or elsewhere to deselect)"
+      },
+      "shown": true,
+      "names_node": true,
+      "layer_ok": true,
+      "effect_observed": true,
+      "effect_wait_s": 2.6,
+      "before": {
+        "present": true,
+        "display": "none",
+        "text": ""
+      }
+    },
+    "M-TOPOLOGY-12": {
+      "verdict": "BLOCKED",
+      "precondition_selected": true,
+      "before": {
+        "present": true,
+        "display": "block",
+        "text": "Selected: Hidden 3\nLayer: Hidden\n(Click again or elsewhere to deselect)"
+      },
+      "after": {
+        "present": true,
+        "display": "block",
+        "text": "Selected: Hidden 3\nLayer: Hidden\n(Click again or elsewhere to deselect)"
+      },
+      "control": {
+        "present": false,
+        "visible": false,
+        "clicked": false
+      },
+      "empty_space_click": {
+        "clicked": {
+          "ok": true,
+          "x": 511.48,
+          "y": 321.99375
+        },
+        "plotly_click_events": 0,
+        "cleared": false
+      },
+      "unchanged_text": true
+    },
+    "M-TOPOLOGY-15": {
+      "verdict": "PASS",
+      "hover_reached_plotly": true,
+      "tooltip": {
+        "present": true,
+        "n": 1,
+        "text": "Weight: 0.199"
+      },
+      "dom_unchanged": true,
+      "api_calls_during_hover": 0,
+      "before": {
+        "present": true,
+        "display": "block",
+        "text": "Selected: Hidden 3\nLayer: Hidden\n(Click again or elsewhere to deselect)"
+      },
+      "after": {
+        "present": true,
+        "display": "block",
+        "text": "Selected: Hidden 3\nLayer: Hidden\n(Click again or elsewhere to deselect)"
+      }
+    },
+    "M-TOPOLOGY-09": {
+      "verdict": "PASS",
+      "before": {
+        "present": true,
+        "color": "rgb(33, 37, 41)",
+        "bg": "rgb(248, 249, 250)"
+      },
+      "after": {
+        "present": true,
+        "color": "rgb(248, 249, 250)",
+        "bg": "rgb(52, 58, 64)"
+      },
+      "toggle": "dark-mode-toggle"
+    }
+  }
+}

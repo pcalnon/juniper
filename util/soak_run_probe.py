@@ -187,8 +187,16 @@ def parse_events(path: Path) -> dict:
             }
             if isinstance(ev.get("result"), str):
                 answer.append(ev["result"])
-        msg = ev.get("message") or {}
-        for block in msg.get("content", []) if isinstance(msg.get("content"), list) else []:
+        # `message` is not always an object. Some stream-json events carry it as a
+        # bare string, and `ev.get("message") or {}` happily yields that string --
+        # then `.get` on it raises AttributeError and the whole run is lost at the
+        # parse step, AFTER the session has been spent. Guard the type, not just
+        # the absence.
+        msg = ev.get("message")
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content")
+        for block in content if isinstance(content, list) else []:
             if not isinstance(block, dict):
                 continue
             if block.get("type") == "text" and etype == "assistant":
