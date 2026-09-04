@@ -5,16 +5,18 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-01
+**Last Updated**: 2026-09-04
 **Status**: PLAN v3 — **round 3 returned NOT RESOLVED on all four targets; four of its seven findings
 have since moved.** §9 is still the live record and is **not** folded into §§2–7, which remain
 v3-as-reviewed rather than v3-as-corrected. **Still do not implement from this document.**
+The partitioning question is CLOSED on the design of record (decisions 9 REVERSED / 10 COLLAPSED /
+11 / 12). Operator surface: [`docs/REFERENCE.md` § Train / Val / Test Partition Contract](../docs/REFERENCE.md#train--val--test-partition-contract).
 
 | finding | state |
 | --- | --- |
 | S-1 cascor has no test slot | **PARTLY CLOSED** — cascor#614 built the machinery, cascor#616 populates it from the **inline** path. The **artifact** ingress still needs the ecosystem change (Chunk 4). |
 | S-2 D-1's premise is false | **CLOSED** — D-1 re-posed and **ruled** 2026-08-31, with D-2 and a normalisation sub-ruling. See §3's banner and design §9.2. |
-| S-3 `NPZ_SPLITS` owned by no chunk | **CONFIRMED** from source 2026-09-01. Still unhomed. |
+| S-3 `NPZ_SPLITS` owned by no chunk | **CONFIRMED** from source 2026-09-01. Still unhomed. Decision 11 makes drop-`"full"` + add-`"val"` one coherent edit (design §9.5.4 item 4). |
 | S-4 §6a rejects sequence val artifacts | OPEN. |
 | S-5 three of four ml homes wrong | OPEN. |
 | S-6 store-root count vacuous | **RESOLVED** 2026-09-01 — full census; **R-4 downgraded to theoretical**, R-3 re-homed to LocalFS. |
