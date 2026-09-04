@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.41
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -23,6 +23,7 @@
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
+- [Ruleset Context Audit](#ruleset-context-audit)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
@@ -1592,6 +1593,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - A `gh` non-zero exit is a `ProbeError` → exit 3, never a silently-empty result; that conflation is the same class as trap 1. A missing `required_status_checks` rule is likewise a hard error rather than a quiet downgrade.
   - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient vs. permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died due to a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes away from finishing.
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
+- `util/ad-hoc/2026-08-10_ruleset_context_audit.py` -- Read-only fleet classifier for `required_status_checks` (BLOCKING / MATCHED / Tier 1 / path-gated / advisory). Human exit 1 only on `BLOCKING`; `--json` also fails on `error`. Operator surface: [Ruleset Context Audit](#ruleset-context-audit).
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
@@ -1859,7 +1861,7 @@ juniper-ml/
 │                                         #  juniper-doc-tools PyPI package).
 │
 └── util/                                 # Utility scripts and tools
-    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md)
+    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md); 2026-08-10_ruleset_context_audit.py = required-context fleet classifier (REFERENCE § Ruleset Context Audit)
     ├── assert_release_tag.bash           # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
     ├── open_signed_pr.py                 # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
     ├── wait_for_checks.py                # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
@@ -2070,6 +2072,77 @@ close/re-open.
 PR mergeable into `main`, and it does **not** re-land the stack -- do that separately.
 
 Rollout and rationale: [juniper-ml#434](https://github.com/pcalnon/juniper-ml/issues/434).
+
+## Ruleset Context Audit
+
+`util/ad-hoc/2026-08-10_ruleset_context_audit.py` is the **read-only** fleet classifier for `required_status_checks`. It exists because that rule **cannot** be copy-pasted across repos: it names each repo's actual job strings, and a required name that never reports is never satisfied.
+
+The 2026-08-10 incident applied one fleet-union list of 30 contexts to all 9 publishing repos. Every `main` became unmergeable except by admin bypass (200 blocking contexts across the fleet). Incident record: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md`](../notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md). **§1 counts in that note are historical** — re-run the auditor; do not quote them.
+
+This is the **reader**. The writer that adds one context (with a pre-flight that the repo's CI actually publishes the string) is `util/ad-hoc/2026-08-20_require_context_safely.py`. The CI gate that `~ALL` scope re-arms dependabot / Copilot bypass rows is `util/ruleset_scope_guard.py`. Do not substitute one for another.
+
+### Invoke
+
+```bash
+python util/ad-hoc/2026-08-10_ruleset_context_audit.py              # all 9 publishing repos
+python util/ad-hoc/2026-08-10_ruleset_context_audit.py --repo juniper-ml
+python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json       # machine-readable; see exit codes
+```
+
+Read-only: `gh api` GET of `/repos/pcalnon/<repo>/rules/branches/main` plus `gh pr list --state all --limit 8 --json statusCheckRollup`. Writes nothing. Needs `gh` authenticated to those 9 repos.
+
+Hardcoded fleet (`REPOS`): `juniper-ml`, `juniper-cascor`, `juniper-canopy`, `juniper-data`, `juniper-cascor-worker`, `juniper-deploy`, `juniper-data-client`, `juniper-cascor-client`, `juniper-recurrence`. `--repo` is **not** validated against that list.
+
+### Classification (verified against `audit()`)
+
+| Bucket | Meaning | Require it? |
+|--------|---------|-------------|
+| `BLOCKING` | Required, never seen on the sampled rollups | **No** — remove or rename. This is the 2026-08-10 class. |
+| `MATCHED` | Required and seen at least once | Already required. Human text prints the **count** only; names are in `--json`. |
+| `TIER 1` | Seen on **every** sampled PR after filters, and not advisory | Safe to require. |
+| `PATH-GATED` | Seen on some sampled PRs only (`name [freq/n]`) | **Do not require** — blocks every PR that misses those paths. |
+| `advisory_seen` | Reports, but default-advisory (and not in the live required set) | Leave advisory. **`--json` only** — the human report omits this list. |
+
+Two filters decide Tier 1 vs path-gated (not "every check that reports"):
+
+1. **Always ∩ not-advisory.** A context that misses even one kept PR is path-gated. Dependabot/docs PRs (~22 checks) vs code PRs (~37) is preserved on purpose — those thinner PRs must stay mergeable.
+2. **Half-median rollup drop.** A PR that merged before CI settled (juniper-ml#1061 carried 5 of ~37) would make **every** context look path-gated and collapse Tier 1. Rollups with `len < median/2` are discarded.
+
+### Advisory predicate
+
+`ADVISORY_EXACT` / `ADVISORY_PREFIXES` is a **default**, not the verdict. `advisory_predicate(required)` treats a name as advisory only when it matches the default **and** is **not** in that repo's live required set.
+
+Without the subtraction, promoting a check (ml#1011 made `Sequence Safety` required fleet-wide) leaves the string in `ADVISORY_EXACT` and the now-required context **vanishes from Tier 1** — it looks missing when it is fine. Keeping promoted names in the default list is deliberate: a sibling that has not promoted the check still classifies it as advisory.
+
+Prefix match is `startswith("Cursor Automation:")`, **not** a substring. A wrapped label that merely contains those words is not advisory.
+
+`ADVISORY_EXACT` includes `claude`, `Sequence Safety` / `Sequence Safety (Advisory)`, `Fleet PR Lint`, notification/mutation side-jobs, the pre-#1099 `Bump AGENTS.md Last Updated` name, `Verify AGENTS.md Last Updated`, `Update requirements.lock`, and the umbrella `CodeQL` (the real gate is `Analyze (python)`).
+
+### Exit codes
+
+| Mode | Exit 0 | Exit 1 |
+|------|--------|--------|
+| Human (default) | `TOTAL BLOCKING` is 0 | Any repo has a non-empty `blocking` list |
+| `--json` | No `blocking` and no `error` | Any `blocking` **or** any `error` |
+
+Human mode can exit **0 with `ERROR:` rows** (a `gh` failure does not increment `TOTAL BLOCKING`). `--json` fails closed on those same errors. Do not treat a silent text-mode 0 as "the fleet probe succeeded" — read the `ERROR:` lines, or use `--json`.
+
+A repo whose sampled rollups are all dropped (or that has no recent PRs) has `reported = ∅`, so **every** required context becomes `BLOCKING`. That is a sampling failure, not a 200-context incident. Re-run; do not strip the ruleset from a one-shot empty sample.
+
+### Operator pitfalls
+
+| Symptom | Check |
+|---------|-------|
+| `main` `BLOCKED`, every visible check green | Required name never reports — the class this tool names `BLOCKING`. Confirm with `--repo` before adding another context. |
+| Tier 1 empty / everything path-gated | Thin rollup slipped past the half-median filter, or `--limit 8` hit an unlucky window. The filter is `>= median/2`, not "drop dependabot". |
+| Promoted check missing from Tier 1 | `advisory_predicate` must subtract the live required set. If you forked the script and inlined `is_advisory()` only, you reintroduced the ml#1011 miss. |
+| `Cursor Automation: …` in Tier 1 | Prefix must stay `startswith`. A `in` / substring test will also swallow unrelated labels. |
+| Text exit 0 but one repo says `ERROR:` | Expected — human mode ignores probe failures. Re-run `--json` (exit 1) or that `--repo` alone. |
+| Quoted 23/200 blocking from the 2026-08-10 note | Historical. Re-run; the note's §1 table is the incident, not the live fleet. |
+| Used this script to *add* a required context | Wrong tool. `require_context_safely.py` is the writer (pre-flight + snapshot). This auditor only GETs. |
+| `--help` still says `CANDIDATE` | Stale `__doc__`. Live `audit()` split that bucket into `tier1` / `path_gated` / `advisory_seen`. Trust the function, not the banner. |
+
+Dedicated unittest arm is **not on main** (open juniper-ml#1670). Complementary gates that *are* on main: `tests/test_require_context_safely.py` (writer), `tests/test_ruleset_scope_guard.py` (`~ALL` scope), `tests/test_wait_for_checks.py` (required-context waiter).
 
 ## CI/CD Workflow Inventory
 
@@ -2999,6 +3072,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.41  | 2026-09-04 | Ruleset Context Audit: read-only fleet classifier for `required_status_checks` (`2026-08-10_ruleset_context_audit.py`); BLOCKING vs Tier 1 vs path-gated; advisory_predicate subtracts the live required set; text-mode 0 can still carry `ERROR:` rows |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3346,6 +3420,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.41
 **Maintainer:** Paul Calnon
