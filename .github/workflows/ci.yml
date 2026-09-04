@@ -825,6 +825,15 @@ jobs:
           # work_invariant actually FAILS when step_counts differ and when nothing was
           # measured at all. util/ is not pre-commit-lint-gated, so this is the gate.
           python3 -m unittest -v tests/test_read_run_metrics.py
+          # tests/test_compare_baseline.py: hermetic tests for
+          # util/experiments/compare_baseline.py, the SPLIT comparator (P2 item 1.2) that
+          # implements item 1.5's decision. Pins the three outcomes staying distinct --
+          # PASS/FAIL on the exactly-compared work half (exit 1, not merely non-zero),
+          # REFUSED on an identity or host mismatch (exit 2), and WAIVED never collapsing
+          # into PASS. Also pins that SPEED cannot fail the gate at any magnitude (a 10x
+          # slowdown with matching work still passes), that a waiver cannot override a
+          # refusal, and that the rendered text does not claim a waiver that had no effect.
+          python3 -m unittest -v tests/test_compare_baseline.py
           # tests/test_make_baseline.py: hermetic tests for
           # util/experiments/make_baseline.py, the Q-8 run-level baseline writer (P2 item
           # 1.1, P1 design section 4). Mostly pins what the tool must REFUSE, because a
