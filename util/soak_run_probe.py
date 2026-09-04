@@ -108,7 +108,16 @@ RUNS = ROOT / "reports" / "soak" / "runs"
 DEFAULT_TIMEOUT = 900
 
 
-def resolve_claude() -> str:
+def claude_search_paths(home: Path | None = None) -> tuple[Path, ...]:
+    """Fallbacks when PATH does not contain `claude` (systemd --user / cron)."""
+    h = Path.home() if home is None else home
+    return (h / ".local/bin/claude", Path("/usr/local/bin/claude"))
+
+
+def resolve_claude(
+    home: Path | None = None,
+    search_paths: tuple[Path, ...] | None = None,
+) -> str:
     """Absolute path to the `claude` binary, or exit 2 saying so.
 
     NOT `Popen(["claude", ...])`. `subprocess` resolves a bare name against the
@@ -129,7 +138,7 @@ def resolve_claude() -> str:
     found = shutil.which("claude")
     if found:
         return found
-    for cand in (Path.home() / ".local/bin/claude", Path("/usr/local/bin/claude")):
+    for cand in claude_search_paths(home) if search_paths is None else search_paths:
         if cand.is_file() and os.access(cand, os.X_OK):
             return str(cand)
     raise SystemExit(
@@ -139,6 +148,57 @@ def resolve_claude() -> str:
         "default PATH. Set Environment=PATH=... in the unit, or install claude on "
         "a system path."
     )
+
+
+def reaper_guard_path(pid: int, exp_run_root: str | None = None, home: Path | None = None) -> Path:
+    """Pidfile path the orphan reaper actually scans.
+
+    `collect_protected_pids` in `util/reap_pytest_orphans.bash` walks only
+    `$JUNIPER_EXP_RUN_ROOT` and `$JUNIPER_E2E_RUN_DIR`. A pidfile under
+    `reports/soak/runs/` is never read and grants nothing. The first version of
+    this wrapper wrote exactly that, so it looked like a mitigation while
+    protecting zero probes.
+    """
+    if exp_run_root is None:
+        root = (home if home is not None else Path.home()) / ".local/state/juniper-experiments"
+    else:
+        root = Path(exp_run_root)
+    return root / "soak-probes" / f"soak-probe-{int(pid)}.pid"
+
+
+def probe_child_env(base: dict[str, str] | None = None) -> dict[str, str]:
+    """Env handed to the subject session.
+
+    A stale `ANTHROPIC_API_KEY` with no credit fails the run with
+    "Credit balance is too low" before the probe ever starts. Subscription auth
+    is what the unattended path uses.
+    """
+    env = dict(os.environ if base is None else base)
+    env.pop("ANTHROPIC_API_KEY", None)
+    return env
+
+
+def timeout_status(
+    probe_id: str,
+    session_id: str,
+    timeout_s: int,
+    stderr_tail: str | None,
+    ended_at: str,
+) -> dict:
+    """Status written when the subject is killed for wall-clock.
+
+    An earlier version bound `err` here and dropped it. A timeout is precisely
+    when the child's last words are worth having, and the status file is the
+    only place they can be read afterwards.
+    """
+    return {
+        "probe_id": probe_id,
+        "session_id": session_id,
+        "state": "TIMEOUT",
+        "timeout_s": timeout_s,
+        "ended_at": ended_at,
+        "stderr_tail": (stderr_tail or "")[-400:],
+    }
 
 
 def _now() -> str:
@@ -306,10 +366,7 @@ def main() -> int:
     }, indent=2) + "\n", encoding="utf-8")
 
     log = run_dir / "stream.jsonl"
-    env = dict(os.environ)
-    # Subscription auth: a stale ANTHROPIC_API_KEY with no credit fails the run
-    # with "Credit balance is too low" before the probe ever starts.
-    env.pop("ANTHROPIC_API_KEY", None)
+    env = probe_child_env()
 
     with log.open("w", encoding="utf-8") as fh:
         proc = subprocess.Popen(  # nosec B603
@@ -331,18 +388,15 @@ def main() -> int:
         # the second documented protection key (a cmdline referencing a run root)
         # for anything that reads it.
         (run_dir / f"probe-{proc.pid}.pid").write_text(f"{proc.pid}\n", encoding="utf-8")
-        reaper_root = Path(
-            os.environ.get("JUNIPER_EXP_RUN_ROOT", str(Path.home() / ".local/state/juniper-experiments"))
-        ) / "soak-probes"
+        guard = reaper_guard_path(proc.pid, os.environ.get("JUNIPER_EXP_RUN_ROOT"))
         try:
-            reaper_root.mkdir(parents=True, exist_ok=True)
-            guard = reaper_root / f"soak-probe-{proc.pid}.pid"
+            guard.parent.mkdir(parents=True, exist_ok=True)
             guard.write_text(f"{proc.pid}\n", encoding="utf-8")
             (run_dir / "reaper_guard_path.txt").write_text(str(guard) + "\n", encoding="utf-8")
         except OSError as exc:
             # Loud, not silent: an unprotected probe can be reaped mid-run, and a
             # reaped probe is not a miss -- it is a lost run that would have scored.
-            print(f"WARNING: could not write reaper guard under {reaper_root}: {exc}",
+            print(f"WARNING: could not write reaper guard under {guard.parent}: {exc}",
                   file=sys.stderr)
         if args.background:
             print(f"probe {probe_id} detached: pid {proc.pid}, run dir {run_dir}")
@@ -367,11 +421,10 @@ def main() -> int:
             # defect rather than a lint nit: a timeout is precisely when the
             # child's last words are worth having, and the status file was the
             # only place they could have been read afterwards.
-            (run_dir / "status.json").write_text(json.dumps({
-                "probe_id": probe_id, "session_id": session_id, "state": "TIMEOUT",
-                "timeout_s": args.timeout, "ended_at": _now(),
-                "stderr_tail": (err or "")[-400:],
-            }, indent=2) + "\n", encoding="utf-8")
+            (run_dir / "status.json").write_text(json.dumps(
+                timeout_status(probe_id, session_id, args.timeout, err, _now()),
+                indent=2,
+            ) + "\n", encoding="utf-8")
             print(f"TIMEOUT after {args.timeout}s -- run dir {run_dir}", file=sys.stderr)
             return 1
 
