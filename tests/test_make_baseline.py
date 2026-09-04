@@ -124,6 +124,16 @@ class BuildRefusalTest(unittest.TestCase):
                 mb.build_baseline("t", [suite])
             self.assertIn("different workloads", str(ctx.exception))
 
+    def test_refuses_when_some_cell_yaml_is_missing(self):
+        # Mixed known + unknown identity is the hole: dropping Nones before the uniqueness check
+        # made a 2-cell suite with one missing YAML look like a single workload and BLESS it.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            (suite / "cells" / "c001" / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("workload identity unknown", str(ctx.exception))
+
     def test_records_the_workload_fingerprint(self):
         with tempfile.TemporaryDirectory() as tmp:
             suite = _write_suite(Path(tmp), [{}, {}])

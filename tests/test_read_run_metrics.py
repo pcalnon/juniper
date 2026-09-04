@@ -230,6 +230,24 @@ class WorkloadFingerprintTest(unittest.TestCase):
             suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
             self.assertFalse(rrm.summarise(rrm.read_suite(suite))["single_workload"])
 
+    def test_single_workload_false_when_SOME_identities_unknown(self):
+        # The uniqueness set used to drop Nones first, so 1 known + 1 missing YAML reported
+        # single_workload True -- and make_baseline would bless that mix as one workload.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
+            self._cell(suite, "c000", "experiment:\n  seed: 42\ntraining:\n  params:\n    max_epochs: 4000\n")
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertFalse(summary["single_workload"])
+            self.assertEqual(len(summary["workload_fingerprints"]), 1)
+
+    def test_non_json_yaml_is_none_not_a_crash(self):
+        # PyYAML loads an unquoted ISO date as datetime.date; json.dumps then TypeErrors.
+        # Unknown identity must come back as None so callers can refuse, not abort the suite.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment:\n  seed: 42\ndataset:\n  params:\n    start_date: 2015-01-01\n")
+            self.assertIsNone(rrm.workload_fingerprint(suite, "c000"))
+
 
 class CliTest(unittest.TestCase):
     def test_json_mode_emits_parseable_payload(self):

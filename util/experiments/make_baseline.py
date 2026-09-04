@@ -170,7 +170,15 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
             refusals.append(f"{suite_dir.name}: step_count is NOT invariant across cells ({[int(c) for c in summary['step_counts']]}) -- these are not repeats")
         # Distinct from the work invariant: cells that ran DIFFERENT workloads would give a
         # step_count spread that is a fact about the configs, not about the host or the code.
-        if not summary["single_workload"]:
+        # Unknown identity is checked first (P2 §2.2): a missing YAML must not be treated as
+        # "the same as the cells we could identify".
+        unidentified = [r.get("cell_id") or r.get("run_id") for r in rows if not r.get("workload_fingerprint")]
+        if unidentified:
+            refusals.append(
+                f"{suite_dir.name}: workload identity unknown for {unidentified} -- "
+                "cannot baseline a cell whose experiment.yaml is missing or unreadable"
+            )
+        elif not summary["single_workload"]:
             refusals.append(
                 f"{suite_dir.name}: cells ran {len(summary['workload_fingerprints'])} different workloads "
                 f"(fingerprints {[f[:12] for f in summary['workload_fingerprints']]}) -- a baseline scenario must be ONE workload"

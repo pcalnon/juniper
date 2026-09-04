@@ -153,7 +153,11 @@ def workload_fingerprint(suite_dir: Path, cell_id: str) -> Optional[str]:
     if isinstance(experiment, dict):
         for key in COSMETIC_EXPERIMENT_KEYS:
             experiment.pop(key, None)
-    return hashlib.sha256(json.dumps(config, sort_keys=True).encode("utf-8")).hexdigest()
+    try:
+        encoded = json.dumps(config, sort_keys=True)
+    except (TypeError, ValueError):
+        return None  # non-JSON YAML (timestamps, mixed key types) is unknown identity, not a crash
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
 def read_suite(suite_dir: Path) -> List[Dict[str, Any]]:
@@ -205,7 +209,9 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     counts = [r["step_count"] for r in rows if isinstance(r.get("step_count"), (int, float))]
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
-    fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
+    fingerprints = [r.get("workload_fingerprint") for r in rows]
+    identified = [fp for fp in fingerprints if fp]
+    unique = sorted(set(identified))
     out: Dict[str, Any] = {
         "cells": len(rows),
         "step_counts": sorted(set(counts)),
@@ -213,8 +219,11 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
         # step_count spread would be a fact about the configs rather than about the host or the
         # code. Recorded separately from work_invariant so the two failures stay distinguishable.
-        "workload_fingerprints": fingerprints,
-        "single_workload": len(fingerprints) == 1,
+        # Unknown identity is NOT dropped before the uniqueness check: a mix of known + missing
+        # YAML would otherwise report single_workload True and bless a baseline that includes
+        # cells the comparator cannot identify (P2 §2.2: unknown on either side is a REFUSE).
+        "workload_fingerprints": unique,
+        "single_workload": bool(rows) and len(identified) == len(rows) and len(unique) == 1,
     }
     if drives:
         out["drive"] = _spread(drives)
