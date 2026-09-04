@@ -6,7 +6,7 @@
 # Purpose:       Provenance-resolving census of un-offloaded blocking calls in async handlers
 #
 # Author:        Paul Calnon
-# Version:       0.2.0
+# Version:       0.3.0
 # File Name:     2026-09-04_x7_offload_census_v2.py
 # File Path:     ${HOME}/Development/python/Juniper/juniper-ml/util/ad-hoc/
 #
@@ -48,8 +48,19 @@
 #
 #####################################################################################################################################################################################################
 # Notes:
-#     - Read-only, static. Exits non-zero while findings remain, so it can serve as a gate.
+#     - Read-only, static. Exits non-zero while findings remain.
 #     - Prints every site with its resolved provenance so the count is auditable, not trusted.
+#     - **NOT the authority.** The gate that governs slice 1a is
+#       ``juniper-canopy/src/tests/regression/test_x7_off_loop_discipline.py``. This script is the
+#       exploratory sibling: same classification logic, but it does NOT carry the gate's
+#       ``VERIFIED_NO_IO_CALLS`` exclusions. That is the entire difference between the two counts
+#       -- this reports **54**, the gate reports **52**, and the delta is exactly the two
+#       ``backend._demo`` accessors (``get_network``, ``get_current_state``) that were each read and
+#       confirmed to be in-process. Use the gate to decide when 1a is done; use this to explore.
+#     - Both share a SCOPE LIMIT: they read ``main.py`` only. Design section 5.2 also puts the
+#       metrics relay's inline ``extract_network_topology()`` in slice 1a
+#       (``cascor_service_adapter.py:771``, measured 123 s blocked per 183 s with no user present).
+#       It is a ``self``-method with internal I/O and is invisible to a receiver-based scan.
 #
 #####################################################################################################################################################################################################
 
@@ -171,8 +182,15 @@ def main() -> int:
             if not isinstance(node.func, ast.Attribute):
                 continue
             expr = ast.unparse(node.func)
-            if expr in offloaded:
-                continue
+            # v0.3.0: the cross-site expression exemption that used to sit here made this
+            # census UNSOUND, in the worst direction. It skipped any call whose expression
+            # appeared handed to an offloader ANYWHERE in the module, so because main.py:3574
+            # offloads ``backend.get_status``, every OTHER ``backend.get_status()`` went
+            # unreported -- including the three health endpoints X7 is defined by. It also
+            # degraded as work progressed: offloading one site made its untouched twin
+            # disappear. Reported 39 where the true count is 52. Exemption is now site-local
+            # only (the ``exempt`` node-id set above, covering calls inside a closure that is
+            # itself offloaded). Do not reintroduce matching by expression across sites.
             if isinstance(getattr(node, "_parent", None), ast.Await):
                 continue
             kind = classify(node.func.value, bound)
