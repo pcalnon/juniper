@@ -29,12 +29,12 @@ pure-async ones. Confirmed by four independent lanes; the reconciler's own hypot
 (threadpool exhaustion) was **excluded** by a decisive counter-example: four concurrent *threadpool*
 blockers ran in parallel (6.0 s each, not 24 s) and left the loop at 2.4 ms.
 
-| condition | `GET /v1/health` | source |
-| --- | --- | --- |
-| cascor healthy | **5.7 ms** | reconciler, end-to-end |
-| cascor **stopped** (ECONNREFUSED) | **3.0 s** | Lane A1 + reconciler |
-| cascor **hung** (`SIGSTOP`) | **123.12 s** | reconciler, end-to-end |
-| recovery, no canopy restart | **5.1 ms** | reconciler |
+| condition                         | `GET /v1/health` | source                 |
+|-----------------------------------|------------------|------------------------|
+| cascor healthy                    | **5.7 ms**       | reconciler, end-to-end |
+| cascor **stopped** (ECONNREFUSED) | **3.0 s**        | Lane A1 + reconciler   |
+| cascor **hung** (`SIGSTOP`)       | **123.12 s**     | reconciler, end-to-end |
+| recovery, no canopy restart       | **5.1 ms**       | reconciler             |
 
 The 123 s is `timeout × (retries+1) + Σbackoff` = `30×4 + (0+1+2)`. It was derived by Lane A2,
 measured at the client (123.13 s) and confirmed end-to-end (123.12 s) — three routes to the same
@@ -81,16 +81,16 @@ Three amplifiers, each verified:
 
 Derived from measurement, not preference. A design that misses any of these is refuted on arrival.
 
-| id | constraint | why |
-| --- | --- | --- |
-| **C1** | No request handler may perform an unbounded blocking call on the request path | the defect itself |
-| **C2** | Upstream call rate must be independent of browser-tab count and poller count | ρ scales with tabs otherwise (§4.2) |
-| **C3** | Handler latency must fit the dashboard's own budget: **1.0 s** fast lane, **2.0 s** normal (`canopy_constants.py:373-374`) | otherwise every panel renders an error div even when "fixed" |
-| **C4** | Concurrent outbound cascor calls must be **bounded**, and the bound must be < the 20-slot executor (`min(32, cpu+4)`, verified) | unbounded offload measured **3 → 42** upstream requests and peaked 20/20 |
-| **C5** | The shared `requests.Session` must not be used concurrently from multiple threads | documented not thread-safe; the loop currently serialises it at concurrency 1 |
-| **C6** | An unknown/stale backend status must never be presented as a *negative* fact | `is_training_active()` gates 409 interlocks on `restore_snapshot`, `replay`, `resume`/`retrain`, model-select |
-| **C7** | At least one health endpoint must be able to report **not-ready** | today all three return unconditional 200 |
-| **C8** | Retries must not be applied to non-idempotent verbs | `POST /v1/training/start` measured reaching the server **4×** |
+| id     | constraint                                                                                                                      | why                                                                                                           |
+|--------|---------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------|
+| **C1** | No request handler may perform an unbounded blocking call on the request path                                                   | the defect itself                                                                                             |
+| **C2** | Upstream call rate must be independent of browser-tab count and poller count                                                    | ρ scales with tabs otherwise (§4.2)                                                                           |
+| **C3** | Handler latency must fit the dashboard's own budget: **1.0 s** fast lane, **2.0 s** normal (`canopy_constants.py:373-374`)      | otherwise every panel renders an error div even when "fixed"                                                  |
+| **C4** | Concurrent outbound cascor calls must be **bounded**, and the bound must be < the 20-slot executor (`min(32, cpu+4)`, verified) | unbounded offload measured **3 → 42** upstream requests and peaked 20/20                                      |
+| **C5** | The shared `requests.Session` must not be used concurrently from multiple threads                                               | documented not thread-safe; the loop currently serialises it at concurrency 1                                 |
+| **C6** | An unknown/stale backend status must never be presented as a *negative* fact                                                    | `is_training_active()` gates 409 interlocks on `restore_snapshot`, `replay`, `resume`/`retrain`, model-select |
+| **C7** | At least one health endpoint must be able to report **not-ready**                                                               | today all three return unconditional 200                                                                      |
+| **C8** | Retries must not be applied to non-idempotent verbs                                                                             | `POST /v1/training/start` measured reaching the server **4×**                                                 |
 
 ---
 
@@ -107,12 +107,12 @@ first plan proposed applying the settings under which the defect was measured.
 Choosing *different* values also fails. Lane B1 computed utilisation and confirmed each row
 empirically (λ ≈ 1.47/s per tab; c = 20 offloaded):
 
-| setting | per-call cost | ρ, 1 tab | 2 tabs | 4 tabs |
-| --- | --- | --- | --- | --- |
-| today `t=30, r=3` | 123.1 s | 9.03 | 17.6 | 34.7 |
-| `t=10, r=1` | 20.0 s | **1.47** | 2.87 | 5.67 |
-| `t=5, r=1` | 10.0 s | 0.734 | **1.43** | 2.84 |
-| `t=2, r=0` | 2.0 s | 0.147 | 0.287 | 0.567 |
+| setting           | per-call cost | ρ, 1 tab | 2 tabs   | 4 tabs |
+|-------------------|---------------|----------|----------|--------|
+| today `t=30, r=3` | 123.1 s       | 9.03     | 17.6     | 34.7   |
+| `t=10, r=1`       | 20.0 s        | **1.47** | 2.87     | 5.67   |
+| `t=5, r=1`        | 10.0 s        | 0.734    | **1.43** | 2.84   |
+| `t=2, r=0`        | 2.0 s         | 0.147    | 0.287    | 0.567  |
 
 Only `t≤5, r≤1` reaches ρ<1, and `t=5/r=1` **saturates at two browser tabs**. Every ρ<1 setting
 still costs ≥1.0 s, which **exceeds C3** — so even the "working" settings leave every panel
@@ -228,11 +228,11 @@ A separate upstream fix to `juniper-cascor-client` is filed (§9) — that is th
 
 ### 5.4 Health contract (C6, C7)
 
-| endpoint | touches upstream | contract |
-| --- | --- | --- |
-| `/v1/health/live` | **never** | in-process liveness only; 200 alive / 503 unresponsive |
-| `/v1/health/ready` | **never inline** — reads cache | 200 `ready`; **503 `not_ready`** when the cache is `UNKNOWN` beyond a threshold |
-| `/v1/health`, `/health`, `/api/health` | **never inline** — reads cache | 200 with a degraded body; reports `cascor_reachable` and `*_age_seconds` |
+| endpoint                               | touches upstream               | contract                                                                        |
+|----------------------------------------|--------------------------------|---------------------------------------------------------------------------------|
+| `/v1/health/live`                      | **never**                      | in-process liveness only; 200 alive / 503 unresponsive                          |
+| `/v1/health/ready`                     | **never inline** — reads cache | 200 `ready`; **503 `not_ready`** when the cache is `UNKNOWN` beyond a threshold |
+| `/v1/health`, `/health`, `/api/health` | **never inline** — reads cache | 200 with a degraded body; reports `cascor_reachable` and `*_age_seconds`        |
 
 `/v1/health/ready` gains the ability to go red, which C7 requires and which
 `juniper-deploy`'s `values.yaml:222-226` **already documents as canopy's contract** — a contract
@@ -257,15 +257,15 @@ when cascor is hung.
 
 Specified to fail on today's code, and specified against the two vacuity traps this arc measured.
 
-| id | test | must |
-| --- | --- | --- |
-| **X7-T1** | **completion count**, not latency: with a stub cascor that never responds, issue N requests to `/v1/health/live` over T s and assert **all N complete** | fail today (**0 completions in 40 s**), pass after |
-| **X7-T2** | vacuity guard for T1: assert the sample size is non-zero **and** the route census ≥ 70 | a 0/0 sample must not read as success |
-| **X7-T3** | cache never serves a failure as a value: after N failed refreshes, `state` is `UNKNOWN` and `value` is unchanged | fail today (`is_training_in_progress` returns `False`) |
-| **X7-T4** | interlock fails closed: with cache `UNKNOWN`, a mutating call returns an explicit error, not a 200 | fail today |
-| **X7-T5** | `/v1/health/ready` returns **503** when the cache is `UNKNOWN` | fail today (unconditional 200) |
-| **X7-T6** | injected client rejects retry on non-idempotent verbs: a timed-out `POST` reaches a counting stub **once** | fail today (**4×**) |
-| **X7-T7** | executor bound: under a hung stub, concurrent outbound calls never exceed the semaphore bound | fail today (peak 20/20) |
+| id        | test                                                                                                                                                    | must                                                   |
+|-----------|---------------------------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------|
+| **X7-T1** | **completion count**, not latency: with a stub cascor that never responds, issue N requests to `/v1/health/live` over T s and assert **all N complete** | fail today (**0 completions in 40 s**), pass after     |
+| **X7-T2** | vacuity guard for T1: assert the sample size is non-zero **and** the route census ≥ 70                                                                  | a 0/0 sample must not read as success                  |
+| **X7-T3** | cache never serves a failure as a value: after N failed refreshes, `state` is `UNKNOWN` and `value` is unchanged                                        | fail today (`is_training_in_progress` returns `False`) |
+| **X7-T4** | interlock fails closed: with cache `UNKNOWN`, a mutating call returns an explicit error, not a 200                                                      | fail today                                             |
+| **X7-T5** | `/v1/health/ready` returns **503** when the cache is `UNKNOWN`                                                                                          | fail today (unconditional 200)                         |
+| **X7-T6** | injected client rejects retry on non-idempotent verbs: a timed-out `POST` reaches a counting stub **once**                                              | fail today (**4×**)                                    |
+| **X7-T7** | executor bound: under a hung stub, concurrent outbound calls never exceed the semaphore bound                                                           | fail today (peak 20/20)                                |
 
 **Harness hazards, both hit during this arc**: pytest's `timeout_method="signal"` cannot interrupt a
 worker thread, and `ThreadPoolExecutor` joins at interpreter exit — a naive test hangs the session.
@@ -280,12 +280,12 @@ table-driven tested to the gate.
 
 ## 7. Phasing
 
-| PR | repo | contents |
-| --- | --- | --- |
-| **1** | juniper-canopy | `status_cache.py` + refresher + read paths + health contract + injected client + interlocks + X7-T1…T7 |
-| **2** | juniper-canopy | demo-mode honesty (§9) — **must precede any probe tightening** |
-| **3** | juniper-deploy | probe retargeting + image-tag bump, **only after 1 and 2** |
-| **4** | juniper-cascor-client | restrict `RETRY_ALLOWED_METHODS` to idempotent verbs; expose `allowed_methods` |
+| PR    | repo                  | contents                                                                                               |
+|-------|-----------------------|--------------------------------------------------------------------------------------------------------|
+| **1** | juniper-canopy        | `status_cache.py` + refresher + read paths + health contract + injected client + interlocks + X7-T1…T7 |
+| **2** | juniper-canopy        | demo-mode honesty (§9) — **must precede any probe tightening**                                         |
+| **3** | juniper-deploy        | probe retargeting + image-tag bump, **only after 1 and 2**                                             |
+| **4** | juniper-cascor-client | restrict `RETRY_ALLOWED_METHODS` to idempotent verbs; expose `allowed_methods`                         |
 
 **Sequencing rule (non-negotiable)**: *do not tighten liveness before demo mode is honest.* Doing so
 converts a visible, self-recovering hang into a fast, silent restart into the simulator.
