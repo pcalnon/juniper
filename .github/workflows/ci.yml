@@ -223,6 +223,16 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          # tests/test_worktree_inuse_probe.py: hermetic gate for
+          # util/ad-hoc/2026-09-02_worktree_inuse_probe.py (#1579) -- the independent
+          # second opinion for the worktree sweep. Pins STRONG cwd/open-fd REFUSE vs
+          # WEAK cmdline CAUTION (must not set the exit code), self/parent argv
+          # excluded from weak (the first run reported every tree IN USE because the
+          # checker named the paths as arguments), sibling prefix near-miss, and
+          # unreadable /proc counted not treated as in-use. Fake proc_root; never
+          # walks the host /proc. util/ad-hoc is not pre-commit-lint-gated; this
+          # unittest is the gate.
+          python3 -m unittest -v tests/test_worktree_inuse_probe.py
           # tests/test_yubikey_test_pinentry.py: Assuan OK greeting/BYE + GETPIN
           # class routing for util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash
           # (#914 regression: non-OK greeting -> gpg-agent "No pinentry").

@@ -58,15 +58,15 @@ def _readlink(path: str) -> str | None:
         return None
 
 
-def _cmdline(pid: str) -> str:
+def _cmdline(pid: str, proc_root: str = "/proc") -> str:
     try:
-        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+        with open(os.path.join(proc_root, pid, "cmdline"), "rb") as fh:
             return fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
     except OSError:  # PermissionError is a subclass
         return "(unreadable)"
 
 
-def probe(targets: list[Path]) -> int:
+def probe(targets: list[Path], proc_root: str = "/proc") -> int:
     strong: list[tuple[str, str, str, str]] = []
     weak: list[tuple[str, str, str, str]] = []
     unreadable = 0
@@ -74,11 +74,11 @@ def probe(targets: list[Path]) -> int:
     # both necessarily carry the target paths in argv.
     selfpids = {str(os.getpid()), str(os.getppid())}
 
-    for entry in os.listdir("/proc"):
+    for entry in os.listdir(proc_root):
         if not entry.isdigit():
             continue
-        cmd = _cmdline(entry)
-        cwd = _readlink(f"/proc/{entry}/cwd")
+        cmd = _cmdline(entry, proc_root)
+        cwd = _readlink(os.path.join(proc_root, entry, "cwd"))
         if cwd is None and cmd == "(unreadable)":
             unreadable += 1
             continue
@@ -87,13 +87,13 @@ def probe(targets: list[Path]) -> int:
             t = str(target)
             if cwd and (cwd == t or cwd.startswith(t + os.sep)):
                 strong.append((entry, t, "cwd", cmd))
-            fd_dir = f"/proc/{entry}/fd"
+            fd_dir = os.path.join(proc_root, entry, "fd")
             try:
                 fds = os.listdir(fd_dir)
             except OSError:  # PermissionError is a subclass
                 fds = []
             for fd in fds:
-                link = _readlink(f"{fd_dir}/{fd}")
+                link = _readlink(os.path.join(fd_dir, fd))
                 if link and (link == t or link.startswith(t + os.sep)):
                     strong.append((entry, t, f"open fd {fd} -> {link}", cmd))
                     break
