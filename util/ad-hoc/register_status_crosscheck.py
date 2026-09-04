@@ -38,8 +38,23 @@ ID_RE = re.compile(r"APD-[A-Z]+-\d+[ab]?")
 TABLE_ROW_RE = re.compile(r"^\| (APD-[A-Z]+-\d+[ab]?) *†? *\|")
 
 
-def main() -> int:
-    text = REGISTER.read_text(encoding="utf-8")
+def _status_cell(line: str) -> str:
+    """Second pipe cell -- the status marker on a §4 row, the finding on a §5.1 row.
+
+    ``**FIXED`` is only a close when it lives HERE. A whole-line search treats a
+    §5.1 verification cell that *mentions* ``**FIXED`` as a table close -- the
+    exact false-AGREE the third reading exists to catch.
+    """
+    cells = line.split("|")
+    return cells[2] if len(cells) > 2 else ""
+
+
+def crosscheck(text: str) -> int:
+    """Compare §4 **FIXED rows against the §2 prose list and the §5.1 table.
+
+    Extracted so a fixture can drive the three-set agreement without touching
+    the living register. Exit 0 on AGREE, 1 on DISAGREE or missing headings.
+    """
     lines = text.splitlines()
 
     # -- §4 table rows: the machine-readable source of truth -------------------
@@ -53,7 +68,7 @@ def main() -> int:
         # A row can appear in both a §4 table and a §5.1 verification table;
         # §5.1 rows are the ones whose second cell is not a status marker.
         table_all.add(entry_id)
-        if "**FIXED" in line:
+        if "**FIXED" in _status_cell(line):
             table_fixed.add(entry_id)
 
     # -- §2 Status paragraph: the prose enumeration ----------------------------
@@ -94,6 +109,10 @@ def main() -> int:
 
     print("\nAGREE" if ok else "\nDISAGREE")
     return 0 if ok else 1
+
+
+def main() -> int:
+    return crosscheck(REGISTER.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
