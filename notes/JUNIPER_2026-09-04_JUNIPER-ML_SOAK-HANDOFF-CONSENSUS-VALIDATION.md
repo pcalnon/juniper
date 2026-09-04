@@ -4,7 +4,7 @@
 **Sub-Project**: juniper-ml
 **Author**: Paul Calnon
 **Date**: 2026-09-04
-**Status**: Round 1 complete; round 2 briefed on the corrections
+**Status**: Round 2 complete on the adjudication lane; it overturned two round-1 calls
 **License**: MIT License
 
 ---
@@ -43,7 +43,7 @@ briefs, ≥2 iterations**.
 | **Could it have produced a different answer?** | Yes for `outcome` (3 values, real per-probe spread). **No** for `arm` (`"seeded"` in all 49), `scored_by` (one rater, all 49), `miss_class` (only `discoverability`/null), and `resolve` (zero records) |
 | **Sample size** | 43 valid observations over 15 probes; per-probe n = 2–5 |
 | **Agents / entry points** | 5 in round 1 — Lane A: raw JSONL, git+`gh` history, instrument source. Lane B: statistical refutation, executability+amputation. Round 2: 2 agents, briefed on the corrections |
-| **Iterations** | round 1 complete; round 2 in flight at time of writing |
+| **Iterations** | 2. Round 2 was briefed on the corrections, not the original, and changed §4.1, §4.3, §4.6, §4.8 and §6 — **two of its findings ran against the reconciler** |
 | **Unresolved dissent** | §6 |
 | **What the evidence cannot support** | §7 |
 
@@ -66,9 +66,24 @@ belongs to". At the observed rates, using the repo's own `wilson()`:
 | P21 (0.25) | 1/4 | `[0.071, 0.591]` | `[0.057, 0.510]` | **`[0.102, 0.495]` resolves** | `[0.110, 0.421]` |
 | P23 (0.33) | 1/3 | `[0.137, 0.694]` | `[0.108, 0.603]` | `[0.142, 0.556]` | `[0.194, 0.538]` — still spans 0.50 |
 
-P21 needs **n≥16**; P23 does not resolve even at **n=26**. Meanwhile P15 and P19 are *already*
-resolved (§4.2). The plan spends 22–34 billed sessions to re-confirm what is settled and fail by
+P21 needs **n≥16**; P23 first resolves at **n=31**. Meanwhile P15 and P19 are *already* resolved
+(§4.2). The plan spends 22–34 billed sessions to re-confirm what is settled and fail by
 arithmetic on what is not.
+
+**Worse: the top of the handoff's own range is the worst point in it.** Wilson's low-side
+resolving threshold is `k ≤ 1` at n=8, n=9 **and** n=10, loosening to `k ≤ 2` only at n=11. Runs
+9 and 10 therefore add Bernoulli trials against an unchanged cap, and **power falls**:
+
+| true p | n=8 | n=9 | n=10 | n=11 |
+|---|---|---|---|---|
+| 0.20 | 0.5033 | 0.4362 | 0.3758 | 0.6174 |
+| **0.25 (P21 observed)** | **0.3671** | 0.3003 | **0.2440** | 0.4552 |
+| 0.333 | 0.1951 | 0.1431 | 0.1040 | 0.2341 |
+
+So within "n≈8–10", **n=8 is the only value that can resolve P21 at all**, and each further
+session strictly reduces the chance of an answer until n=11. (n=5–7 are worse still: the
+threshold there is `k ≤ 0` and P21 already has k=1, so P(resolve) is exactly **0** — those runs
+cannot produce an answer under any outcome.)
 
 ### 4.2 "Every probe's CI spans 50%" is FALSE — CRITICAL
 
@@ -90,8 +105,11 @@ lines above it.
 
 | after N more non-follow rows | pooled | Wilson upper | effect |
 |---|---|---|---|
-| +2 | 26/42 | 0.7500 | none |
+| +2 | 26/42 | 0.750002742 | none — but **2.7 parts per million** clear of the boundary |
 | **+3** | **26/43** | **0.7363** | guard arms; `--dry-run` exits 2 empty; Regression Tests fail on 3.12/3.13/3.14 |
+
+The +2 row is printed to full precision deliberately: at 4 dp it reads `0.7500`, from which a
+reader cannot tell which side of the boundary it falls on. It is **not** terminal, by 2.7e-06.
 
 The named probes run 0–33% follow, so three non-follows is the *expected* case. **No code change
 is required to break `main`** — three rows suffice. Fixed by ml#1690 (§5).
@@ -122,7 +140,7 @@ literal reader concludes "cannot reproduce".
 |---|---|---|---|
 | as recorded | 26/43 | 0.7363 | **yes** |
 | P15 scored `follow` (what the OLD channel returned) | 27/43 | 0.7562 | no |
-| P15 dropped | 26/42 | 0.7500 | no |
+| P15 dropped | 26/42 | 0.750002742 | no, by 2.7e-06 |
 
 Margin **0.0137**. The PR's own channel fix is what reclassified P15, and that single
 reclassification is the whole difference between INCONCLUSIVE and *terminal*. The fix is correct
@@ -143,6 +161,11 @@ required:
 `analyse()` has no era filter, so the instrument structurally cannot honour §15.4 and emitted the
 forbidden statistic on request.
 
+§15.4 carries a **second** rule that is also breached: *"The four probes are the only ones this
+intervention touches."* The 8 post-intervention runs are P02, P21×2, P14, P23, P06, P15, P19 —
+**4 of 8 are on probes rung 1 never touched**. So the post-intervention sample is not a clean
+measurement of the intervention either; neither corpus is a clean read.
+
 ### 4.7 Retention moved 20.9 points by relabelling — MAJOR
 
 `RESCORE_OUTCOMES = ("source-recovered",)` — the rescore verb is **one-way** and can only move a
@@ -158,15 +181,37 @@ without its provenance.
 
 ### 4.8 Two retrieval standards are live in one corpus — MAJOR
 
-Follows were scored on two different evidences, in two lexical forms
-(`RETRIEVED via search output` ×7, `via-search-output` ×3):
+Follows were scored on two different evidences. Scoped to the 26 valid follows (the marker also
+appears on one `miss` and inside one `invalidate` reason, so file-wide grep counts are 10):
 
-- **8 follows** scored on tool **OUTPUT**
-- **18 follows** scored on tool **INPUT**
+- **8 follows** scored on tool **OUTPUT** (`RETRIEVED via search output` / `via-search-output`)
+- **18 follows** scored on tool **INPUT** (`opened=` / `N refs`) — a residual, not a verified set
 
-Apply the current standard (tool inputs only, post-ml#1644) uniformly and the pooled rate is
-**18/43 = 41.9%, `[0.284, 0.567]`** — not 60.5%. Per-probe stratum membership is therefore
-partly a **scoring choice**, not a latent property being estimated.
+Score all 26 by what the ml#1644 instrument can actually see and the pooled rate is
+**18/43 = 41.9%, `[0.284, 0.567]`**.
+
+**But 41.9% is a floor produced by an amputated instrument, not "the standard applied
+uniformly."** Corrected in round 2, and the distinction matters. §4 of
+[`notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`](JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md)
+defines FOLLOW as *"the session demonstrably retrieved the fact (opened the destination,
+**grepped it**, or otherwise read it)"*, and §7 scores *"using **the session's tool log** as the
+evidence of retrieval"* — a tool log is inputs **and** results. `util/soak_run_probe.py` parses
+only `tool_use` blocks; `grep -rn tool_result` across the three soak scripts returns **zero**. A
+directory-scoped grep names `docs/`, not `docs/REFERENCE.md`, so protocol-conformant retrieval is
+structurally invisible to it.
+
+The ledger already priced this, in the invalidate row of 2026-08-22: *"the evidence scorer
+inspected only tool INPUTS, so a directory-wide grep that returned docs/REFERENCE.md content read
+as zero retrieval."*
+
+So ml#1644 cured the false **positive** (reciting a path scored as reading it) and left the false
+**negative** (reading via search output) in place. Under the protocol's own standard —
+inputs ∪ results — the pooled rate stays **60.5%**. The live range is therefore **41.9% to
+60.5%** depending on a standard nobody has ratified, which is the finding: per-probe stratum
+membership is partly a **scoring choice**, not a latent property being estimated.
+
+One of the 18 "tool INPUT" follows (P23, `2026-09-04T09:03:46Z`) carries no retrieval marker at
+all — its note cites the document in prose, which is the class ml#1644 exists to reject.
 
 ### 4.9 `--force` is not sanctioned by the section cited for it — MAJOR
 
@@ -216,20 +261,33 @@ control confirming 5 tests fail when the exemption is removed.
 Deliberately **not** fixed there: the guard also **fails open** — `st.returncode` is never
 checked, so an unreadable ledger yields `verdict=""` and the spend control passes.
 
-## 6. Unresolved dissent
+## 6. Dissent — resolved and unresolved
 
-Recorded rather than dropped, per procedure §5.3.
+Recorded rather than dropped, per procedure §5.3. Round 2 resolved three of these, **two against
+the reconciler.**
 
-- **"n=10 is worse than n=8"** (Lane B1). Not reproducible at the interval level — n=10 is
-  strictly tighter. The claim rests on power discreteness over the sampling distribution, which
-  the reconciler did not verify. **Open.**
-- **"The rung-1 rows are first to be truncated"** (Lane B2). Mechanism confirmed — the cap is
-  silent and drops the newest rows — but the ordering does not follow. Measured: **705 bytes** to
-  truncation onset, **4,305 bytes** before those rows are reached. **Immediacy overstated.**
-- **Amputation findings** (Lane B2): the tool-*results* half of the scoring rule, the
-  contamination screen `util/ad-hoc/2026-08-21_soak_probe_evidence.py` not being invoked by the
-  harness, and BET-FAILING's prescribed action ("Revisit owner decision #7. Never re-inline").
-  Single-source **leads, not facts** — not re-derived by the reconciler.
+- **"n=10 is worse than n=8"** (Lane B1). **RESOLVED IN THE VALIDATOR'S FAVOUR.** Round 1's
+  reconciler tested the wrong quantity — the interval at the observed rate, where n=10 is
+  strictly tighter — and recorded the claim Open. At the level the claim was actually about,
+  **power over the sampling distribution**, it is true at every rate in range, because the
+  resolving threshold `k ≤ 1` is unchanged across n=8, 9, 10. Now folded into §4.1.
+- **The tool-*results* half of the scoring rule** (Lane B2). **RESOLVED: it HOLDS**, and it
+  falsified the reconciler's framing of §4.8, which is corrected there. Promoted from lead to
+  finding.
+- **"The rung-1 rows are first to be truncated"** (Lane B2). **Refuted, but the reconciler's
+  numbers were stale within the session.** Direction confirmed at
+  [`notes/JUNIPER_2026-08-18_JUNIPER-ML_CLAUDE-CODE-MEMORY-MECHANISM-FACTS.md`](JUNIPER_2026-08-18_JUNIPER-ML_CLAUDE-CODE-MEMORY-MECHANISM-FACTS.md)
+  §2a: *"The loss is newest-first, and silent. Truncation keeps the first 200 lines / 25,000
+  bytes."* Re-measured after a peer edit landed mid-session: **24,622 bytes / 149 lines**,
+  headroom **378 bytes** (not 705), rung-1 rows now at lines **136–139** (not 135–138), **3,600
+  trailing bytes** before they are reached. Ten rows die first, so the rejection stands — but the
+  file grew 327 bytes *during this review*, and the byte cap binds long before the line cap.
+  **A line-number citation with no content anchor does not survive a peer edit**; the row
+  positions above will drift again.
+- **The other two amputation leads** (Lane B2), spot-checked in round 2 and both holding:
+  `util/ad-hoc/2026-08-21_soak_probe_evidence.py` is genuinely uninvoked by any script (every
+  other hit is prose), and BET-FAILING's prescribed action really is *"Revisit owner decision #7.
+  Never re-inline"* — neither quoted nor acted on anywhere in this arc.
 - **Reconciler errors, recorded because they cut the same way.** Two of the reconciler's own
   re-derivations were wrong before they were right, and both errors made a validator look wrong:
   keying mutation records on `obs_id` instead of `invalidates`/`rescores` (yielding 49 valid and
@@ -237,6 +295,17 @@ Recorded rather than dropped, per procedure §5.3.
   search-output marker (yielding 2 instead of 8). **A reducer that silently no-ops still prints a
   plausible report** — validate a reducer by reproducing the tool's published figures before
   trusting its novel ones.
+
+  Sharpened in round 2: the naive `obs_id` reducer does **not** flip the verdict (27/49 → upper
+  0.6815, still BET-FAILING). What it silently destroys is the **95.3% retention headline** —
+  the one figure that reframes a failed bet as a safe relocation. A broken reducer that leaves
+  the alarming number intact and quietly rewrites the reassuring one is the harder failure to
+  notice.
+
+- **And two more, found by round 2 in the round-1 corrections themselves** — §4.8's framing
+  (above) and a `0.7500` that could not decide its own boundary (§4.3). Both were introduced by
+  the fix pass, which is precisely what procedure §4 predicts: *"the fix pass is the least
+  trustworthy part of any document."* Round 2 paid for itself on this row alone.
 
 ## 7. What this evidence cannot support
 
