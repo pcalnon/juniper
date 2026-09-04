@@ -79,6 +79,22 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## F-CANOPY-037 render census (operational)
+
+`e2e_f037_render_census.py` re-drives the topology-graph paint that F-CANOPY-037 measured in 2 of 11 sessions. Default `--sessions` is 11; a single session is not a comparable claim. Exit 0 means every session produced PASS or FAIL (even if painted==0); exit 2 means the census failed to measure. All-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. Idle populated is VALID.
+
+The census does **not** start canopy. Bring up the isolated trio first (`util/isolated_stack.bash --up`), train a network, then:
+
+```bash
+python3 util/ad-hoc/e2e_f037_render_census.py
+```
+
+No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`). A/B a pre-merge checkout on `:8052` with `e2e_f037_ab_premerge_leg.bash`. `_find_juniper_root` must see **both** `juniper-canopy` and `juniper-cascor`; three hops from a nested worktree recorded `sha=None`.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-037 Render Census](../../docs/REFERENCE.md#f-canopy-037-render-census).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

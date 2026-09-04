@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.30
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -26,6 +26,7 @@
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
+- [F-CANOPY-037 Render Census](#f-canopy-037-render-census)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1617,6 +1618,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Fail-closed `activate_conda` under those OR-list callers: `source … || return 1` and `if ! conda activate …; then set -u; return 1; fi` (both arms restore nounset). A bare activate followed by a successful trailing `set -u` would return 0 and launch cascor/canopy on the ambient PATH.
   - Teardown: `--down` is kill-by-port via `port_pid`/`stop_port` (`ss` first `pid=`), canopy→cascor→data, then RUN_DIR + `snapshot_*` cleanup — not `JuniperProject.pid`. Empty/`ss` soft-fail is a noop; `--dry-run` never kills.
   - Health: `wait_for_health` polls `/v1/health` every 2s until `JUNIPER_E2E_HEALTH_TIMEOUT` (default 60); `--status` `probe_health` reports code + pid and does not fail the script. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](#isolated-stack-e2e-utilities).
+- `util/ad-hoc/e2e_f037_render_census.py` -- Multi-session topology-graph paint census for F-CANOPY-037 (`--step topodiag` in N separate processes). Default 11 sessions (the finding's sample).
+  Exit 0 means every session produced PASS or FAIL (even if painted==0); exit 2 means a session produced no verdict. Does not start canopy; inherits `JUNIPER_E2E_CANOPY_URL` (default `:8051`).
+  Idle populated is VALID; all-zero `hidden_units` is INVALID. Companion A/B leg: `util/ad-hoc/e2e_f037_ab_premerge_leg.bash`. Operator surface: [F-CANOPY-037 Render Census](#f-canopy-037-render-census).
 - `util/experiment_stack.bash` -- Brings up / tears down a **per-run** experiment stack (dedicated juniper-data + `--cascor` and/or `--recurrence`; never canopy) for the
   [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) §6.2 (Wave 2.1).
   `--up` (with `--shared-data URL` / `--config PATH` / `--experiment NAME` / `--grafana-bridge`), `--down <RUN_ID>|--all-mine`, `--status [RUN_ID]`, `--dry-run`; misuse exits 2.
@@ -2590,6 +2594,67 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 
 ---
 
+## F-CANOPY-037 Render Census
+
+`util/ad-hoc/e2e_f037_render_census.py` re-drives the topology-graph paint that F-CANOPY-037 measured in **2 of 11** live sessions. A single green session is ~18% likely while still broken, so this driver runs `e2e_seg17_topology_driver.py --step topodiag` in **N separate processes** (own browser, Dash session, renderer-slot pool) and tallies how many painted.
+
+Ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md) (F-CANOPY-037 / later F-CANOPY-039 re-drive). Bring-up stays in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities). The census does **not** start canopy.
+
+### How to run
+
+```bash
+util/isolated_stack.bash --up          # canopy defaults to :8051
+# Train a network first — hidden_units all-0 / absent makes the census INVALID (nothing to draw)
+python3 util/ad-hoc/e2e_f037_render_census.py
+python3 util/ad-hoc/e2e_f037_render_census.py --sessions 5 --out reports/e2e/<run>/f037_census.json
+```
+
+Default `--sessions` is **11** (the finding's sample). `2/11` vs `11/11` is a claim; `2/11` vs `1/1` is not.
+
+A/B a pre-merge canopy on `:8052` against the isolated cascor/data trio (live `:8051` stays up):
+
+```bash
+bash util/ad-hoc/e2e_f037_ab_premerge_leg.bash up <canopy-checkout-dir>   # dir must contain src/
+JUNIPER_E2E_CANOPY_URL=http://127.0.0.1:8052 python3 util/ad-hoc/e2e_f037_render_census.py
+bash util/ad-hoc/e2e_f037_ab_premerge_leg.bash down
+```
+
+The census inherits `JUNIPER_E2E_CANOPY_URL` (driver default `http://127.0.0.1:8051` from `e2e_w3_params_driver.py`). It does **not** take `--base-url`. `up` refuses if `:8052` is already occupied (exit `1`); misuse of `{up,down}` is exit `2`.
+
+### What a number means
+
+Two independent questions (`_topology_conditions`). Conflating them produced a wrong claim once:
+
+| Field | Question | If false |
+|-------|----------|----------|
+| `populated` | Did any session see a non-trivial topology (`hidden_units` not `0` / `None` / empty)? | **INVALID.** Neither PASS nor FAIL can be read. Train a network. |
+| `varied` | Did sessions observe **distinct** topologies? | Still **VALID** (idle scope). Tests the single mount-time rebuild. Does **not** prove the panel tracks a live cascade. |
+
+`populated = bool(nonzero)` after filtering `"0"` / `"None"` / `""`. `bool(["0"])` is True — that is the conflation. An idle *populated* census is VALID and must not be discarded as "census tested nothing". Growth scope compares values each session **observed**; it cannot distinguish "the cascade grew while a session watched" from "consecutive sessions saw different static topologies".
+
+### Contracts verified against source
+
+- Verdicts come from structured `topodiag` JSON via per-session `JUNIPER_E2E_SEG17_RESULTS` (temp file). Missing or corrupt → `verdict is None`. Stdout that says `PASS` cannot clean a missing results file.
+- Exit **2** if any session has no PASS/FAIL verdict (the census failed to measure). Exit **0** when every session is PASS or FAIL, **even if `painted==0`** — the tool does not judge the render rate.
+- `_find_juniper_root` walks UP until a directory contains **both** `juniper-canopy` and `juniper-cascor`. Three hops from a nested worktree (`juniper-ml/.claude/worktrees/<name>/util/ad-hoc`) lands on `worktrees/` and recorded `sha=None`. One sibling is not enough. Falls back to three-hop only if the walk finds nothing.
+- Provenance records the stack's `CANOPY_SRC_DIR` / `--canopy-src` (same for cascor), not a hardcoded primary. A fix under test usually lives in a worktree while the primary sits on `main`.
+- Each session subprocess clears `LIBTORCH` and `LD_LIBRARY_PATH` (the `JuniperCanopy1` activate hooks do not run for a direct binary).
+- `--timeout` default **420** s; the driver's own paint budget is **240** s.
+- `util/ad-hoc/` is outside every pre-commit Python hook. Hermetic pins for this contract are proposed on juniper-ml#1650 and are **not** on `main` yet.
+
+### Pitfalls
+
+| Symptom | Check / fix |
+|---------|-------------|
+| Exit 0 but `painted` is 0 | Census measured. Read `scope` / `populated`. All-zero topologies → INVALID, not a render FAIL. |
+| `scope=invalid` | Train a network on the isolated cascor before censusing. |
+| `sha=None` for canopy | Nested worktree walk. Confirm both sibling repos sit under the resolved root, or pass `--canopy-src` / `CANOPY_SRC_DIR`. |
+| Green tally from one session | Sample size 11 is the finding. `1/1` is not comparable to `2/11`. |
+| A/B leg on `:8052` still hits `:8051` | Export `JUNIPER_E2E_CANOPY_URL=http://127.0.0.1:8052`. The census does not take `--base-url`. |
+| `up` refuses "port 8052 is already occupied" | `e2e_f037_ab_premerge_leg.bash down` kills the pidfile then `fuser -k`. Do not reuse the host `:8050` stack. |
+
+---
+
 ## Shared-Package CI Workflows
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest/coverage/wheel smoke.
@@ -2999,6 +3064,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.30  | 2026-09-04 | F-CANOPY-037 render census operator surface: 11-session `topodiag` tally, populated vs varied, exit 0 is not a paint PASS, walk-up sibling root, `CANOPY_SRC_DIR` provenance |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3344,8 +3410,10 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 `JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_attribute.py` imports when the fallbacks
 (`~/Development/python/Juniper/juniper-cascor/src` and `.../juniper-data`) are wrong.
 
+The F-CANOPY-037 census inherits `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`) and writes per-session `JUNIPER_E2E_SEG17_RESULTS`. It does not take `--base-url`. See [F-CANOPY-037 Render Census](#f-canopy-037-render-census).
+
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.30
 **Maintainer:** Paul Calnon

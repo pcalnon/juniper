@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.42
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -48,6 +48,7 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `./claudey`                                            | Launch default interactive Claude session       |
+| `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 topology-graph paint census (default 11 sessions; exit 0 is not a paint PASS) |
 
 ---
 
@@ -519,6 +520,8 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: F-CANOPY-037 measured paint in 2 of 11 sessions — `python3 util/ad-hoc/e2e_f037_render_census.py` (default 11). Exit 0 means every session produced PASS or FAIL, even if painted==0; all-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `:8051`). Full contract: [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census).
+
 Tip: `util/install_duplicati_timer.bash` **copies** the Duplicati runner/units (a worktree symlink dies with `git worktree remove`) and does **not** `enable --now`.
 Linger must be `yes`; `~/.config/duplicati-backup/env` must be mode `600` with `PASSPHRASE=`. `--no-auto-compact=true` is load-bearing.
 A skip overwrites `result=OK`, so the next skip always escalates. Distinct from `util/juniper-backup.bash`.
@@ -609,6 +612,8 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
+| F-037 census exit 0, painted 0 | Measured, not a paint PASS. Read `scope`/`populated`. Train a network if `hidden_units` was 0. See [REFERENCE](REFERENCE.md#f-canopy-037-render-census). |
+| F-037 `sha=None` / one session "green" | Walk-up root needs both sibling repos; sample size 11 is the finding (`1/1` is not a claim). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -709,10 +714,11 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
+- [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session `topodiag` tally; exit 0 is not a paint PASS
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.42
 **Maintainer:** Paul Calnon
