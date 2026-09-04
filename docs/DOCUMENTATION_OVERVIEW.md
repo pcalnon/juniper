@@ -2,7 +2,7 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.27
+**Version:** 0.2.53
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -39,6 +39,7 @@
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
 | **Attribute snapshots / pin the dataset instance** | [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin) (`seeded_params`, `--dataset-seed` vs `--seed`, sidecar-chain `--root` trap) | docs/    |
 | **Census X7 off-loop / slice 1a** | [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) (canopy gate is authority for `main.py` only; count 58; do not quote v1; site-local exemption only) | docs/    |
+| **Run / score a pointer-follow soak probe** | [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) (least-covered vs characterisation; `--dry-run` is exempt from the terminal-verdict stop) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |
@@ -74,10 +75,10 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, open-PR budget alarm, and X7 off-loop census |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, and X7 census pitfalls |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, open-PR budget alarm, and X7 off-loop census |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, and X7 census pitfalls |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, open-PR budget alarm, X7 off-loop census, and pointer-follow soak |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, X7 census pitfalls, and soak dry-run / `--force` |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, open-PR budget alarm, X7 off-loop census, and pointer-follow soak |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, X7 census pitfalls, and soak dry-run / `--force` |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
 > was relocated to `notes/history/` in 2026-04 and consolidated into
@@ -123,6 +124,8 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md** | Plan   | Per-run experiment stack + driver (Waves 2.1–2.7); operator contract + partial-`--up` teardown in [REFERENCE](REFERENCE.md#experiment-stack-utilities) |
 | **JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md**                       | Findings    | Attribution floors + why the dataset instance must be pinned; operator surface in [REFERENCE](REFERENCE.md#snapshot-attribution-dataset-pin) |
 | **JUNIPER_2026-09-03_JUNIPER-CANOPY_X7-EVENT-LOOP-BLOCKING-REMEDIATION-DESIGN.md**              | Design      | X7 event-loop blocking; slice 1a closes it. Operator surface in [REFERENCE](REFERENCE.md#x7-off-loop-census) (gate is authority for `main.py`; the count is 58 — canopy#567) |
+| **JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md**                                 | Protocol    | Pointer-follow soak ledger / verdicts. Operator surface in [REFERENCE](REFERENCE.md#pointer-follow-soak) (`--dry-run` exempt from the terminal-verdict stop — #1690) |
+| **JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md**                           | Design      | Soak unattended-path / trigger design. Operator surface in [REFERENCE](REFERENCE.md#pointer-follow-soak) |
 | **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
 
 Full naming rules for `notes/`: [`JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](../notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md).
@@ -179,5 +182,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.2.27
+**Version:** 0.2.53
 **Maintainer:** Paul Calnon
