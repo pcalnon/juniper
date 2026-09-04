@@ -8,6 +8,8 @@
 **Last Updated**: 2026-07-29
 **Scope repos**: `juniper-ml` (tooling home), `juniper-cascor`, `juniper-recurrence`, `juniper-data`, `juniper-data-client`, `juniper-deploy`
 
+**Operator surface (Wave 2.6).** How to read `artifacts/results/stats.json` / `summary.md` — de-ratified `wall_seconds`, per-poll step-duration honesty, `scrape_confirmed` tri-state, recurrence timings under `outcome.timings` not `recurrence.*`: [`docs/REFERENCE.md` § Experiment Stats Summary](../docs/REFERENCE.md#experiment-stats-summary-ss83).
+
 ---
 
 ## 1. Purpose & Scope
