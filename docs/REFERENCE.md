@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.38
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,6 +22,7 @@
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Canopy E2E Topology Driver](#canopy-e2e-topology-driver)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
@@ -967,6 +968,114 @@ Troubleshooting:
 
 Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
 
+Scoring the Topology tab against this trio is a **separate driver**: [Canopy E2E Topology Driver](#canopy-e2e-topology-driver).
+
+---
+
+## Canopy E2E Topology Driver
+
+`util/ad-hoc/e2e_seg17_topology_driver.py` is the Playwright scorer for the Network Topology control surface. Bring-up is [Isolated Stack E2E](#isolated-stack-e2e-utilities) (`:8051` by default). This section is the **scorer** contract.
+
+Row text: [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md). Findings: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md). Predicate tightenings that landed with [juniper-ml#1672](https://github.com/pcalnon/juniper-ml/pull/1672): [`notes/JUNIPER_2026-09-04_JUNIPER-CANOPY_F042-F046-FIX-DECISION-BRIEF.md`](../notes/JUNIPER_2026-09-04_JUNIPER-CANOPY_F042-F046-FIX-DECISION-BRIEF.md).
+
+The registered step names are the `STEPS` dict at the bottom of the file. `--step` rejects anything else (exit `2`). The module docstring's "NOT IMPLEMENTED" list is **stale** for M-TOPOLOGY-13, -14, and -18 — those have scorers (`topostate`, `topoexport`). Trust `STEPS`, not the prose list. `step_topo`'s function docstring still says `01..09/16..18`; the records it writes are 01–08 and 17.
+
+```bash
+# Playwright lives in JuniperCanopy1. Empty LD_LIBRARY_PATH (same class as isolated cascor).
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+    util/ad-hoc/e2e_seg17_topology_driver.py --step probe
+```
+
+`--step` is required, comma-separated, order preserved. A successful run always exits `0` (unknown names are the only `2`). Results merge into `JUNIPER_E2E_SEG17_RESULTS` (default `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/seg17_results.json`) if that file already exists.
+
+### Which step scores which row (verified against `origin/main`)
+
+| `--step` | Scores exactly | Not this step |
+|----------|----------------|---------------|
+| `probe` | DOM dump of the four topology controls (dcc widgets are **not** native `<select>`) | no verdicts |
+| `topo` | M-TOPOLOGY-01..08 and -17 | not -09 (theme-on-topology is `topoevents`); not -16 |
+| `topoevents` | M-TOPOLOGY-09, -10, -12, -15 | not M-DATASET-14 (`theme`); real mouse click, never `gd.emit('plotly_click')` |
+| `topostate` | M-TOPOLOGY-13 (zoom persist) and -18 (raw-store gate) | -18 is scored on the **store**, not browser `/api/topology/raw` traffic (that fetch is server-side) |
+| `topoexport` | M-TOPOLOGY-14 (modebar PNG) | a missing download with `data:` raster OK + `blob:` blocked is canopy CSP (`img-src` omits `blob:`), not a headless quirk |
+| `theme` | M-DATASET-14 only (Dataset tab figures) | does **not** score M-TOPOLOGY-09 |
+| `topodiag` / `rebuildprobe` / `wirecensus` / `quietread` / `storestorm` / `f031` | diagnostic instruments | not matrix row scorers |
+
+No step exists for **M-TOPOLOGY-11** (box/lasso — driver gap, do not file as a product defect) or **M-TOPOLOGY-16** (cascade-add glow; needs an unsaturated fixture). W1-12..14 and W4-* live in the matrix/ledger, not in this driver.
+
+### Predicates that landed with #1672
+
+An earlier scorer used `OR` / display-only / empty-space-as-FAIL. That let a `topo` PASS hide a rest-state `"0 of 40"` label (F-CANOPY-042) and made `topoevents` FAIL-score a gesture plotly never emits (F-CANOPY-046). Those predicates are **gone**. What `main` asserts now:
+
+| Row | What `main` asserts | What a FAIL / BLOCKED means |
+|-----|---------------------|-----------------------------|
+| **M-TOPOLOGY-06** (`topo`) | `idiom is not None` **and** `label == "{k} of {N}"` **and** `counts["hidden"] == want` | Stats-bar-only filter (label still `"0 of 40"`) is now FAIL. The wait is a real transition (wanted label **or** figure-hash change) — not `label != "all"`, which is already true at rest because the slider sits at `0`. |
+| **M-TOPOLOGY-07** (`topo`) | Depth-slider container `display` is not `none` **and** the label reads `"all"` | A rest-state `"0 of 40"` FAIL-scores. Recording the label as decoration is no longer enough. |
+| **M-TOPOLOGY-12** (`topoevents`) | After a real node selection, click `network-visualizer-clear-selection`. PASS if `-selection-info` hides. BLOCKED if nothing was selected, or if the control is absent. FAIL if the control is visible but the selection survives. | Empty-space click is **recorded, not scored** (`plotly_click_events`). Do not "fix" a leftover `0` with `gd.emit`. |
+
+`topo` then resets the slider to `0` **with an effect** (figure-hash change). A pre-#1672 reset used synthetic idioms that cannot satisfy `updatemode="mouseup"`, so a working M-06 leaked a filtered graph into M-17. If reset counts ≠ server, the driver logs `!! depth filter did NOT reset` and continues — read that line before filing M-17.
+
+M-10 also asserts `Layer: Hidden` on the selected node (F-CANOPY-045). `shown && names_node && not layer_ok` is the product layer-label defect, not a miss-click.
+
+Observation discipline (do not regress it): poll for **transitions**; verify every widget write by its **effect** (figure hash, not "the DOM moved"); settle the figure before a gesture (rebuild is 1.5–31 s); never cap a capture buffer.
+
+### Second-instance verify launcher
+
+`util/ad-hoc/2026-09-04_canopy_verify_instance.bash` brings up a **second** canopy from a worktree beside the shared isolated stack, so a fix can be driven without restarting `:8051`.
+
+```bash
+util/ad-hoc/2026-09-04_canopy_verify_instance.bash up   /path/to/juniper-canopy/src   # default :8052
+util/ad-hoc/2026-09-04_canopy_verify_instance.bash down                               # default :8052
+```
+
+Contract (verified against the script on `main`):
+
+- Shares isolated cascor `:8202` and data `:8101`. Does **not** `POST /v1/network`.
+- Default listen `:8052`. Override the third `up` / second `down` argument. Point the scorer at it with `JUNIPER_E2E_CANOPY_URL=http://127.0.0.1:8052`.
+- `DEMO_MODE=0`. Origin/allowlist are this instance's own origin. `LIBTORCH=` and `LD_LIBRARY_PATH=` are emptied (conda hooks do not run on a direct interpreter invoke).
+- Snapshot dir defaults to the host cascor archive (`JUNIPER_CANOPY_SNAPSHOT_DIR`). Override if that path is wrong on this machine.
+- Launch is `nohup` → reparents to `systemd --user`. A pidfile is written under `CANOPY_VERIFY_RUN_DIR` (default `/tmp/juniper-canopy-verify`) because a run-dir `*.pid` is one of `reap_pytest_orphans.bash`'s two protection keys. Leave it in place for the life of the instance.
+- `down` kills **by pid**, never by port (killing "whatever listens on 8052" would stop a process this script did not start).
+- `up` with no `main.py` in the worktree-src, or a bare invocation, exits `2`. Already-up is exit `0`. Health wait is 60 s; failure exits `1` and leaves the log.
+
+### Environment
+
+| Variable | Default | Role |
+|----------|---------|------|
+| `JUNIPER_E2E_CANOPY_URL` | `http://127.0.0.1:8051` | Target (from `e2e_w3_params_driver.py`) |
+| `JUNIPER_E2E_CANOPY_LOG` | `/tmp/juniper-e2e/logs/juniper-canopy.log` | Log tail for diagnostics |
+| `JUNIPER_E2E_RUN_DIR` | `/tmp/juniper-e2e` | Screenshots + default results parent |
+| `JUNIPER_E2E_SEG17_RESULTS` | `$JUNIPER_E2E_RUN_DIR/seg17_results.json` | Merged JSON (one object, keyed by step) |
+| `JUNIPER_E2E_STORM_WATCH_S` | `60` | `storestorm` census window |
+| `JUNIPER_E2E_REBUILD_WATCH_S` | `120` | `rebuildprobe` watch |
+| `JUNIPER_E2E_REBUILD_STOP_AFTER` | `3` | `rebuildprobe` stop |
+| `JUNIPER_E2E_QUIET_WAIT_S` | `90` | `quietread` wait |
+| `CANOPY_VERIFY_RUN_DIR` | `/tmp/juniper-canopy-verify` | Second-instance log + pidfile parent |
+
+There is **no** unittest for this driver on `main`.
+
+### Operator pitfalls
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| `unknown step(s): …; valid: …` (exit `2`) | Name is not in `STEPS`. `w1grow` / `toposel` were removed. `topostate` / `topoexport` **are** registered even though the docstring still lists -13/-14 as unimplemented. |
+| `ModuleNotFoundError: playwright` | Use `JuniperCanopy1`'s python, not ambient. |
+| Cascor/canopy die or wrong torch during the drive | `LD_LIBRARY_PATH=` must be the empty string (isolated-stack cascor class). |
+| `topo` FAIL, depth **label** still `"0 of 40"` | Expected until the product label follows the slider (F-CANOPY-042). M-06 now requires **both** halves; M-07 requires `"all"` at rest. |
+| `topoevents` M-12 BLOCKED, no `-clear-selection` | Build predates the Clear button. Empty-space `plotly_click_events=0` is recorded, not a FAIL. Do not `gd.emit`. |
+| `topoevents` M-12 FAIL, control visible | Selection survived the Clear button — F-CANOPY-046 regression. |
+| M-10 FAIL, every node `Layer: Output` | Product layer-label defect (F-CANOPY-045), not a miss-click. |
+| M-13 / M-11 INDETERMINATE or "no plotly_* event" | Gesture never reached plotly — **driver** gap; do not file as a product FAIL. |
+| M-17 FAIL after a green M-06 | Read `!! depth filter did NOT reset`. A leaked filter is this step's leftover, not a store-refresh defect. |
+| M-18 FAIL / "store empty" after counting `/api/topology/raw` | Wrong traffic. The handler fetches server-side. Score the store: empty in Node Graph, populated in Weight Matrix. |
+| M-14 FAIL, camera config looks correct | Control is the two-scheme SVG raster: `blob:` blocked + `data:` OK ⇒ canopy CSP, not the browser. |
+| Ran `theme` and thought M-TOPOLOGY-09 was covered | `theme` is Dataset-tab M-DATASET-14. Topology-tab recolour is `topoevents`. |
+| Ran `topo` and thought -09/-16/-18 were covered | `step_topo`'s function docstring still says `01..09/16..18`. The records it writes are 01–08 and 17. |
+| Restarted `:8051` to see a worktree fix | Use `2026-09-04_canopy_verify_instance.bash up <src>` instead; `:8051` serves what it imported at launch. |
+| Verify instance vanished / reaper log `WOULD REAP` | Pidfile missing under `CANOPY_VERIFY_RUN_DIR`. Leave `canopy-<port>.pid` in place. |
+| `down` killed the shared isolated canopy | `down` must be by pid. Do not `kill` whatever listens on the port. |
+
+Plan pointer (row ids, not this scorer): [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md) §6.3.
+
 ---
 
 ## Fleet Triage and Sequence Safety
@@ -1610,6 +1719,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Never falls through to the pidfile parser or `orphaned_worker_cleanup` / `KILL_WORKERS`.
   - Hermetic pins: `tests/test_juniper_chop_all.py` `TestSystemdModeBehavioral` (open juniper-ml#804). Operator detail: [`docs/REFERENCE.md`](REFERENCE.md) § systemd mode.
 - `util/isolated_stack.bash` -- Brings up / tears down the isolated training-runtime E2E trio (data 8101 dedicated `python3.14` venv, cascor 8202 `JuniperCascor1`, canopy 8051 `JuniperCanopy1` service mode) with the documented env (control-WS origin pair, `JUNIPER_DATA_URL`, `LD_LIBRARY_PATH=`); `--up`/`--down`/`--status`/`--dry-run`, ports 8101/8202/8051 (`JUNIPER_E2E_*` overrides), `--dry-run` starts nothing. See [E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md).
+- `util/ad-hoc/e2e_seg17_topology_driver.py` -- Playwright scorer for the canopy Topology tab (M-TOPOLOGY-* / M-DATASET-14). `--step` is required; names must be in `STEPS` (exit `2` otherwise).
+  - On `main` (#1672), `topo` M-06 requires **both** label and hidden count; M-07 asserts the label `"all"`; `topoevents` M-12 scores the Clear button (empty-space click is recorded, not scored).
+  - Trust `STEPS`, not the module docstring's stale "NOT IMPLEMENTED" list (`topostate` / `topoexport` exist). Companion: `util/ad-hoc/2026-09-04_canopy_verify_instance.bash`. Operator surface: [Canopy E2E Topology Driver](#canopy-e2e-topology-driver).
   - Live compose (juniper-ml#813): `cascor_up` empties `LD_LIBRARY_PATH`, points `JUNIPER_DATA_URL` at isolated data, sets control-WS allowlist to `CANOPY_ORIGIN`, writes `juniper-cascor.pid`, then health-gates; `canopy_up` forces `DEMO_MODE=0`, wires isolated cascor/data URLs + matching `CASCOR_WS_ORIGIN`, writes `juniper-canopy.pid`, then health-gates. Missing `conda.sh` aborts before launch/pid. Operator details: [`docs/REFERENCE.md` Isolated Stack E2E](#isolated-stack-e2e-utilities).
   - `data_up` (juniper-ml#807): dedicated `${RUN_DIR}/.venv-data` via `python3.14 -m venv` (skip create if present), `pip install -e juniper-data[${JUNIPER_E2E_DATA_EXTRAS:-api}] prometheus_client juniper-observability`, launch with `PYTHON_GIL=0`, write `juniper-data.pid`, health-gate; missing `python3.14` aborts via `require_cmd` before side effects. `do_up` order is data → cascor → canopy.
   - Nounset (juniper-ml#785): `activate_conda` must `set -u` after `conda activate` (matching plant `safe_conda_activate`); pre-#785 left `set +u` so live `--up` ran without nounset after cascor/canopy activate.
@@ -2999,6 +3111,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.38  | 2026-09-04 | Canopy E2E topology driver after #1672: M-06/M-07 are AND predicates; M-12 scores Clear selection; second-instance `2026-09-04_canopy_verify_instance.bash` is on `main`. Supersedes the 0.6.37 draft in #1674 |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3346,6 +3459,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.38
 **Maintainer:** Paul Calnon

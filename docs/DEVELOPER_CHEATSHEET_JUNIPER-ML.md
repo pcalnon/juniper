@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.50
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -36,6 +36,8 @@
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step probe` | Score Topology-tab rows against isolated `:8051` (`STEPS` names only) |
+| `util/ad-hoc/2026-09-04_canopy_verify_instance.bash up SRC [PORT]` | Second canopy from a worktree (default `:8052`); does not restart `:8051` |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
@@ -460,6 +462,9 @@ Pointer: [REFERENCE — YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provi
 | `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
 | `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` (2s poll; not `HEALTH_CHECK_INTERVAL`) |
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
+| `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Topology-driver target (Playwright) |
+| `JUNIPER_E2E_SEG17_RESULTS`    | `$JUNIPER_E2E_RUN_DIR/seg17_results.json` | Topology-driver merged JSON |
+| `CANOPY_VERIFY_RUN_DIR`        | `/tmp/juniper-canopy-verify` | Second-instance canopy log + pidfile parent |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
@@ -493,6 +498,8 @@ Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). Afte
 `data_up` needs `python3.14` on `PATH`, installs into `${JUNIPER_E2E_RUN_DIR}/.venv-data`, and launches with `PYTHON_GIL=0` (existing venv skips create but still re-pips). Use `JUNIPER_E2E_DATA_EXTRAS=api,mnist` for D2/I-5.
 Post-[#785](https://github.com/pcalnon/juniper-ml/pull/785), `activate_conda` restores `set -u` after conda activate (pre-fix left nounset off for the rest of `--up`).
 Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
+
+Tip: `e2e_seg17_topology_driver.py` scores Topology-tab rows against isolated `:8051`. Trust `STEPS` (`--step` exit `2` on unknown). After #1672, M-06 needs **both** label and hidden count; M-07 asserts `"all"`; M-12 scores Clear (empty-space is recorded, not scored). Second canopy: `2026-09-04_canopy_verify_instance.bash`. Full contract: [REFERENCE — Canopy E2E Topology Driver](REFERENCE.md#canopy-e2e-topology-driver).
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
@@ -603,6 +610,9 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
 | Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
 | Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| `topo` FAIL, depth label still `"0 of 40"` | Expected until F-CANOPY-042 lands in the product — M-06 now requires **both** halves; M-07 requires `"all"`. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
+| `topoevents` M-12 BLOCKED / no Clear button | Build predates `-clear-selection`. Empty-space `plotly_click_events=0` is recorded, not a FAIL. Do not `gd.emit`. |
+| `unknown step(s)` from the topology driver | Name is not in `STEPS`. `topostate` / `topoexport` are valid; `w1grow` / `toposel` are not. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
@@ -707,12 +717,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
+- [Canopy E2E Topology Driver](REFERENCE.md#canopy-e2e-topology-driver) -- `e2e_seg17_topology_driver.py`; after #1672 M-06/M-07 are AND predicates and M-12 scores Clear
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.50
 **Maintainer:** Paul Calnon

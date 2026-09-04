@@ -79,6 +79,18 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Canopy E2E topology driver (operational)
+
+`e2e_seg17_topology_driver.py` scores Topology-tab matrix rows against a live isolated canopy (`JUNIPER_E2E_CANOPY_URL`, default `:8051`). `--step` names must be in the `STEPS` dict (exit `2` otherwise). After [juniper-ml#1672](https://github.com/pcalnon/juniper-ml/pull/1672), M-TOPOLOGY-06 requires **both** the depth label and the hidden count, M-07 asserts the label `"all"`, and M-12 scores the Clear selection button (an empty-space click is recorded, not scored).
+
+Do not treat the module docstring's "NOT IMPLEMENTED" list as the registry — `topostate` and `topoexport` exist. Do not invent clicks with `gd.emit`.
+
+`2026-09-04_canopy_verify_instance.bash` brings up a second canopy from a worktree (default `:8052`) beside the shared isolated stack. It does not restart `:8051` and does not `POST /v1/network`. `down` kills by pid, never by port. Leave the pidfile under `CANOPY_VERIFY_RUN_DIR` in place so `reap_pytest_orphans.bash` will not treat the instance as an orphan.
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Driver](../../docs/REFERENCE.md#canopy-e2e-topology-driver).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.
