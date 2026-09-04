@@ -909,6 +909,14 @@ jobs:
           # figures, insert-job lands before required-checks and outside its needs:, and adapt-test
           # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_p5_port_memory_budget.py
+          # tests/test_p5_fleet_state.py: the P5 fleet census
+          # (util/ad-hoc/2026-08-26_p5_fleet_state.py). Pins the invocation
+          # reconstruction that a whole-file `"--advisory" in wf` cannot see
+          # (comment + relocation_check --advisory read True fleet-wide),
+          # gh_api 404-only-None (rate-limit is not an absent file), CHAR vs
+          # BYTE size, and exact `Memory Budget` required-context match.
+          # util/ is not pre-commit-lint-gated; gh_api is monkeypatched.
+          python3 -m unittest -v tests/test_p5_fleet_state.py
 
           # tests/test_require_context_safely.py: the ruleset writer that promotes a context to
           # REQUIRED (util/ad-hoc/2026-08-20_require_context_safely.py). find_ruleset must report a
