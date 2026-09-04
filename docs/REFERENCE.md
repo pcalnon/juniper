@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.28
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -25,6 +25,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [Suite Report Gate Inputs](#suite-report-gate-inputs)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
@@ -1449,6 +1450,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   written for every outcome, and the full 0/1/2/3/4 exit matrix incl. `RedactedEnv` subprocess arms.
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
+- `tests/test_run_suite.py` -- Behavioral suite-driver coverage, including P2 item 1.4 (`GateInputsInAggregateTest` / `ComparisonReportingTest`): `aggregate.csv` must carry both gate inputs beside `wall_seconds`; `REPORT.md` must say `wall_seconds` is DE-RATIFIED and print work-invariant / single-workload; `--compare-baseline` is reporting-only (missing tag and FAIL verdict still exit 0). Operator surface: [Suite Report Gate Inputs](#suite-report-gate-inputs).
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
 - `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
   - **Oversize is pool OR cap.** The original gate triggered on `candidate_pool_size >= 16` only, so a wide-**cap** suite at a modest pool shipped and then lost its widest cells to a false `stalled` hours in — the candidate phase slows every iteration as the cascade widens each candidate's input, i.e. "the ml#1069 class, arriving through width instead of through pool size" (`suites/p4/e-i-cascor-cap-ceiling.yaml:46-50`). `max_hidden_units >= 64` now triggers too.
@@ -1686,7 +1688,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Exit codes: 0 success / 1 acceptance (stalled, timed_out, G-6 mismatch, missing essential artifact) / 2 misuse-validation / 3 unreachable / 4 FAILED-5xx. Tests: `tests/test_run_experiment.py`.
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
-  - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
+  - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate.
+  - **P2 item 1.4 (juniper-ml#1643):** `aggregate.csv` carries `step_count` and `mean_step_seconds` beside the de-ratified `wall_seconds`; `REPORT.md` has a **Gate inputs** section plus optional `--compare-baseline TAG` (reporting only — a FAIL verdict does not change the suite exit code). Operator surface: [Suite Report Gate Inputs](#suite-report-gate-inputs). Tests: `tests/test_run_suite.py`.
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -1828,7 +1831,7 @@ juniper-ml/
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
 │   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
-│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
+│   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags, P2 1.4 gate-input columns + reporting-only --compare-baseline; hermetic)
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
 │   ├── test_snapshot_classify.py         # Behavioral: util/snapshot_classify.py owner-scheme classifier (handoff 2026-08-22 §2.4) — the two-axis category/health rule (incl. the attributed zero-node row that made category 5 read empty), `readable`-is-not-loadable, iterations-not-epochs (inert meta.current_epoch), replace-not-append sidecar, fd-level stdout muffling, the train-stage scratch-root refusal, and an AST anti-resurrection guard that the tool stays READ-ONLY
@@ -1892,7 +1895,7 @@ juniper-ml/
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; parallel + H-11 split, cascor refused per Q-6)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py single-run cascor + recurrence driver (§6.3) + plots_cascor.py / plots_recurrence.py (§8.1 + §8.2 plot sets; 2.5 closes G-5) + stats_summary.py (§8.3 stats.json + summary.md) + list_runs.py (Wave 7.2: safety-gated lister/pruner) + run_suite.py + suites/ (Waves 7.1+7.5: suite driver — matrix expansion, per-cell up→drive→down, registry/index/aggregate; P2 1.4 gate inputs)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -2258,6 +2261,8 @@ Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety`
 
 `util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`.
 
+Multi-cell campaigns go through `util/experiments/run_suite.py`. After #1643 the suite report carries the ratified gate inputs — see [Suite Report Gate Inputs](#suite-report-gate-inputs).
+
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
 This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
@@ -2460,6 +2465,77 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
+
+---
+
+## Suite Report Gate Inputs
+
+`util/experiments/run_suite.py` writes `SUITE_DIR/aggregate.csv` + `REPORT.md` after every suite. Until juniper-ml#1643 (perf-lane P2 item 1.4) the aggregate carried **`wall_seconds` and nothing else** — and `wall_seconds` is **de-ratified**: it absorbs plot rendering and stack bring-up, and enabling the Grafana bridge alone moves it ~5%. A reader who opened the CSV was analysing the wrong quantity with nothing flagging it.
+
+Design of record: [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) item 1.4. The two ratified inputs come from `util/experiments/read_run_metrics.py` (`step_count` = WORK, `mean_step_seconds` = SPEED). The split comparator lives in `util/experiments/compare_baseline.py`.
+
+### What the report now carries
+
+| Surface | What you get |
+|---------|--------------|
+| `aggregate.csv` | `step_count` and `mean_step_seconds` sit **next to** `wall_seconds`. The de-ratified column stays for continuity; it is no longer the only number. |
+| `REPORT.md` cell table | `step_count`, mean step **in milliseconds** (`mean_step_seconds * 1000`), then wall (s). CSV stays in seconds. |
+| `REPORT.md` **Gate inputs** | States `wall_seconds` is DE-RATIFIED, then two suite-level verdicts (computed independently, not via `summarise()`). |
+| `REPORT.md` **Baseline comparison** | Only when `--compare-baseline TAG` is passed. The text is `compare_baseline.render(...)`. |
+
+Suite-level verdicts:
+
+- **work invariant HOLDS** when every *measured* `step_count` is the same; **BROKEN** when they differ (the report then says these cells are **not repeats** and a baseline must not be cut from them). Unmeasured cells are omitted from the set — an empty set prints `step_count not measured`.
+- **single workload yes** when every computed `workload_fingerprint` is the same; **NO** otherwise. Fingerprints are the first 12 hex chars plus `...`. The fingerprint hashes the materialised cell YAML with cosmetic `experiment.description` / `experiment.name` stripped (`config_sha256` cannot serve: PF-1's five repeats differ only by "repeat N" and would all look different).
+
+Verified live after #1643 against the recalibrated PF-1 suite: every row `step_count` 1770, `work invariant: HOLDS`, `single workload: yes`, PASS against `pf1-2026-09-04`.
+
+### `--compare-baseline` is reporting only
+
+```bash
+python util/experiments/run_suite.py --suite util/experiments/suites/perf/<file>.yaml --compare-baseline pf1-2026-09-04
+```
+
+The flag compares the just-written suite against `JUNIPER_EXP_RUN_ROOT/baselines/<TAG>/` (default root `~/.local/state/juniper-experiments`) and pastes the verdict under `## Baseline comparison`.
+
+**The suite's own exit code does not change with the verdict.** Wiring a FAIL to `run_suite`'s status would silently make the run tier a CI gate — and §6 of the P1 design ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md)) records that as a **separate owner decision, still open**.
+
+`test_a_failing_verdict_does_NOT_change_the_suite_exit_code` pins it: a FAIL verdict still exits 0, the verdict is still visible, and the report says so in the text. If that test ever fails, someone has made the gating decision by accident.
+
+`run_suite` exit codes stay the cell-outcome contract:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every executed cell succeeded (a FAIL/REFUSED/missing-baseline comparison does **not** override this) |
+| `1` | Suite completed with failed / other-than-succeeded cells |
+| `2` | Misuse / suite-validation error |
+
+A missing tag is **not** fatal: `_run_comparison` catches `CompareError` and writes `comparison could not run: …`. Without the flag there is no `## Baseline comparison` section. To get the comparator's own exit codes (0 PASS/WAIVED, 1 FAIL, 2 REFUSED), run `compare_baseline.py` directly.
+
+### Import failure is loud on purpose
+
+`_gate_metrics` / `_run_comparison` import the sibling modules **without** `try/except ImportError`. The first draft swallowed the error; under the test harness the imports *did* fail, and the feature degraded to blank `step_count` columns plus `work invariant: BROKEN -- step_count not measured` — indistinguishable from a genuinely broken suite.
+
+Two pins keep that from returning:
+
+1. `util/` is inserted on `sys.path` at module import so the siblings resolve whether `run_suite.py` is executed as a script (`sys.path[0] = util/experiments`) or imported as a module.
+2. A missing sibling is a packaging bug and must raise, not blank the columns.
+
+Cells with no `run_dir` in `registry.jsonl` are skipped (empty gate columns), which is a missing-run fact, not an import failure.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| CSV / report only show `wall_seconds` as the useful number | Pre-#1643 artifact. Re-run the suite on a tree that has item 1.4, or read `read_run_metrics.py` against each `run_dir`. |
+| `work invariant: BROKEN -- step_count not measured` | Either the cells truly have no step totals, **or** (pre-fix) a swallowed `ImportError`. On current main a missing sibling **raises** — if you still see this wording, the runs were not measured. |
+| `--compare-baseline` FAIL / REFUSED but suite exits 0 | Expected. Read `REPORT.md`; run `compare_baseline.py` if you need its exit code. |
+| `comparison could not run: no baseline 'TAG'` | Tag is missing under `JUNIPER_EXP_RUN_ROOT/baselines/`. Cut one with `make_baseline.py` first. |
+| Mean-step column looks 1000× too large vs the CSV | Report table is **milliseconds**; `aggregate.csv` is **seconds**. |
+| `single workload: NO` on a suite of "repeats" | Fingerprint strips only `experiment.description` / `name`. A seed change, or leftover `output_epochs` / budget drift, is a different workload. Do not cut a baseline from it. |
+| Trusting `config_sha256` as "same workload" | It hashes the whole cell YAML including the cosmetic description. PF-1's five repeats all differ. Use the fingerprint printed in **Gate inputs**. |
+
+Coverage: `tests/test_run_suite.py` (`GateInputsInAggregateTest`, `ComparisonReportingTest`).
 
 ---
 
@@ -3001,6 +3077,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.28  | 2026-09-04 | Suite report gate inputs (P2 1.4 / #1643): `aggregate.csv` carries `step_count` + `mean_step_seconds` beside de-ratified `wall_seconds`; `REPORT.md` **Gate inputs** + reporting-only `--compare-baseline` (FAIL does not change suite exit). Skipped 0.6.16–0.6.27 (in-flight sibling docs PRs) |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
