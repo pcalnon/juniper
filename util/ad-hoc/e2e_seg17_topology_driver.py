@@ -86,7 +86,6 @@ import argparse
 import importlib.util
 import json
 import os
-import re
 import sys
 import time
 
@@ -102,6 +101,7 @@ def _load(name: str, fname: str):
 
 _w3 = _load("_w3drv", "e2e_w3_params_driver.py")
 _f027 = _load("_f027drv", "e2e_f027_redrive.py")
+_score = _load("_toposcore", "e2e_topology_score_contracts.py")
 
 log = _w3.log
 http_get = _w3.http_get
@@ -1271,9 +1271,9 @@ def step_topo(page, capture):
     plot_area = wm.get("plot_area")
     # ``None`` means an older fig_info without the field — do not fail the row on a
     # missing measurement, but say so rather than silently treating it as passing.
-    area_ok = plot_area is None or plot_area >= 0.05
+    # Scoring lives in e2e_topology_score_contracts.py (F-CANOPY-041b blank-canvas).
     res["M-TOPOLOGY-03"] = {
-        "verdict": "PASS" if (is_heat and area_ok) else "FAIL",
+        "verdict": _score.score_m_topology_03(is_heat=is_heat, plot_area=plot_area),
         "heatmap": is_heat, "types": [t.get("type") for t in (wm.get("traces") or [])][:6],
         "plot_area": plot_area, "n_yaxes": wm.get("n_yaxes"),
         "area_measured": plot_area is not None,
@@ -1874,13 +1874,7 @@ _JS_SVG_RASTER_CONTROL = """async () => {
 
 def _png_dims(path: str):
     """(width, height) straight out of the PNG IHDR -- no image library needed."""
-    import struct
-
-    with open(path, "rb") as fh:
-        head = fh.read(33)
-    if head[:8] != b"\x89PNG\r\n\x1a\n" or head[12:16] != b"IHDR":
-        return None
-    return struct.unpack(">II", head[16:24])
+    return _score.png_dims(path)
 
 
 def step_topoexport(page, capture):
@@ -1938,10 +1932,10 @@ def step_topoexport(page, capture):
     # ---- the PRODUCT half: config + button --------------------------------
     cfg = page.evaluate(_JS_TOIMAGE_CONFIG, gid) or {}
     opts = (cfg.get("opts") or {}) if isinstance(cfg, dict) else {}
+    fname = str(opts.get("filename") or "")
     fmt_ok = opts.get("format") == "png"
     scale_ok = opts.get("scale") == 2
-    fname = str(opts.get("filename") or "")
-    fname_ok = bool(re.fullmatch(r"canopy_network_\d{8}_\d{6}", fname))
+    fname_ok = _score.export_filename_ok(fname)
 
     page.mouse.move(*_graph_centre(page, gid))
     page.wait_for_timeout(1000)
@@ -1951,7 +1945,9 @@ def step_topoexport(page, capture):
     log(f"  toImageButtonOptions: format={opts.get('format')!r} scale={opts.get('scale')!r} filename={fname!r}")
     log(f"    format_ok={fmt_ok} scale_ok={scale_ok} filename_ok={fname_ok}")
 
-    config_ok = bool(cam and fmt_ok and scale_ok and fname_ok)
+    config_ok = _score.export_config_ok(
+        camera_present=cam, fmt=opts.get("format"), scale=opts.get("scale"), filename=fname,
+    )
     res["config"] = {
         "camera_button_present": bool(cam), "n_modebar_buttons": len(btns),
         "format": opts.get("format"), "scale": opts.get("scale"), "filename": fname,
@@ -1960,7 +1956,14 @@ def step_topoexport(page, capture):
     }
 
     if not config_ok:
-        res["M-TOPOLOGY-14"] = {"verdict": "FAIL", "reason": "the export CONFIG is wrong — this is product-owned and needs no download to see", **res["config"]}
+        res["M-TOPOLOGY-14"] = {
+            "verdict": _score.score_m_topology_14(
+                camera_present=cam, fmt=opts.get("format"), scale=opts.get("scale"), filename=fname,
+                download_caught=False,
+            ),
+            "reason": "the export CONFIG is wrong — this is product-owned and needs no download to see",
+            **res["config"],
+        }
         log("  M-TOPOLOGY-14 -> FAIL (export config is wrong; not an environment issue)")
         shot(page, "seg17_topoexport.png")
         record("topoexport", **res)
@@ -1983,24 +1986,32 @@ def step_topoexport(page, capture):
     res["download"] = dl_res
 
     if dl_res.get("caught"):
-        name_ok = bool(re.fullmatch(r"canopy_network_\d{8}_\d{6}\.png", dl_res.get("suggested_filename") or ""))
         w, h = dl_res.get("png") or (0, 0)
         cw = cfg.get("w") or 0
         # scale: 2 VERIFIED against the real raster, not trusted from the config.
         scale_seen = round(w / cw, 2) if cw else 0
+        name_ok = _score.download_filename_ok(dl_res.get("suggested_filename"))
         raster_ok = bool(w and cw and abs(scale_seen - 2.0) <= 0.15)
-        verdict = "PASS" if (name_ok and raster_ok) else "FAIL"
+        verdict = _score.score_m_topology_14(
+            camera_present=cam, fmt=opts.get("format"), scale=opts.get("scale"), filename=fname,
+            download_caught=True, suggested_filename=dl_res.get("suggested_filename"),
+            png_w=w, png_h=h, graph_css_w=cw,
+        )
         res["M-TOPOLOGY-14"] = {"verdict": verdict, "filename_ok": name_ok, "png_w": w, "png_h": h, "scale_seen": scale_seen, "raster_ok": raster_ok, **res["config"]}
         log(f"  M-TOPOLOGY-14 download: {dl_res.get('suggested_filename')!r} {w}x{h} (scale {scale_seen}) -> {verdict}")
     else:
         control = page.evaluate(_JS_SVG_RASTER_CONTROL)
         res["svg_raster_control"] = control
         log(f"  SVG raster control: blob:={control.get('blob')} data:={control.get('data')}")
+        verdict = _score.score_m_topology_14(
+            camera_present=cam, fmt=opts.get("format"), scale=opts.get("scale"), filename=fname,
+            download_caught=False, raster_control=control,
+        )
         if control.get("blob_blocked"):
             # data: rasterises and blob: does not -> the page's CSP is the blocker,
             # which is canopy's own header. A product defect, not an environment one.
             res["M-TOPOLOGY-14"] = {
-                "verdict": "FAIL",
+                "verdict": verdict,
                 "reason": "canopy's CSP `img-src 'self' data:` omits blob:, so plotly's SVG->img->canvas raster is blocked and the camera button silently produces nothing (F-CANOPY-047)",
                 "svg_raster_control": control, "download": dl_res, **res["config"],
             }
@@ -2009,14 +2020,14 @@ def step_topoexport(page, capture):
             log("     for every user in every browser — this is NOT a headless quirk.")
         elif not control.get("ok"):
             res["M-TOPOLOGY-14"] = {
-                "verdict": "BLOCKED",
+                "verdict": verdict,
                 "reason": "this browser cannot rasterise SVG by ANY scheme (data: fails too), so the row cannot be scored here",
                 "svg_raster_control": control, "download": dl_res, **res["config"],
             }
             log("  M-TOPOLOGY-14 -> BLOCKED (environment): neither data: nor blob: rasterises in this browser")
         else:
             res["M-TOPOLOGY-14"] = {
-                "verdict": "FAIL",
+                "verdict": verdict,
                 "reason": "the browser rasterises SVG by both schemes, yet the camera button produced no download — product-owned, cause unidentified",
                 "svg_raster_control": control, "download": dl_res, **res["config"],
             }
@@ -2084,7 +2095,11 @@ def step_topostate(page, capture):
     if not entry_read.get("ok"):
         # Refuse to score rather than read "unreadable" as "empty" -- doing exactly
         # that produced a confident FAIL against a working gate on the first run.
-        res["M-TOPOLOGY-18"] = {"verdict": "BLOCKED", "reason": f"raw-topology store is unreadable: {entry_read.get('via')}", "read": entry_read}
+        res["M-TOPOLOGY-18"] = {
+            "verdict": _score.score_m_topology_18(readable=False),
+            "reason": f"raw-topology store is unreadable: {entry_read.get('via')}",
+            "read": entry_read,
+        }
         log(f"  M-TOPOLOGY-18 -> BLOCKED (store unreadable: {entry_read.get('via')}) -- NOT scored as empty")
         empty_in_node_graph = populated_in_weight_matrix = None
         fill_s = None
@@ -2106,12 +2121,11 @@ def step_topostate(page, capture):
     if empty_in_node_graph is not None:
         # An entry state that was ALREADY populated cannot test the first half, so
         # say so rather than scoring a half-measured row.
-        if not empty_in_node_graph and populated_in_weight_matrix:
-            m18 = "INDETERMINATE"
-        elif empty_in_node_graph and populated_in_weight_matrix:
-            m18 = "PASS"
-        else:
-            m18 = "FAIL"
+        m18 = _score.score_m_topology_18(
+            readable=True,
+            empty_in_node_graph=empty_in_node_graph,
+            populated_in_weight_matrix=populated_in_weight_matrix,
+        )
         res["M-TOPOLOGY-18"] = {
             "verdict": m18,
             "empty_in_node_graph": empty_in_node_graph,

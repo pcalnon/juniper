@@ -917,6 +917,11 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_topology_score_contracts.py: M-TOPOLOGY-03 / -14 / -18 scoring
+          # (blank heatmap certified PASS, CSP filed as environment, unreadable store
+          # scored as empty FAIL). Complementary to test_e2e_topology_row_predicates.py
+          # (-06 / -07 / -12). No Playwright.
+          python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
