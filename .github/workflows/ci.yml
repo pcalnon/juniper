@@ -909,6 +909,18 @@ jobs:
           # figures, insert-job lands before required-checks and outside its needs:, and adapt-test
           # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_p5_port_memory_budget.py
+          # tests/test_resident_gap_triage.py: the gate for the third P5 hazard tool
+          # (util/ad-hoc/2026-08-31_resident_gap_triage.py). util/ is outside every
+          # pre-commit Python hook, so this suite is the gate. #1663 pins the
+          # AGENTS.md finder; this pins the leftover that finder cannot see --
+          # SOURCE comments that are resident nowhere. A first version scored a
+          # 2-sentence window and buried the known-real cascor max_epochs /
+          # output_epochs split (score 2, below threshold) because prohibition
+          # and silence sit four paragraphs apart. Pins block scoring, the gap
+          # predicate, log-level demotion that never drops a remaining-score hit,
+          # worktree skip, and --min-score as a print threshold (JSON keeps all
+          # scored rows).
+          python3 -m unittest -v tests/test_resident_gap_triage.py
 
           # tests/test_require_context_safely.py: the ruleset writer that promotes a context to
           # REQUIRED (util/ad-hoc/2026-08-20_require_context_safely.py). find_ruleset must report a
