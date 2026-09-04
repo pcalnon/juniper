@@ -115,7 +115,9 @@ def _recurrence_fields(run_dir: Path, timings: Mapping[str, Any]) -> Dict[str, A
     quietly compare something that cannot regress.
     """
     train = _load_json(run_dir / "artifacts/results/train_response.json")
-    dataset = train.get("dataset") or {}
+    dataset = train.get("dataset")
+    if not isinstance(dataset, dict):
+        dataset = {}
     return {
         "kind": "recurrence",
         "work_countable": False,
@@ -137,8 +139,12 @@ def read_run(run_dir: Path) -> Dict[str, Any]:
     """
     run_dir = Path(run_dir)
     manifest = _load_json(run_dir / MANIFEST_RELPATH)
-    timings = manifest.get("timings") or {}
-    drive_loop = manifest.get("drive_loop") or {}
+    timings = manifest.get("timings")
+    if not isinstance(timings, dict):
+        timings = {}
+    drive_loop = manifest.get("drive_loop")
+    if not isinstance(drive_loop, dict):
+        drive_loop = {}
     scraped = manifest.get("metrics_scraped")
     # Tri-state (ml#1550): True scraped, False did not, None == COULD NOT ASK (Prometheus
     # unreachable). Never collapse None into False -- that is the false-negative the tri-state

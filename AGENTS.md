@@ -129,6 +129,7 @@ python3 -m unittest -v tests/test_snapshot_classify.py
 python3 -m unittest -v tests/test_snapshot_attribute.py
 python3 -m unittest -v tests/test_snapshot_backfill.py
 python3 -m unittest -v tests/test_run_suite.py
+python3 -m unittest -v tests/test_recurrence_kind_edges.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py

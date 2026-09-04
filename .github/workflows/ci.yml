@@ -844,6 +844,15 @@ jobs:
           # override is recorded in baseline.json). Also pins HOST.json's fidelity caveat
           # when the tool's interpreter differs from the runs'.
           python3 -m unittest -v tests/test_make_baseline.py
+          # tests/test_recurrence_kind_edges.py: complementary leftover RecurrenceKindTest,
+          # RecurrenceRefusalTest, and test_work_countable_contract.py cannot see. Pins that
+          # recurrence train is never aliased onto drive_seconds, that kind detection is key
+          # presence (drive: null stays cascor; train: null is still recurrence), that render()
+          # never prints WORK INVARIANT HOLDS for an uncountable suite, that CLI --run JSON
+          # emits kind/work_countable, that a non-mapping timings/dataset does not crash
+          # read_run, and that run_suite._gate_metrics carries work_countable=False without
+          # inventing step_count from n_epochs.
+          python3 -m unittest -v tests/test_recurrence_kind_edges.py
           # tests/test_experiment_config_schemas.py: Wave 3.5 drift gate over the
           # sibling repos' conf/experiments/*.yaml (auto-skips here -- siblings are
           # not cloned in this job; the always-on AST-extractor self-check still
