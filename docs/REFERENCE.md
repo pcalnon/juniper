@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.52
 **Status:** Active
 **Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -30,6 +30,7 @@
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
+- [Equities Symbol Cap](#equities-symbol-cap)
 - [Release-Train Detect Summary and Slack](#release-train-detect-summary-and-slack)
 - [AGENTS.md Date Check](#agentsmd-date-check)
 - [Claude.yml Access Validation](#claudeyml-access-validation)
@@ -1623,7 +1624,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) §6.2 (Wave 2.1).
   `--up` (with `--shared-data URL` / `--config PATH` / `--experiment NAME` / `--grafana-bridge`), `--down <RUN_ID>|--all-mine`, `--status [RUN_ID]`, `--dry-run`; misuse exits 2.
   Services launch from direct env-bin paths (`JUNIPER_EXP_CONDA_DIR`, default `/opt/miniforge3`) with the §6.1 env sets verbatim: `PYTHON_GIL=0` + per-run
-  `JUNIPER_DATA_STORAGE_PATH`/`_EQUITIES_CACHE_DIR`; cascor `LD_LIBRARY_PATH=''` + `uvicorn api.app:create_app --factory` from `juniper-cascor/src` with AUTO_START off;
+  `JUNIPER_DATA_STORAGE_PATH`/`_EQUITIES_CACHE_DIR` (cache only — does **not** set `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` / `_ALLOW_TRUNCATION`; see [Equities Symbol Cap](#equities-symbol-cap)); cascor `LD_LIBRARY_PATH=''` + `uvicorn api.app:create_app --factory` from `juniper-cascor/src` with AUTO_START off;
   recurrence `serve` with metrics on / rate-limit off — all three metrics toggles on and `JUNIPER_DATA_URL` at the run's data port.
   - RUN_DIR contract (§6.4): `RUN_ID=<UTC yyyymmddThhmmssZ>-<4 hex>` under `JUNIPER_EXP_RUN_ROOT` (default `~/.local/state/juniper-experiments` — under `$HOME`, **not** `/tmp`,
     so a reaped sandbox cannot destroy results, H-15); everything (pidfiles, `logs/`, `relays/`, `config/`, `env/launch.env`, `data/`, `equities-cache/`,
@@ -2460,6 +2461,7 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Exit `1` with `matplotlib unavailable` | Install matplotlib in the driver env, or drop `outputs.plots` from the YAML. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
+| Driver exit `2` on default `equities` / API `422` | Universe exceeded the **14-symbol** cap. Set `dataset.params.symbols` to ≤14 names, or opt in with `allow_truncation: true` (permanent `DatasetMeta.truncation`). See [Equities Symbol Cap](#equities-symbol-cap). |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
@@ -2474,7 +2476,7 @@ Which juniper-data generators are usable in which on-host environment, and what 
 | Generators | Gate | Enable with |
 | --- | --- | --- |
 | `spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`, `csv_import`, `multi_sine`, `mackey_glass`, `ar_p`, `irregular_sine`, `delay_product` | none (numpy-only / stdlib) | — |
-| `equities`, `equities_seq` | `is_available()`: pandas + yfinance importable | `pip install 'juniper-data[equities]'` |
+| `equities`, `equities_seq` | `is_available()`: pandas + yfinance importable | `pip install 'juniper-data[equities]'` — default universe is the bundled 503 S&P names and is **refused** at 14 symbols unless the caller opts in; see [Equities Symbol Cap](#equities-symbol-cap) |
 | `mnist` | `is_available()`: Hugging Face `datasets` importable | `pip install 'juniper-data[mnist]'` — installs `datasets[vision]>=4.0.0` (the `[vision]` Pillow leg is required to decode the 28×28 PNGs; bare `datasets` fails at generation time). First generation downloads from the Hub — air-gapped deployments need a seeded HF cache (juniper-data README § MNIST / Fashion-MNIST). |
 | `arc_agi` | no hook — parameter-conditional (`[arc-agi]` extra or local task files) | `pip install 'juniper-data[arc-agi]'`, or point params at local ARC task files |
 
@@ -2794,6 +2796,90 @@ Regenerates `conf/requirements_ci.txt` and `conf/conda_environment_ci.yaml` via 
 
 ---
 
+## Equities Symbol Cap
+
+`equities` / `equities_seq` generation still runs inside the request. The owner declined an async job store ([`notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md`](../notes/JUNIPER_2026-09-01_JUNIPER-DATA_ASYNC-JOB-PATTERN-DECISION-ANALYSIS.md) Option 6) and bound the **inputs** instead.
+
+The two halves of that decision took **different units**, because the cost is different:
+
+| Half | Unit | Why |
+|------|------|-----|
+| `csv_import` ([juniper-data#326](https://github.com/pcalnon/juniper-data/pull/326)) | **bytes** (128 MiB) | Input is a file; bytes are what an operator can enforce without parsing |
+| `equities` ([juniper-data#354](https://github.com/pcalnon/juniper-data/pull/354), `ed099920`) | **symbols** (14) | Cost is per *request* — 163× the payload costs 1.16× the time |
+
+*The unit belongs to the cost, not to the register.* A byte cap on equities would admit the expensive request and reject the cheap one. Measurement: [`notes/JUNIPER_2026-09-04_JUNIPER-DATA_EQUITIES-INGEST-SIZING-AND-FIELD-AVAILABILITY.md`](../notes/JUNIPER_2026-09-04_JUNIPER-DATA_EQUITIES-INGEST-SIZING-AND-FIELD-AVAILABILITY.md) (landed via juniper-ml#1669). Producer contract lives in juniper-data; this page is the **experiment-stack** view.
+
+### Why a byte cap is the wrong unit
+
+Measured 2026-09-04 (`juniper-data/util/ad-hoc/2026-09-04_measure_equities_payloads.py`). Holding the symbol fixed and varying only the horizon, Yahoo chart payload scales **163×** while wall time moves **1.16×**.
+
+| Request | Wire bytes | Wall time |
+|---------|-----------:|----------:|
+| 1 symbol × 26 years | **210 KB** | **~2 s** |
+| Russell 3000 × **1 day** | **92 KB** | **1.7–3.2 h** |
+
+Per-symbol cost is **~2.1 s** (2026-09-04, optimistic) / **4.01 s** (2026-09-02, conservative). `14 = 30 s ÷ 2.1 s/symbol` — the owner's choice from that range. Yahoo is `yf.download(..., threads=False)` plus 1–2 SEC `companyconcept` GETs (`_SEC_MIN_INTERVAL = 0.12`). The data-client default timeout is **30 s**.
+
+The previous default — `EQUITIES_DEFAULT_MAX_SYMBOLS = None`, meaning all **503** bundled S&P names — was 36× to 67× over budget (18–34 min). The cut was a bare slice at `_resolve_symbols` that truncated **silently**. Both are gone as of data#354.
+
+### Shipped contract (verified against juniper-data `main` after data#354)
+
+| Knob | Value | What it does |
+|------|-------|--------------|
+| `EQUITIES_DEFAULT_MAX_SYMBOLS` | **`14`** (`juniper_data/core/limits.py`) | Deployment default / `EquitiesParams.max_symbols` default. Settings field `gt=0` so a mistyped `0` or `-1` fails construction instead of emptying the slice. |
+| `EQUITIES_DEFAULT_ALLOW_TRUNCATION` | **`False`** | Truncation is opt-in, never a default. |
+| Effective cap | `min(requested, settings.equities_max_symbols)` | A request may only **lower** the cap. `max_symbols=None` means *no request-side limit*, **not** unbounded — the deployment ceiling still applies. There is no way for a caller to ask for an unbounded universe. |
+| Opt-in | request `allow_truncation` **OR** `JUNIPER_DATA_EQUITIES_ALLOW_TRUNCATION` / `.env` | Logical OR. A client cannot opt *out* of a deployment-wide opt-in. |
+| Default `EquitiesParams()` against 503 names | `InputTooLargeError` → HTTP **422** with **string** `detail` | Route: `datasets.py` `HTTPException(..., detail=str(e))`. Schema 422s remain a list. 422 was chosen because it is already on the surface (`APD-DATA-022` stays parked). |
+| Authorised cut | deterministic prefix + `build_truncation_meta` | `reason=universe_exceeded_symbol_cap`, `unit=symbols`. `generate()` fills `records_imported` after conditioning (`-1` until then — recording `0` would be a lie). Descriptor rides `TRUNCATION_META_KEY` and is popped **before** checksum + NPZ persist. |
+| Shared descriptor | `truncated` / `reason` / `unit` / `cap` / `requested` / `imported` / `records_imported` | Same shape as `csv_import` (that half uses `unit=bytes`). |
+| `equities_seq` | reuses `EquitiesGenerator._resolve_symbols` | Inherits the bound **and** the annotation. `EquitiesSeqParams` subclasses `EquitiesParams`, so the knobs need no redeclaration. |
+| Cache | `JUNIPER_DATA_EQUITIES_CACHE_DIR` | `experiment_stack.bash` `data_up` sets this to `$RUN_DIR/equities-cache`. It does **not** set the two cap env vars — they inherit. |
+
+Failed Yahoo downloads still skip. Missing SEC facts + `fundamentals_fill="zero"` still write `0.0`. The generator never calls `Ticker.info`.
+
+### What this means on a juniper-ml experiment stack
+
+`equities` **is** in `STAGEABLE_GENERATOR_ALIASES` (`util/experiments/run_experiment.py`). `equities_seq` is **not** (3-D sequence family, plan SS10.3) — a cascor-path YAML with `dataset.generator: equities_seq` is `ConfigError` before any download.
+
+`create_dataset` maps API `400` / `422` / `501` to `ConfigError` (driver exit **2**). A default-universe YAML that used to sit in `create_dataset` for tens of minutes (or hit the 30 s client timeout) now fails immediately with the curated `InputTooLargeError` message.
+
+The E-H suite (`util/experiments/suites/p4/e-h-real-data.yaml` and `e-h-recurrence-real-data.yaml`) sets `symbols: [AAPL]` and does **not** set `max_symbols` or `allow_truncation`, so those cells stay inside the cap with no annotation.
+
+`JuniperCascor1` does **not** have `[equities]` — see [Generator Availability Matrix](#generator-availability-matrix-on-host). In-process `bench/` generation of the equities pair fails `is_available()` there. The experiment-stack `JuniperData` env does have the extra.
+
+```yaml
+# stay inside the 14-symbol refuse — pick an explicit list:
+dataset:
+  generator: equities
+  params:
+    symbols: [AAPL, MSFT, GOOGL]
+    # allow_truncation: true       # opt-in prefix cut; writes DatasetMeta.truncation
+    # max_symbols: 10              # may only lower the deployment ceiling
+    start_date: "2015-01-01"
+    end_date: "2022-01-01"         # pin this; default is today
+    regression_target: log_return  # recurrence E-H; default next_close is non-stationary
+```
+
+To raise the **deployment** ceiling (not the request), set `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the data service. `experiment_stack.bash` does not set it. Raising it past ~14 spends the 30 s client budget again; raising it to 503 restores the 18–34 min fan-out the cap exists to stop.
+
+### Operator pitfalls
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Driver exit `2` / API `422` on default `equities` | You asked for the full S&P 500. Set `symbols` to ≤14 names, or set `allow_truncation: true` and accept a permanent `DatasetMeta.truncation`. |
+| Requested `max_symbols: 50` still caps at 14 | A request may only *lower* the ceiling. Raise `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the **service**, then re-request. |
+| Truncated dataset looks complete | Authorised cut writes `meta.truncation` (`reason=universe_exceeded_symbol_cap`). Count `ticker_vocab` against `imported`. The old silent slice is deleted. |
+| `total_shares` / `market_cap` are all zeros | SEC returned no facts for that CIK, then `fundamentals_fill: zero`. Use `nan` or `drop` if zeros would train. |
+| Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path, or flat `equities`. |
+| `501` / `equities` unavailable | Install `juniper-data[equities]` into the **serving** env (`JuniperData` for the experiment stack; `JuniperCascor1` for in-process bench). |
+| Assumed Yahoo `.info` fields (`trailingPE`, `floatShares`, …) | The generator never calls `Ticker.info`. It uses `yf.download` (chart) + SEC XBRL. |
+| Expected a byte cap to bound wall time | Anti-correlated. One symbol × 26 y is 210 KB / ~2 s; Russell 3000 × 1 day is 92 KB / 1.7–3.2 h. |
+
+Do **not** re-introduce a silent prefix slice. Do **not** treat a byte threshold as the binding bound.
+
+---
+
 ## Release-Train Detect Summary and Slack
 
 Operator contract for the detect job's **Render step summary** and **Slack notification** heredocs in [`.github/workflows/release-train.yml`](../.github/workflows/release-train.yml). The full mode / Gate / HALT surface stays in the [release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md) §3.1. Hermetic YAML-extraction pins: `DetectSummaryRehearsalTest` / `DetectSlackPayloadRehearsalTest` in `tests/test_release_train_workflow_guard.py`.
@@ -3104,6 +3190,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.52  | 2026-09-04 | Equities symbol cap: default universe is refused at **14 symbols** (422 until opt-in); unit is symbols because cost is per request; silent slice deleted in data#354; `equities_seq` inherits |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3433,6 +3520,9 @@ These variables are consumed by Juniper packages documented in this repository. 
 |--------------------------|-----------------------|-------------------------|-------------------------------------------|
 | `JUNIPER_DATA_URL`       | juniper-data-client   | `http://localhost:8100` | juniper-data service URL                  |
 | `JUNIPER_DATA_API_KEY`   | juniper-data-client   | *(none)*                | API key for juniper-data authentication   |
+| `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` | juniper-data | `14` | Deployment ceiling for `equities` / `equities_seq` (`gt=0`). A request may only **lower** this. See [Equities Symbol Cap](#equities-symbol-cap). |
+| `JUNIPER_DATA_EQUITIES_ALLOW_TRUNCATION` | juniper-data | `false` | Deployment-wide opt-in to a prefix cut. Logical OR with the request flag; a caller cannot opt out. |
+| `JUNIPER_DATA_EQUITIES_CACHE_DIR` | juniper-data | `~/.cache/juniper_data/equities` | OHLCV / SEC cache. `experiment_stack.bash` `data_up` sets this to `$RUN_DIR/equities-cache`. |
 | `CASCOR_SERVICE_URL`     | juniper-cascor-client | `http://localhost:8200` | juniper-cascor service URL                |
 | `JUNIPER_CASCOR_API_KEY` | juniper-cascor-client | *(none)*                | API key for juniper-cascor authentication |
 | `CASCOR_MANAGER_HOST`    | juniper-cascor-worker | `127.0.0.1`             | Worker manager host                       |
@@ -3453,5 +3543,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Version:** 0.6.52
 **Maintainer:** Paul Calnon
