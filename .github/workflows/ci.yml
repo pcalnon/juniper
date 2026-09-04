@@ -917,6 +917,14 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_matrix_rescore.py: named-row re-score writer
+          # (util/ad-hoc/e2e_matrix_rescore.py). Phase 2 uses this INSTEAD of
+          # e2e_matrix_fill --overwrite so hand-authored cells on other rows survive.
+          # Pins pending-is-not-a-verdict, dry-run, named-row-only + prefix near-miss,
+          # cell-count refuse (the C2.2-04 FA shift), escaped \\| survival, status-by-
+          # header-name on a short table, and that an already-filled status IS overwritten
+          # (the re-score contract). util/ is not pre-commit-lint-gated, so this is the gate.
+          python3 -m unittest -v tests/test_e2e_matrix_rescore.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
