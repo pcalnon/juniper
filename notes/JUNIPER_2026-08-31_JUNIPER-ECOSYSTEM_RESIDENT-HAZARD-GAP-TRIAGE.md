@@ -4,7 +4,7 @@
 **Sub-Project**: juniper-ecosystem
 **Author**: Paul Calnon
 **License**: MIT License
-**Last Updated**: 2026-08-31
+**Last Updated**: 2026-09-04
 
 ---
 
@@ -256,6 +256,62 @@ Two details in that one are worth the residency, and neither is recoverable from
 [#554](https://github.com/pcalnon/juniper-canopy/pull/554), which carries two —
 **against 14 recorded rejections, and 0 candidates left unexamined at score ≥ 2.** What remains is
 the score-1 tail characterised in §7.
+
+## 7b. Closing pass — the residual is triaged; the arc is complete (2026-09-04)
+
+Re-run after the session's later relocations (cascor#619, juniper-ml#1586, data#312,
+data-client#185, worker#169, deploy#203). **323 scored rows** — see §7c for why that number
+GREW — distributed 229 / 87 / 6 / 1 across scores 1–4.
+
+**Nothing new appeared at the actionable end.** All 7 rows at score ≥ 3 are the same set
+adjudicated in §6 and §7a; line numbers moved, the findings did not. `dashboard_manager.py:4166`
+(the canopy pin-store hazard) has **dropped out** of the candidate set entirely, which is the
+expected behaviour — a promoted directive is no longer "resident nowhere" — and is a useful
+self-check that the promotions actually took.
+
+### Score 2 at the Hazards bar — 23 rows, no promotions
+
+Filtered to rows carrying **both** `silent-failure` and `prohibition`. Most are §6/§7a
+rejections with shifted line numbers. Two were new and genuinely strong, and **both were
+rejected on the RESIDENCY test, not on severity** — the same ground as cascor's
+`extra="forbid"` in §7a:
+
+| Repo | Source | Why not |
+|---|---|---|
+| juniper-canopy | `src/main.py:243` | An empty/placeholder `CANOPY_API_KEY` **silently disables `APIKeyAuth`** (`security.py` computes `[api_key] if api_key else None`) and canopy serves its control surface OPEN behind a healthy health check. Real — but already enforced at boot by `enforce_auth_posture` (SEC-F01 / HO-2), with the rationale in the comment **adjacent to the call**. Reading the code recovers the fact |
+| juniper-data | `core/limits.py:17` | "Truncation must be loud": a silently-partial dataset is indistinguishable from a complete one downstream, and there is no partial-data check in the API or core layers (the gap that let `arc_agi` persist a zero-sample dataset, data#318). The two obligations — caller opt-in, and a **permanent** `DatasetMeta` annotation — are non-optional. Rejected because it is **2026-09-04 work by a concurrent session** (APD-DATA-018) with its rationale written at the site; promoting it mid-flight risks contradicting that session. **Re-evaluate once APD-DATA-018 settles** |
+
+### Score 1 — 229 rows, sampled not read
+
+A 12-row random sample (seed 11) was read in full. **12 of 12** matched the noise classes in
+§7: single-signal lexical hits describing *correct* behaviour, module-local implementation
+notes, and several that are bare fragments (`"silently fall through."`, `"Never used as
+identity."`). None is a hazard candidate.
+
+Sampling rather than reading 229 rows is the proportionate call: the tier is defined by
+carrying exactly ONE of four signals, and a directive that clears the Hazards bar
+("non-application destroys work", silently) essentially cannot present with one signal —
+every hazard promoted in this arc carried at least two.
+
+## 7c. The candidate count GROWS as the arc succeeds — do not read it as a health metric
+
+Measured across this arc:
+
+| When | Rows |
+|---|---:|
+| First fleet pass (§3) | 285 |
+| After the first four promotions | 281 |
+| After the §7a promotion | 282 |
+| After the headroom relocations | **323** |
+
+The count rose by 41 while the work was going *well*. Relocation moves facts out of
+`AGENTS.md`, so source identifiers that previously had a resident counterpart no longer do,
+and the gap predicate ("NONE of its identifiers appears in `AGENTS.md`") starts matching them.
+**Cutting widens the gap by construction.**
+
+So a later reader re-running the triage will see a bigger number than this document records
+and may conclude the fleet regressed. It did not. The health signals are the **score ≥ 3
+count** (7, all adjudicated) and whether anything new appears there — not the total.
 
 ## 8. What this pass establishes
 
