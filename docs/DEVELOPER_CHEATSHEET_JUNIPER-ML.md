@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.27
-**Date**: 2026-08-24
+**Version**: 1.0.35
+**Date**: 2026-09-04
 **Project**: juniper-ml
 
 ---
@@ -47,6 +47,7 @@
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
+| `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT [WT ...]` | Wider in-use check: STRONG cwd/open-fd exit 1; WEAK cmdline is CAUTION only |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -210,6 +211,15 @@ bash util/ad-hoc/worktree_sweep_survey.bash > /tmp/juniper-worktree-sweep.tsv
 bash util/ad-hoc/worktree_sweep_apply.bash --dry-run < /tmp/juniper-worktree-sweep.tsv
 bash util/ad-hoc/worktree_sweep_apply.bash --include-ignored < /tmp/juniper-worktree-sweep.tsv
 ```
+
+**Before removing a worktree you did not just leave:** cwd-only liveness first, then the wider in-use probe (open files + argv). STRONG (cwd or an open fd inside the tree) exits 1 `REFUSE`. WEAK (cmdline substring) prints `CAUTION` and stays exit 0 — the probe's own argv used to report every tree `IN USE`. Empty argv exits 2 (the cwd-only probe exits 0 on that misuse).
+
+```bash
+python3 util/ad-hoc/2026-08-20_worktree_liveness_probe.py "$OLD_WORKTREE_DIR"
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py "$OLD_WORKTREE_DIR"
+```
+
+Full contract: [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-divergence-is-a-memory-cost).
 
 ---
 
@@ -573,6 +583,8 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
 
+Tip: before removing a worktree you did not just leave, run the cwd-only liveness probe **and** `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT`. An editor whose cwd is elsewhere while a file in the tree is open is invisible to cwd-only. STRONG (cwd/open-fd) exits 1; WEAK cmdline is CAUTION and must not fail the process (the probe's own argv used to report every tree in use). Empty argv exits 2. See [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
 
 ### Host Stack Troubleshooting
 
@@ -607,6 +619,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
+| In-use probe reports every tree `IN USE` | That was the first-run failure mode — the probe's own argv. WEAK cmdline must not set the exit code; only cwd/open-fd is STRONG. |
+| In-use probe `CAUTION` / `review` | A process names the path in argv but is not sitting in the tree. Glance; do not treat as `REFUSE`. |
+| In-use probe exit 2 | No worktree arguments — it printed usage. The cwd-only liveness probe exits 0 on the same misuse. |
+| Liveness probe `clear` but an editor still has a file open | Expected: cwd-only. Re-run the 2026-09-02 in-use probe (open fd is STRONG). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
@@ -713,6 +729,6 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 1.0.27
+**Last Updated:** 2026-09-04
+**Version:** 1.0.35
 **Maintainer:** Paul Calnon

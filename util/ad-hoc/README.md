@@ -79,6 +79,23 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Worktree in-use probe (operational)
+
+`2026-09-02_worktree_inuse_probe.py` is an independent second opinion for a worktree sweep. The cwd-only liveness probe (`2026-08-20_worktree_liveness_probe.py`) and the P5 cleaner's `occupied()` gate miss an editor or a long `pytest` whose cwd is elsewhere while a file inside the tree is still open.
+
+- STRONG (cwd or an open fd inside the tree) → `IN USE`, exit 1 `REFUSE`.
+- WEAK (cmdline substring) → `review` / `CAUTION`, exit stays 0. The first run reported every tree in use because the probe named the paths as arguments; self and parent pids are excluded from WEAK by pid.
+- Empty argv exits 2 (the cwd-only probe exits 0 on that misuse).
+- Read-only. Sibling `foo-extra` is not inside `foo`. Unreadable `/proc` (other users) is counted, not treated as in-use.
+
+```bash
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree-dir> ...]
+```
+
+Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.
