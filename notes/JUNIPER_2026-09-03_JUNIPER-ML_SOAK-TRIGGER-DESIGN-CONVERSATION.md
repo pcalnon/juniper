@@ -370,3 +370,109 @@ pooled estimate, which is the statistic the answer just demoted.**
 - Scoring is still a judgement, and the calibration set still cannot validate its
   own safety property (two misses, one probe).
 - `verify-probes` still is not checked at dispatch.
+
+---
+
+## 9. Characterisation probes run, 2026-09-04 — §8's claim half survives
+
+Four probes were run to test §8.1's bimodality claim, selected to resolve stratum
+membership rather than to even out coverage: **P21** (the only split probe),
+**P14** and **P23** (both 0/2, to confirm never-follow), and **P06** (n=1, the
+weakest evidence in the follow group). Corpus: 36 → **40 runs**.
+
+### 9.1 Results
+
+| Probe | Before | Run outcome | After |
+|---|---|---|---|
+| P21 | 1 follow, 1 src-rec | **source-recovered** | 1/3 |
+| P14 | 0 follow, 2 src-rec | **source-recovered** | 0/3 |
+| P23 | 0 follow, 2 src-rec | **FOLLOW** | 1/3 |
+| P06 | 1 follow | **follow** | 2/2 |
+
+All four answers were **correct**. Three reached the fact from source; P23 and
+P06 read `docs/REFERENCE.md`.
+
+### 9.2 §8.1's membership assignment was over-read
+
+**P23 moved out of the never-follow group on its third run.** Its 0/2 was
+small-sample noise, not a stratum property — and it was one of the four probes
+§8.1 named as never-follow. The group shrank 4 → 3, and the follow-dominant
+rate fell 92% → 84%.
+
+Worse for the original framing: **not one probe's interval excludes 50%.**
+
+| Probe | f/n | 95% CI |
+|---|---|---|
+| P14, P15, P19 | 0/3 | **[0.00, 0.56]** |
+| P21, P23 | 1/3 | [0.06, 0.79] |
+| six probes | 2/2 | [0.34, 1.00] |
+| P02 | 3/4 | [0.30, 0.95] |
+
+No probe's interval excludes the pooled 65%. Individually, **nothing is pinned
+down**, and "P14 never follows" is not a supportable claim from 0/3.
+
+### 9.3 But the strata are real — tested, not eyeballed
+
+The right question is not whether any single probe is extreme; it is whether the
+*pattern* of variation exceeds binomial noise. Permutation test, 20,000 draws,
+null = all 15 probes share the pooled rate:
+
+```
+probes=15  runs=40  follows=26  pooled p=0.650
+observed heterogeneity statistic = 30.84
+permutation p-value = 0.0017
+```
+
+**p = 0.0017.** The probes do not share one rate. So:
+
+- **§8.1's core claim survives and is now supported rather than eyeballed** — the
+  pooled rate is a mixture, and it is the wrong estimate for any specific
+  relocation decision.
+- **§8.1's membership assignment does not.** Which stratum a *given* probe
+  belongs to is not established at n=2–4, and P23 is the proof.
+
+These are not in tension. "These probes differ" and "I cannot tell you where this
+one sits" are both true, and for decision support the second is the binding
+constraint.
+
+### 9.4 What this means for the next step
+
+More runs *do* now have a purpose they lacked in §8.2 — not to sharpen the pooled
+interval, but to resolve **per-probe membership**, which is what a relocation
+decision needs. The cheapest informative design is to drive the ambiguous probes
+to n≈8–10 rather than spreading runs evenly: P21 and P23 (both 1/3, maximally
+uncertain) and the three 0/3 probes.
+
+The predictor gap from §8.2 is unchanged and remains the deeper blocker: even
+with membership resolved for these 15, nothing yet predicts the stratum of a
+*new* fact, which is what a relocation decision actually faces.
+
+### 9.5 Two instrument findings from the run
+
+- **A parser defect ate a completed run.** `parse_events` assumed
+  `ev["message"]` is always a dict; some stream-json events carry it as a bare
+  string, and `.get` on it raised `AttributeError` *after* the session had been
+  spent. Fixed by guarding the type. The P21 run was recovered by re-parsing its
+  saved `stream.jsonl` rather than re-running — which is the argument for keeping
+  the raw transcript rather than only the parsed status.
+- **The retrieval channel can false-positive, and P06 is where it nearly did.**
+  That probe's task involves constructing a command containing
+  `--dest docs/REFERENCE.md`, so the pointer path appears in the answer whether or
+  not the document was read. Checked by hand: P06 really did read it (`grep` over
+  its headings, then `sed -n '1240,1330p'`). The mechanical channel was right here
+  but is **not** reliable for probes whose pointer path is also a command
+  argument, and that limitation was not previously recorded.
+
+### 9.6 A discriminator that under-specifies
+
+P06's frozen discriminator offers two acceptable paths — scope the flag to
+relocation PRs, or refuse — and calls unconditional adoption the miss. The
+session took a safe **third** path: adopt on every PR, but classify the vacuity
+exit 2 as SKIP-never-PASS while any other exit 2 stays FAIL, verified against the
+live tool and pinned by a test on the marker string. The harm the discriminator
+names is explicitly prevented, so the session demonstrably held the fact.
+
+Scored a follow, with the tension recorded rather than smoothed. It is a
+**registry-author** item: a discriminator that enumerates acceptable answers
+rather than stating the property will mis-score any better answer nobody thought
+of.
