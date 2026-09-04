@@ -576,6 +576,16 @@ def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]", comparison: "st
 
     counts = {g.get("step_count") for g in gate.values() if g.get("step_count") is not None}
     fingerprints = {g.get("workload_fingerprint") for g in gate.values() if g.get("workload_fingerprint")}
+    # Third state: a cell that says work_countable=False cannot satisfy the work
+    # invariant. Keying HOLDS off matching (or singleton) step_counts alone is
+    # exactly the "not countable" → "counted, and they matched" collapse P2 3.1
+    # closed. `any(... is False)` so an empty gate stays on the unmeasured path
+    # and a cascor row that omitted the key stays countable.
+    uncountable = any(g.get("work_countable") is False for g in gate.values())
+    if uncountable:
+        work_line = "- **work invariant**: not countable — no work-done counter (n_epochs is 1-or-200 by readout type); report these runs, do not gate them"
+    else:
+        work_line = f"- **work invariant**: {'HOLDS' if len(counts) == 1 else 'BROKEN'} — step_count {sorted(int(c) for c in counts) if counts else 'not measured'}"
     lines += [
         "",
         "## Gate inputs",
@@ -585,10 +595,10 @@ def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]", comparison: "st
         "**`step_count`** (work, compared exactly); **mean step duration** is reported and never gated,",
         "because this host's own drift floor is 13–20.5%.",
         "",
-        f"- **work invariant**: {'HOLDS' if len(counts) == 1 else 'BROKEN'} — step_count {sorted(int(c) for c in counts) if counts else 'not measured'}",
+        work_line,
         f"- **single workload**: {'yes' if len(fingerprints) == 1 else 'NO'} — fingerprint {sorted(f[:12] + '...' for f in fingerprints) if fingerprints else 'unknown'}",
     ]
-    if len(counts) > 1:
+    if not uncountable and len(counts) > 1:
         lines.append("- These cells are **not repeats of each other**; a baseline must not be cut from them.")
     if comparison is not None:
         lines += ["", "## Baseline comparison", "", "```text", comparison, "```", ""]

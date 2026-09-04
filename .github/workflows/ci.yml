@@ -857,6 +857,12 @@ jobs:
           # Documented in AGENTS.md but never wired into this job until R-6 -- so the stall_seconds
           # passthrough the P4 suites now depend on was itself ungated.
           python3 -m unittest -v tests/test_run_suite.py
+          # tests/test_run_suite_uncountable_report.py: complementary leftover RecurrenceKindTest,
+          # RecurrenceRefusalTest, test_work_countable_contract.py, test_recurrence_kind_edges.py,
+          # and test_run_suite_gate_metrics.py cannot see. Pins that REPORT.md never prints
+          # work invariant HOLDS for a recurrence or mixed suite — including planted matching
+          # step_counts, the path that keyed HOLDS off len(counts)==1 alone.
+          python3 -m unittest -v tests/test_run_suite_uncountable_report.py
           # tests/test_list_runs.py: hermetic tests for util/experiments/list_runs.py, the Wave 7.2
           # safety-gated run lister/pruner -- state classification, --older-than, and the prune
           # safety gates, over synthetic RUN_ROOT fixtures. Also previously unwired.

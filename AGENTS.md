@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-03
+**Last Updated**: 2026-09-04
 
 ---
 
@@ -129,6 +129,7 @@ python3 -m unittest -v tests/test_snapshot_classify.py
 python3 -m unittest -v tests/test_snapshot_attribute.py
 python3 -m unittest -v tests/test_snapshot_backfill.py
 python3 -m unittest -v tests/test_run_suite.py
+python3 -m unittest -v tests/test_run_suite_uncountable_report.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py
