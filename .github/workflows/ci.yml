@@ -917,6 +917,14 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_ruleset_context_audit.py: the fleet auditor that classifies required
+          # contexts as BLOCKING / MATCHED / TIER-1 / PATH-GATED / ADVISORY
+          # (util/ad-hoc/2026-08-10_ruleset_context_audit.py). Pins the 2026-08-10 class --
+          # requiring an advisory or path-gated name makes main unmergeable except by admin
+          # bypass -- plus advisory_predicate so a promoted Sequence Safety (ml#1011) stays
+          # visible as Tier-1, and the half-median rollup filter so a thin #1061 rollup
+          # cannot collapse Tier 1. _gh is monkeypatched; nothing talks to GitHub.
+          python3 -m unittest -v tests/test_ruleset_context_audit.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
