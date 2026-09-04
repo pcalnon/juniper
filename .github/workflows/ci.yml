@@ -908,6 +908,14 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_register_status_crosscheck.py: independent third reading of the
+          # defect register (util/ad-hoc/register_status_crosscheck.py). register_open_set
+          # and grep -cE '**FIXED' both read §4, so they can agree and both be wrong.
+          # Pins AGREE, each DISAGREE direction (missed §2 / open listed as fixed /
+          # missed §5.1), missing-heading fail-closed, dagger+001a parse, and §5.1
+          # verification prose containing **FIXED must not poison table_fixed.
+          # Fixtures are strings; the live register is never opened.
+          python3 -m unittest -v tests/test_register_status_crosscheck.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /

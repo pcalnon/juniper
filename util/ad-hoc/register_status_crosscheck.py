@@ -38,25 +38,38 @@ ID_RE = re.compile(r"APD-[A-Z]+-\d+[ab]?")
 TABLE_ROW_RE = re.compile(r"^\| (APD-[A-Z]+-\d+[ab]?) *†? *\|")
 
 
-def main() -> int:
-    text = REGISTER.read_text(encoding="utf-8")
+def crosscheck(text: str) -> int:
+    """Compare §4 **FIXED, §2 prose, and §5.1 verification rows.
+
+    ``table_fixed`` is collected only between ``## 4.`` and ``## 5.``. A §5.1
+    verification cell that happens to contain the token ``**FIXED`` must not
+    count as a status marker -- otherwise an OPEN §4 row AGREE-s, which is
+    the lie this script exists to catch.
+    """
     lines = text.splitlines()
+
+    try:
+        sec4 = next(i for i, line in enumerate(lines) if line.startswith("## 4."))
+        sec5 = next(i for i, line in enumerate(lines) if line.startswith("## 5."))
+    except StopIteration:
+        print("could not locate §4/§5 headings", file=sys.stderr)
+        return 1
 
     # -- §4 table rows: the machine-readable source of truth -------------------
     table_fixed: set[str] = set()
     table_all: set[str] = set()
-    for line in lines:
+    for line in lines[sec4:sec5]:
         match = TABLE_ROW_RE.match(line)
         if not match:
             continue
         entry_id = match.group(1)
-        # A row can appear in both a §4 table and a §5.1 verification table;
-        # §5.1 rows are the ones whose second cell is not a status marker.
         table_all.add(entry_id)
         if "**FIXED" in line:
             table_fixed.add(entry_id)
 
     # -- §2 Status paragraph: the prose enumeration ----------------------------
+    # ``**Seventy`` is the live wording; ``have since been fixed**`` is the
+    # durable clause so Eighty/Ninety still match.
     status_line = ""
     for line in lines:
         if line.startswith("**Seventy") or "have since been fixed**" in line:
@@ -94,6 +107,10 @@ def main() -> int:
 
     print("\nAGREE" if ok else "\nDISAGREE")
     return 0 if ok else 1
+
+
+def main() -> int:
+    return crosscheck(REGISTER.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
