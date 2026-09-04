@@ -1,0 +1,14 @@
+[t=    550ms] navigating to http://127.0.0.1:8052
+[t=  12174ms]   welcome modal dismissed
+[t=  14978ms] STEP topoevents -- M-TOPOLOGY-09/-10/-12/-15 (graph event surface)
+[t=  38147ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 14.0, 'attempts': 1}
+[t=  39465ms]   node traces: [('Input Units', 1888, 2), ('Hidden Units', 1889, 40), ('Output Units', 1890, 2)]
+[t=  55165ms]   baseline selection: {'present': True, 'display': 'none', 'text': ''}
+[t=  73988ms]   M-TOPOLOGY-10 node click: shown=True names_node=True layer_ok=True -> PASS
+[t= 101840ms]   M-TOPOLOGY-12 clear: control={'present': True, 'visible': True, 'clicked': True} cleared=True -> PASS
+[t= 101840ms]      (empty-space click, recorded not scored: plotly_click_events=0 cleared=False)
+[t= 129481ms]   M-TOPOLOGY-15 hover inert: hovered=True dom_unchanged=True api_delta=0 -> PASS
+[t= 145714ms]   M-TOPOLOGY-09 stats bar theme: rgb(248, 249, 250) -> rgb(52, 58, 64) recoloured=True -> PASS
+[t= 155574ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topoevents.png
+[t= 155576ms]   topoevents verdicts: [('M-TOPOLOGY-10', 'PASS'), ('M-TOPOLOGY-12', 'PASS'), ('M-TOPOLOGY-15', 'PASS'), ('M-TOPOLOGY-09', 'PASS')]
+[t= 155576ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f046_fix_8052.json
