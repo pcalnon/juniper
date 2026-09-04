@@ -79,6 +79,16 @@ Operator contract: [`docs/REFERENCE.md` § Snapshot Attribution Dataset Pin](../
 
 ---
 
+## Canopy E2E topology driver (operational)
+
+`e2e_seg17_topology_driver.py` scores Topology-tab matrix rows against a live isolated canopy (`JUNIPER_E2E_CANOPY_URL`, default `:8051`). `--step` names must be in the `STEPS` dict (exit `2` otherwise). On `main`, M-TOPOLOGY-06 is `label == want OR hidden count == want`, M-07 asserts container display only, and M-12 FAIL-scores an empty-space click that plotly never emits.
+
+Do not treat the module docstring's "NOT IMPLEMENTED" list as the registry — `topostate` and `topoexport` exist. Do not invent clicks with `gd.emit`.
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Driver](../../docs/REFERENCE.md#canopy-e2e-topology-driver).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.

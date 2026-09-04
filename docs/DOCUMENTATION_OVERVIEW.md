@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.20
+**Version:** 0.2.42
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -34,6 +34,7 @@
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
 | **Triage fleet PRs / sequence-safety**  | [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                                 | docs/    |
 | **Run the isolated E2E trio**           | [Isolated-stack E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md) + [REFERENCE — Isolated Stack](REFERENCE.md#isolated-stack-e2e-utilities) | notes/ + docs/ |
+| **Score canopy Topology-tab rows**      | [REFERENCE — Canopy E2E Topology Driver](REFERENCE.md#canopy-e2e-topology-driver) (`e2e_seg17_topology_driver.py`; `STEPS` is the authority; M-06/M-07/M-12 can PASS the easier half) | docs/ |
 | **Triage Cursor-fleet / predicted-merge PRs** | [REFERENCE — Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                            | docs/    |
 | **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) (incl. partial-`--up` → `teardown_run`) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
@@ -75,7 +76,7 @@
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
 | **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, and open-PR budget alarm |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, canopy E2E topology driver, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, and open-PR budget alarm |
 | **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, and experiment-stack tasks |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
@@ -119,6 +120,8 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md**                                  | Procedure   | Create an isolated git worktree for task work                                                    |
 | **JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md**                             | Procedure   | Merge/cleanup after a task (CWD-safe); includes batch stale-worktree sweep                       |
 | **JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md**                       | Checklist   | Dedicated data/cascor/canopy E2E trio via `util/isolated_stack.bash` (compose contract also in [REFERENCE](REFERENCE.md#isolated-stack-e2e-utilities)) |
+| **JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md**                        | Matrix      | Click-by-click row text; Topology-tab scorer contract in [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver) |
+| **JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md**                               | Ledger      | Canopy E2E findings; Topology-tab scorer in [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver) |
 | **JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md** | Plan   | Per-run experiment stack + driver (Waves 2.1–2.7); operator contract + partial-`--up` teardown in [REFERENCE](REFERENCE.md#experiment-stack-utilities) |
 | **JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md**                       | Findings    | Attribution floors + why the dataset instance must be pinned; operator surface in [REFERENCE](REFERENCE.md#snapshot-attribution-dataset-pin) |
 | **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
@@ -176,6 +179,6 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.2.20
+**Last Updated:** 2026-09-04
+**Version:** 0.2.42
 **Maintainer:** Paul Calnon
