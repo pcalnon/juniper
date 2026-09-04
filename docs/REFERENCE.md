@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.38
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -25,6 +25,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
+- [Snapshot Sidecar Chain](#snapshot-sidecar-chain)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
@@ -1436,6 +1437,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     no listener, so kill-by-port cannot be what fired), removes the target file, releases the lockdirs, writes `teardown.json`, and preserves `artifacts/`.
   Live `cascor_up` / `canopy_up` compose pins (`TestCascorUp` / `TestCanopyUp` — fake `conda.sh` + PATH stubs; juniper-ml#813). Wired into `ci.yml` beside the `test_juniper_{plant,chop}_all.py` launcher tests.
   - Live compose coverage for `data_up` (`TestDataUpLive`: venv create/skip, pip extras, `PYTHON_GIL=0`, pidfile, missing-`python3.14` abort — juniper-ml#807).
+- `tests/test_snapshot_index.py` -- Hermetic tests for `util/snapshot_index.py` (design §6.2). Pins bytes-attr decode, append-only rescan, `--limit` deferred-vs-present counting, D-C provenance filters, the query-time `dataset_id` join, and an AST read-only guard. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
+- `tests/test_snapshot_classify.py` -- Hermetic tests for `util/snapshot_classify.py` (handoff 2026-08-22 §2.4). Pins the two-axis category/health rule (attributed zero-node is category 5, not empty), `readable`-is-not-loadable, iterations-not-epochs, replace-not-append sidecar, `--write`/`--from-sidecar` refusals, and the train-stage scratch-root + unimplemented exits. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
+- `tests/test_snapshot_backfill.py` -- Hermetic tests for `util/snapshot_backfill.py` (handoff §3.4). Pins the four derivation levels, the `380/380` of `15927` trainability claim staying in `population`, never-invented run identity, both format-attribute spellings mapping to cohort B, and an AST read-only guard. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
 - `tests/test_snapshot_attribute.py` -- Hermetic tests for `util/snapshot_attribute.py` (handoff §3.2). Pins permutation-corrected scoring, the untrained floor as the null's **maximum** (not p95), the schema-v2 cross-dataset floor, `--write` refusals for `--sample`/`--min-hidden`, and an AST read-only guard.
   - `DatasetInstanceIsFixedTest` (juniper-ml#1333): a generator declaring `seed=None` is given `DATASET_SEED`; a declared seed (spiral) is kept; two calls with the same seed agree; a params class with **no** `seed` field is left untouched; `DATASET_SEED` is a constant, not a drifting default. Stand-ins — no cascor tree, no juniper-data tree, no archive. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
@@ -1687,6 +1691,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
+- `util/snapshot_index.py` -- Read-only archive index + query (design §6.2). `--scan` is append-only over `root/*.h5`; `--verify` opts into cascor's own verifier; `dataset_id` is a query-time join on `JUNIPER_EXP_RUN_ROOT`. No `--prune`. Tests: `tests/test_snapshot_index.py`. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
+- `util/snapshot_classify.py` -- Staged two-axis classifier over the index (handoff §2.4). `--stage load` uses cascor's loader; `--stage train` is unimplemented and refuses without a scratch `JUNIPER_CASCOR_SNAPSHOTS_DIR`; `--write` refuses `--sample`. Tests: `tests/test_snapshot_classify.py`. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
+- `util/snapshot_backfill.py` -- Consolidates index + classification + attribution into one labelled record (handoff §3.4). Population claims stay in their own bucket; run identity is never invented. Tests: `tests/test_snapshot_backfill.py`. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -2500,6 +2507,108 @@ The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `
 
 ---
 
+## Snapshot Sidecar Chain
+
+The shared cascor archive is queryable only through four derived sidecars. None of the tools write into a `.h5`, and none ship `--prune` — retention is design §6.4 and is gated on this chain existing ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md`](../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md) §6.2 / §6.4). Step 3 (attribution) has its own pin contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+
+| Step | Tool | Sidecar | What it records |
+|------|------|---------|-----------------|
+| 1 | `util/snapshot_index.py` | `snapshots_index.jsonl` (append-only) | Observations: path, tier, groups present, D-C provenance. Does **not** judge validity. |
+| 2 | `util/snapshot_classify.py` | `snapshots_classification.jsonl` (replace) | Two axes: `category` (must we reconstruct metadata?) and `health` (what can the artifact do?). |
+| 3 | `util/snapshot_attribute.py` | `snapshots_attribution.jsonl` | Dataset family, gated on the untrained-null max + cross-dataset floor. |
+| 4 | `util/snapshot_backfill.py` | `snapshots_backfill.jsonl` (replace) | One record per snapshot; every field labelled `observed` / `measured` / `inferred` / `population`. |
+
+Default `--root` is `$JUNIPER_CASCOR_SNAPSHOTS_DIR`, else `~/Development/python/Juniper/juniper-cascor/cascor-snapshots`. That env is also cascor's **write** directory. Pass `--root` explicitly for this chain; do not export the override (experiment `--up` redirects it to `$RUN_DIR/snapshots`). All four import `h5py` via `snapshot_index` — activate `JuniperCascor1` first.
+
+### Index (`util/snapshot_index.py`)
+
+`--scan` walks `root/*.h5` (`iterdir`, not a glob, not recursive) and appends records for files not already in the index. `--rebuild` and `--verify` apply **only with** `--scan` (`--rebuild` starts a fresh file; `--verify` imports cascor's own verifier rather than re-implementing `_validate_format_detail`).
+
+`--limit` on a scan caps **new** files. `already_present` and `deferred_by_limit` are counted separately so a capped first pass is not reported as "almost entirely indexed".
+
+`readable` means **h5py opened the file**, not that cascor can load it. `--unreadable` is the h5py-open failures only.
+
+`dataset_id` is **derived**, not stored. `--resolve-datasets` (implied by `--dataset-id`) joins `provenance.run_id` → `$JUNIPER_EXP_RUN_ROOT/<run_id>/manifest.json` (honours the env; default `~/.local/state/juniper-experiments`). The join is query-time so a mid-run scan cannot bake "no dataset" into the index.
+
+`--attributed` / `--unattributed` are mutually exclusive (exit 2). Missing root or missing index exits 2. Tiers: `cascor_snapshot_*` → `model`, `snapshot_*` → `service`, else `unknown`.
+
+### Classify (`util/snapshot_classify.py`)
+
+The owner's five categories are not a partition. The tool emits two axes and maps them in one place (`assign_category`):
+
+- `fails_to_load` overrides attribution (a broken file is never `fully_attributed`).
+- An attributed zero-node snapshot is category `fully_attributed` with `health=zero_node`. Ask health questions with `--health`, never `--category`.
+- Unattributed zero-node stays `undetermined` until the train stage (category 2 vs 3).
+
+| `--stage` | Cost | Resolves |
+|-----------|------|----------|
+| `index` (default) | ~1s | `loads_hidden_nodes` / `fully_attributed`; narrows the rest |
+| `load` | minutes over the archive; probe with `--sample` | `fails_to_load` via cascor's `load_network_result` |
+| `train` | not implemented (handoff item 3) | `fails_to_train` vs `formerly_broken` |
+
+`--stage train` always exits 2. It first refuses unless `JUNIPER_CASCOR_SNAPSHOTS_DIR` is set to a scratch dir that is **not** the real archive (`train_output_layer` calls `create_snapshot()` unconditionally), then states the stage is unimplemented.
+
+`--write` refuses `--sample` (would replace the sidecar with a partial). `--from-sidecar` cannot combine with `--stage` other than the default `index`, or with `--write`. `--from-sidecar` is how you query `fails_to_load` after a load pass — re-deriving from the index cannot produce that category.
+
+Default `--seed` is `20260822` and samples the **index**, not classified rows. `--verbose` lets cascor logging through and breaks `--json`. Load stage reads `$JUNIPER_CASCOR_SRC` (else `~/Development/python/Juniper/juniper-cascor/src`).
+
+`iterations_lower_bound` is `arch.num_hidden_units`. `meta.current_epoch` is inert and is never consulted; `snapshot_counter` is live but counts writes, not training progress.
+
+### Backfill (`util/snapshot_backfill.py`)
+
+Merges the three upstream sidecars. Missing classification / attribution is a **warning**, not a hard fail — those buckets stay empty.
+
+| Level | Kind |
+|-------|------|
+| `observed` | Read from the `.h5` / index (arch, created, uuid, groups, D-C provenance). |
+| `measured` | Obtained by running the artifact (load status, health, per-dataset scores, `iterations_lower_bound`). |
+| `inferred` | Judgement from measurements. Dataset attribution carries `confidence` / `meaning` / `evidence` / `caveat`. Never written as observed/measured. |
+| `population` | True of the **cohort**, not this file. Zero-node rows get `trainability=formerly_broken` from the hardcoded sample `380/380` of `15927` (`upper_bound_95=0.008`, `not_verified_here: true`). |
+
+Run identity is never invented: there are no surviving experiment run dirs before 2026-07-30. Absence stays `null`; `--explain` says `IDENTITY: UNRECOVERABLE`.
+
+Load-failure root causes come from [`JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_SNAPSHOT-CLASSIFICATION-STAGE-1-FINDINGS.md`](../notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_SNAPSHOT-CLASSIFICATION-STAGE-1-FINDINGS.md). Cohorts A and C are FIXED (juniper-cascor#560 / #559). Only B (truncated writes) still fails. Both `"Missing required attribute: format"` and `"Invalid format"` map to B so a pre-#575 sidecar still classifies.
+
+`--from-sidecar` reads the stored record (exit 2 if missing). `--explain NAME` matches a substring of `name` or an exact `path`.
+
+### Commands
+
+```bash
+ROOT=/home/pcalnon/Development/python/Juniper/juniper-cascor/cascor-snapshots
+python util/snapshot_index.py --scan --root "$ROOT"
+python util/snapshot_index.py --root "$ROOT" --stats
+python util/snapshot_index.py --root "$ROOT" --unattributed --limit 20
+python util/snapshot_index.py --root "$ROOT" --dataset-id <id>   # implies --resolve-datasets
+
+python util/snapshot_classify.py --root "$ROOT" --stats
+python util/snapshot_classify.py --root "$ROOT" --stage load --sample 300
+python util/snapshot_classify.py --root "$ROOT" --stage load --write
+python util/snapshot_classify.py --root "$ROOT" --from-sidecar --category fails_to_load
+
+python util/snapshot_backfill.py --root "$ROOT" --write
+python util/snapshot_backfill.py --root "$ROOT" --explain cascor_snapshot_
+python util/snapshot_backfill.py --root "$ROOT" --from-sidecar --derivation inferred --limit 20
+```
+
+### Operator pitfalls
+
+| Symptom | Check / fix |
+|---------|-------------|
+| `ERROR: h5py is required` | `conda activate JuniperCascor1` |
+| `no index … run --scan first` | Index is a prerequisite for classify / backfill |
+| Scan reported the archive as already indexed | `--limit` remainder is `deferred`, not `already_present` |
+| `--category fully_attributed` looks empty | First-match reading of the five labels. Use `--health`. |
+| `--category fails_to_load` is empty after `--write` | Re-derived from the index. Use `--from-sidecar`. |
+| `--write` exits 2 on classify | `--sample` with `--write` is refused |
+| `--stage train` exits 2 | Unimplemented. Unset / real-archive `JUNIPER_CASCOR_SNAPSHOTS_DIR` fails first. |
+| Sidecars land in a scratch dir | The env was redirected. Unset it; pass `--root`. |
+| Quoted `formerly_broken` on every zero-node file | That is a **population** claim (`380/380` sample). `--explain` shows `not_verified_here`. |
+| Invented `run_id` / `experiment` | The tool will not. Pre-2026-07-30 identity is gone. |
+
+Regression: `python3 -m unittest -v tests/test_snapshot_index.py tests/test_snapshot_classify.py tests/test_snapshot_backfill.py`.
+
+---
+
 ## Snapshot Attribution Dataset Pin
 
 `util/snapshot_attribute.py` infers which dataset a cascor snapshot was trained on (handoff §3.2). It scores every loadable snapshot against the six juniper-data 2-D classification generators, writes only a derived `snapshots_attribution.jsonl` sidecar, and never touches a `.h5`. An AST test forbids prune/delete paths.
@@ -2554,7 +2663,7 @@ diff A.json B.json      # must be empty after #1333; was non-empty before it
 
 ### Sidecar chain
 
-The four sidecars are strictly ordered: **index → classify → attribute → backfill**. Attribution reads the classification sidecar and covers only what it lists, so a stale classification silently caps coverage.
+The four sidecars are strictly ordered: **index → classify → attribute → backfill**. Operator contracts for index / classify / backfill: [Snapshot Sidecar Chain](#snapshot-sidecar-chain). Attribution reads the classification sidecar and covers only what it lists, so a stale classification silently caps coverage.
 
 Do **not** export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for this chain. That variable is both cascor's snapshot **write** directory and `snapshot_index.default_root()`. Probe scripts under `util/ad-hoc/` redirect them so they cannot grow the archive; the chain must not, or every stage will look for the archive in the scratch dir. Pass `--root` explicitly instead.
 
@@ -3001,6 +3110,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.38  | 2026-09-04 | Snapshot sidecar chain operator surface: index / classify / backfill commands, two-axis scheme, derivation levels, `--root` vs `JUNIPER_CASCOR_SNAPSHOTS_DIR` |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
@@ -3339,13 +3449,14 @@ These variables are consumed by Juniper packages documented in this repository. 
 Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
-Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
-See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
-`JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_attribute.py` imports when the fallbacks
+Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The sidecar chain must **not** — pass `--root` instead.
+See [Snapshot Sidecar Chain](#snapshot-sidecar-chain) and [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+`JUNIPER_CASCOR_SRC` / `JUNIPER_DATA_ROOT` override the trees `snapshot_classify.py` (load stage) and `snapshot_attribute.py` import when the fallbacks
 (`~/Development/python/Juniper/juniper-cascor/src` and `.../juniper-data`) are wrong.
+`JUNIPER_EXP_RUN_ROOT` is the query-time join root for `snapshot_index.py --resolve-datasets` / `--dataset-id`.
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.38
 **Maintainer:** Paul Calnon
