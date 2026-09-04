@@ -898,6 +898,13 @@ jobs:
           # current_epoch progress while the candidate pool trains, so those cells are recorded
           # `stalled` while healthy. Structural only; never resolves sibling-repo base_config.
           python3 -m unittest -v tests/test_experiment_suite_yamls.py
+          # tests/test_equities_symbol_cap_operator.py: the 14-symbol refuse lives in
+          # juniper-data; this pins the juniper-ml operator surface that can still
+          # silently defeat it. Suite cells with equities / equities_seq must carry a
+          # short symbols list or allow_truncation (max_symbols alone is not enough);
+          # cascor must not stage equities_seq; experiment_stack.bash data_up sets the
+          # cache dir and must not assign MAX_SYMBOLS / ALLOW_TRUNCATION. Hermetic.
+          python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
           # tests/test_check_conda_env_torch.py: hermetic P-5 torch._C shadow diagnostic
           # (util/check_conda_env_torch.bash exit 0/1/2/3/4) via JUNIPER_CONDA_DIR + stub python.
           # util/ is not pre-commit-lint-gated, so this unittest is the gate.

@@ -131,6 +131,7 @@ python3 -m unittest -v tests/test_snapshot_backfill.py
 python3 -m unittest -v tests/test_run_suite.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
+python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py
 python3 -m unittest -v tests/test_require_context_safely.py
 bash scripts/test_resume_file_safety.bash
