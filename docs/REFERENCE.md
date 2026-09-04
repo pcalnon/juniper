@@ -1338,6 +1338,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
+- `tests/test_cascor_freeze_tell.py` -- Hermetic gate for `util/ad-hoc/cascor_freeze_tell.py` (`util/` is outside every pre-commit Python hook): exact path-prefix holds (PRIMARY / PRIMARY/src) vs the substring false-freeze of `juniper-cascor-client` / `juniper-cascor-worker` and both worktree roots; unreadable cwd still scans cmdline; environ / fd / maps each independently catch a `/tmp` importer; `main()` exits 1 iff any hold (fake `/proc` only; never reads the host process table)
 - `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
 - `tests/test_editable_install_drift_check.py` -- Tests for `util/editable_install_drift_check.py`: FRESH / WORKTREE_PINNED / ORPHANED classification, `*-DEPRECATED` env exclusion, `--env` filtering, dedup across interpreter trees, CLI exit codes (0/1/2), JSON output, and `--fix --dry-run` canonical-source resolution (synthetic conda-dir fixture; no real pip)
@@ -1799,6 +1800,7 @@ juniper-ml/
 │   ├── test_cleanup_session_worktrees.py # Session .claude/worktrees cleaner (merged-PR fail-closed + dry-run)
 │   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
 │   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
+│   ├── test_cascor_freeze_tell.py        # Cascor-primary freeze tell: exact prefix vs sibling/worktree false-freeze; fake /proc
 │   ├── test_check_conda_env_torch.py     # Hermetic P-5 torch._C shadow diagnostic exit matrix (0/1/2/3/4)
 │   ├── test_requirements_drift_check.py  # Requirements snapshot drift checker tests
 │   ├── test_editable_install_drift_check.py # Editable-install drift checker tests (orphaned / worktree-pinned)

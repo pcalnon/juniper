@@ -254,6 +254,13 @@ jobs:
           # util/kill_all_pythons.bash and util/juniper_worker_kill.bash (PATH-stubbed
           # ps/sudo/kill; bash kill builtin disabled). util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_kill_helpers.py
+          # tests/test_cascor_freeze_tell.py: hermetic gate for
+          # util/ad-hoc/cascor_freeze_tell.py. The handoff tell was unsound in both
+          # directions: `"juniper-cascor" in cwd` false-freezes client/worker and
+          # worktrees; cwd-only misses a /tmp importer via the editable finder.
+          # Fake /proc only -- never reads the host process table. util/ is not
+          # pre-commit-lint-gated.
+          python3 -m unittest -v tests/test_cascor_freeze_tell.py
           # tests/test_duplicati_scheduled_backup.py: fail-closed guards for the
           # systemd --user scheduled-backup lane (empty/short PASSPHRASE, unmounted
           # dest, wrong-filesystem dest, tmpfs tempdir, skip-or-fail stale

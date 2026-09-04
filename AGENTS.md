@@ -74,6 +74,7 @@ python3 -m unittest -v tests/test_worktree_sweep_scripts.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
 python3 -m unittest -v tests/test_kill_helpers.py
+python3 -m unittest -v tests/test_cascor_freeze_tell.py
 python3 -m unittest -v tests/test_check_conda_env_torch.py
 python3 -m unittest -v tests/test_duplicati_restore_integrity.py
 python3 -m unittest -v tests/test_requirements_drift_check.py
