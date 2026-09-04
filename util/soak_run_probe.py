@@ -107,6 +107,26 @@ LEDGER_TOOL = ROOT / "util" / "soak_ledger.py"
 RUNS = ROOT / "reports" / "soak" / "runs"
 DEFAULT_TIMEOUT = 900
 
+# The unattended timer consults these before spending a session. A miss
+# (treating a real terminal verdict as open) spends sessions that cannot
+# change the conclusion. A false hit (treating IN-PROGRESS as terminal)
+# blocks per-probe characterisation -- the exact refusal that fired on
+# 2026-09-04 once the pooled verdict reached BET-FAILING.
+TERMINAL_VERDICT_PREFIXES = ("BET-FAILING", "HOLDS-AT-")
+
+
+def terminal_verdict(status_stdout: str) -> str | None:
+    """Return the first status token if it is a terminal soak verdict.
+
+    ``soak_ledger.py status`` prints the verdict as the first whitespace-
+    separated token. Only that token is the verdict -- a later mention of
+    ``BET-FAILING`` in the rest of the line must not trip the guard.
+    """
+    verdict = (status_stdout.split() or [""])[0]
+    if any(verdict.startswith(prefix) for prefix in TERMINAL_VERDICT_PREFIXES):
+        return verdict
+    return None
+
 
 def resolve_claude() -> str:
     """Absolute path to the `claude` binary, or exit 2 saying so.
@@ -258,10 +278,9 @@ def main() -> int:
     # including after the soak has already reached a terminal answer, which is
     # spend that cannot change a conclusion. Adversarial review raised this as a
     # blocking gap in the unattended (systemd) path specifically.
-    terminal = ("BET-FAILING", "HOLDS-AT-")
     st = _py(str(LEDGER_TOOL), "status")
-    verdict = (st.stdout.split() or [""])[0]
-    if any(verdict.startswith(t) for t in terminal) and not args.force:
+    verdict = terminal_verdict(st.stdout)
+    if verdict and not args.force:
         print(f"REFUSING: soak verdict is {verdict} -- terminal. Further runs cannot "
               f"change it and each one spends a session.\nPass --force to override "
               f"(e.g. to re-baseline after a deliberate intervention).", file=sys.stderr)

@@ -599,6 +599,14 @@ jobs:
           # never reported as a scored miss: no pointer hit is consistent with a
           # correct source-recovered answer as well as a wrong one.
           python3 -m unittest -v tests/test_soak_run_probe.py
+          # tests/test_soak_run_probe_terminal.py: complementary gate for the
+          # BET-FAILING / HOLDS-AT- stopping rule in soak_run_probe.py -- the
+          # unattended-timer spend guard. Existing dry-run tests never inject a
+          # terminal verdict, so a prefix-match regression (too narrow → spend
+          # after a hold; too wide → block IN-PROGRESS; whole-line search →
+          # refuse a note that merely names BET-FAILING) stays green. Hermetic:
+          # _py is patched; the live ledger is never read.
+          python3 -m unittest -v tests/test_soak_run_probe_terminal.py
           # The probe registry is the seeded arm's denominator. A dangling pointer
           # silently invalidates a probe, so verify it in CI rather than on trust.
           python3 util/soak_ledger.py verify-probes
