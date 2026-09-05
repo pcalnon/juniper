@@ -1369,6 +1369,102 @@ dirty-check stays live as a time-of-check/time-of-use guard.
 
 ---
 
+## Worktree Procedures Reference
+
+Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
+
+> **OPERATING INSTRUCTION**: All feature, bugfix, and task work SHOULD use git worktrees for isolation. Worktrees keep the main working directory on the default branch while task work proceeds in a separate checkout.
+
+### What This Is
+
+Git worktrees allow multiple branches of a repository to be checked out simultaneously in separate directories. For the Juniper ecosystem, all worktrees are centralized in **`/home/pcalnon/Development/python/Juniper/worktrees/`** using a standardized naming convention.
+
+The full setup and cleanup procedures are defined in:
+
+- **`notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md`** -- Creating a worktree for a new task
+- **`notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md`** -- Merging, removing, and pushing after task completion (V2 -- fixes CWD-trap bug)
+
+Read the appropriate file when starting or completing a task.
+
+### Worktree Directory Naming
+
+Format: `<repo-name>--<branch-name>--<YYYYMMDD-HHMM>--<short-hash>`
+
+Example: `juniper-ml--chore--update-deps--20260225-1430--519bda91`
+
+- Slashes in branch names are replaced with `--`
+- All worktrees reside in `/home/pcalnon/Development/python/Juniper/worktrees/`
+
+### When to Use Worktrees
+
+| Scenario                                    | Use Worktree? |
+| ------------------------------------------- | ------------- |
+| Feature development (new feature branch)    | **Yes**       |
+| Bug fix requiring a dedicated branch        | **Yes**       |
+| Quick single-file documentation fix on main | No            |
+| Exploratory work that may be discarded      | **Yes**       |
+| Hotfix requiring immediate merge            | **Yes**       |
+
+### Quick Reference
+
+**Setup** (full procedure in `notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md`):
+
+```bash
+cd /home/pcalnon/Development/python/Juniper/juniper-ml
+git fetch origin && git checkout main && git pull origin main
+BRANCH_NAME="chore/my-task"
+git branch "$BRANCH_NAME" main
+REPO_NAME=$(basename "$(pwd)")
+SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's|/|--|g')
+WORKTREE_DIR="/home/pcalnon/Development/python/Juniper/worktrees/${REPO_NAME}--${SAFE_BRANCH}--$(date +%Y%m%d-%H%M)--$(git rev-parse --short=8 HEAD)"
+git worktree add "$WORKTREE_DIR" "$BRANCH_NAME"
+cd "$WORKTREE_DIR"
+```
+
+**Cleanup** (full procedure in `notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md`):
+
+```bash
+# Phase 1: Push current work
+cd "$OLD_WORKTREE_DIR" && git push origin "$OLD_BRANCH"
+# Phase 2: Create new worktree BEFORE removing old (prevents CWD-trap)
+git fetch origin
+git worktree add "$NEW_WORKTREE_DIR" -b "$NEW_BRANCH" origin/main
+cd "$NEW_WORKTREE_DIR"
+# Phase 3: Create PR (do NOT merge directly to main)
+gh pr create --base main --head "$OLD_BRANCH" --title "<title>" --body "<body>"
+# Phase 4: Cleanup
+git worktree remove "$OLD_WORKTREE_DIR"
+git branch -d "$OLD_BRANCH"
+git worktree prune
+# Phase 6: Sync to latest main (Case A — still in the continuity worktree): sync in place
+git fetch --all && git pull --ff-only origin main
+# Case B (terminal — no session worktrees left): git fetch --all && git checkout main && git pull --ff-only origin main
+# Phase 7 (always, after every merged-PR cleanup): restore the PRIMARY checkout to up-to-date main
+# (skip if its tree is dirty — F-6 stale-checkout guard)
+cd <path-to-repo-root> && git checkout main && git pull --ff-only origin main
+```
+
+**Automated cleanup** (via script):
+
+```bash
+util/worktree_cleanup.bash \
+  --old-worktree "$OLD_WORKTREE_DIR" \
+  --old-branch "$OLD_BRANCH" \
+  --parent-branch main
+```
+
+### Rules
+
+- **Centralized location**: All worktrees go in `/home/pcalnon/Development/python/Juniper/worktrees/`. Never create worktrees inside the repo directory.
+- **Clean before you start**: Ensure the main working directory is clean before creating a worktree.
+- **Push before you merge**: Always push the working branch to remote before merging (backup).
+- **Prune after cleanup**: Run `git worktree prune` after removing a worktree to clean metadata.
+- **Do not leave stale worktrees**: Clean up worktrees promptly after merging.
+
+---
+
+---
+
 ## Memory File Size Budget
 
 P2 of the [shared-session-memory plan](../notes/JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md).
