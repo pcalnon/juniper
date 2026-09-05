@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.59
 **Status:** Active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -27,6 +27,7 @@
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [X7 Off-Loop Census](#x7-off-loop-census)
+- [Requirements Snapshot Consolidation](#requirements-snapshot-consolidation)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1341,6 +1342,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch)
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
+- `tests/test_requirements_consolidate.py` -- Live-tree gate for `util/requirements_consolidate.py` (v5 refresh). Pins byte-identical `render(parse(x))` on every shipped view, `--check-roundtrip` / `--check-views` agreement, Detail survival (ledger has no `detail`), derived-family projection of `by-area`, unique IDs, the official 11-entry `rec` block, incoming-only exact/fuzzy dedup, and `load_incoming` refusals. `util/` is outside every pre-commit Python hook, so this unittest is the gate.
 - `tests/test_editable_install_drift_check.py` -- Tests for `util/editable_install_drift_check.py`: FRESH / WORKTREE_PINNED / ORPHANED classification, `*-DEPRECATED` env exclusion, `--env` filtering, dedup across interpreter trees, CLI exit codes (0/1/2), JSON output, and `--fix --dry-run` canonical-source resolution (synthetic conda-dir fixture; no real pip)
   - `VersionDriftTest` (version axis): static + dynamic version resolution (setuptools `attr` flat and `src/` layouts, hatch `path`), MATCH/STALE classification, orthogonality (a WORKTREE_PINNED install still gets a version verdict), STALE soft by default / hard under `--strict-version` with `--strict` unaffected, the summary+JSON version fields, and `--fix-stale` repairing in place (`drift: "stale-metadata"`, canonical == the recorded path) while ORPHANED repair still resolves canonically
   - Honesty pins in the same class: an undeclared `_version.py` is **never** guessed at (unrecognized backend → UNKNOWN, so no `STALE` can be manufactured from the wrong file), and an ORPHANED target is UNKNOWN rather than a fabricated comparison
@@ -1481,6 +1483,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
+- `util/requirements_consolidate.py` -- v5 refresh tool for `notes/requirements/`. **`by-area/*.md` is the corpus of record**; the ledger has no `detail` field, so regenerating views from `id_assignments.yaml` would silently delete the ~910 Detail sections that exist only in the views.
+  - `--check-roundtrip` is by-area only; `--check-views` asserts `by-repo` / `by-status` are the projection of `by-area`. `--merge` / `--regenerate-views` write nothing without `--apply`. Operator surface: [Requirements Snapshot Consolidation](#requirements-snapshot-consolidation). Tests: `tests/test_requirements_consolidate.py`.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
 - `util/editable_install_drift_check.py` -- Drift checker for juniper editable installs in the conda environments. Reads each env's `*.dist-info/direct_url.json` directly (robust to broken envs); classifies every `juniper-*` editable as `FRESH` / `WORKTREE_PINNED` (under a `worktrees` path) / `ORPHANED` (missing). `*-DEPRECATED` skipped by default; exit 1 on ORPHANED; `--json`; `--fix` re-points orphans to their canonical repo (`--dry-run` previews).
@@ -1803,6 +1807,7 @@ juniper-ml/
 │   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
 │   ├── test_check_conda_env_torch.py     # Hermetic P-5 torch._C shadow diagnostic exit matrix (0/1/2/3/4)
 │   ├── test_requirements_drift_check.py  # Requirements snapshot drift checker tests
+│   ├── test_requirements_consolidate.py  # Live-tree gate: util/requirements_consolidate.py v5 refresh (round-trip + derived-view projection + incoming-only dedup)
 │   ├── test_editable_install_drift_check.py # Editable-install drift checker tests (orphaned / worktree-pinned)
 │   ├── test_env_floor_drift_check.py     # Lint/behavioural: util/env_floor_drift_check.py floor-drift (I-2; synthetic dist-info)
 │   ├── test_prompt_discovery.py          # Behavioural: util/prompt_discovery/ grounding-bundle (schema + provenance + cold/empty)
@@ -1866,6 +1871,7 @@ juniper-ml/
     ├── open_signed_pr.py                 # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
     ├── wait_for_checks.py                # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
     ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
+    ├── requirements_consolidate.py       # v5 refresh: by-area is corpus of record; --check-roundtrip / --check-views / --merge / --regenerate-views (default dry-run)
     ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
     ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
     ├── release_train/                    # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
@@ -2695,6 +2701,98 @@ Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § X7 off-
 
 ---
 
+## Requirements Snapshot Consolidation
+
+`util/requirements_consolidate.py` is the v5 refresh tool for [`notes/requirements/`](../notes/requirements/). It exists because the v1–v4 consolidator (`phase4_consolidate.py`) was authored in `/tmp/` and is irrecoverable — the incident that produced the ecosystem-wide [Script placement](../AGENTS.md#script-placement-mandatory) rule.
+
+**`by-area/*.md` is the corpus of record, not the ledger.** `id_assignments.yaml` has no `detail` field. Regenerating views from the ledger would silently delete the ~910 Detail sections that exist only in the views (plus `**Design**:` blocks and `*Merged from N extraction candidates (slices: X).*` provenance lines whose `slices` value lives nowhere else).
+
+This is **not** `util/requirements_drift_check.py` (citation path / line-range integrity). Run both: consolidate owns corpus shape; the drift checker owns whether cited sources still resolve.
+
+Design / procedure: [`JUNIPER_2026-05-11_JUNIPER-ECOSYSTEM_REQUIREMENTS-IDENTIFICATION-PLAN.md`](../notes/JUNIPER_2026-05-11_JUNIPER-ECOSYSTEM_REQUIREMENTS-IDENTIFICATION-PLAN.md) §11 v5-1 / v5-2, [`JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md`](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md) §8.
+Cross-view measurement: [`JUNIPER_2026-08-26_JUNIPER-ECOSYSTEM_REQUIREMENTS-CROSS-VIEW-MEASUREMENT.md`](../notes/JUNIPER_2026-08-26_JUNIPER-ECOSYSTEM_REQUIREMENTS-CROSS-VIEW-MEASUREMENT.md). Schema: [`notes/requirements/README.md`](../notes/requirements/README.md).
+
+### Intent
+
+Refresh the snapshot without losing view-only content, and without letting `by-repo` / `by-status` drift as independently-maintained copies. v5 shipped **1,814** entries (the v4 1,803 plus the official 11-entry `rec` / `juniper-recurrence` block).
+
+### What is canonical
+
+| Artifact | Role |
+|----------|------|
+| `notes/requirements/by-area/*.md` (15 locked area codes) | Corpus of record. Parse here. |
+| `notes/requirements/id_assignments.yaml` | Derived ledger: ID order + `merged_count`. Briefs are truncated — never grep it for content. |
+| `notes/requirements/by-repo/*.md` / `by-status/*.md` | Projection of `by-area` (ml#1415). One writer: `regenerate_views`. |
+
+The three families used to be maintained as full copies. Measured 2026-08-29 they differed on **zero IDs and zero metadata** — 52 / 149 "content" diffs were trailing punctuation and a blank line after `**Sources**:`. Independent writers were the source of the drift, not the protection against it.
+
+Entry bodies are re-emitted **verbatim**. Modelling every optional section as a field is the wrong shape: each omitted field was a silent corpus-wide deletion that only `--check-roundtrip` caught.
+
+### How to run
+
+Default is a dry run. `--apply` is required to write. `--dry-run` is accepted for symmetry.
+
+```bash
+# Safety first — by-area only. Exit 0 clean / 1 mismatch.
+python3 util/requirements_consolidate.py --check-roundtrip
+
+# Derived families must match the projection of by-area. Exit 0 / 1.
+python3 util/requirements_consolidate.py --check-views
+
+# Preview a merge (writes nothing).
+python3 util/requirements_consolidate.py --merge notes/requirements/v5_rec_extraction.yaml
+
+# Append new IDs, then project by-repo / by-status.
+python3 util/requirements_consolidate.py --merge notes/requirements/v5_rec_extraction.yaml --apply
+
+# Rewrite derived families from by-area (refuses if round-trip is already broken).
+python3 util/requirements_consolidate.py --regenerate-views
+python3 util/requirements_consolidate.py --regenerate-views --apply
+```
+
+`--req-root` overrides `notes/requirements` (tests). No flags prints `corpus: N entries` and exits 0 without writing.
+
+### Merge contract
+
+Dedup applies to **incoming** entries only. The v2–v4 quality passes (ARCH re-bucket, fuzzy cross-repo, cross-round, thin-brief repair) already ran on the shipped corpus; re-running them would churn 1,814 entries.
+
+| Rule | Behaviour |
+|------|-----------|
+| Bucket | `(owner, category)` — same brief in a different area is a different requirement |
+| Exact | Normalized brief match folds `merged_count` into the survivor (`DEDUP exact`) |
+| Fuzzy | v3-1 overlap coefficient ≥ 0.65 (`DEDUP fuzzy`) |
+| Mint | `JR-<OWNER>-<AREA>-<NNN>` via `max(used)+1`, zero-padded to 3 |
+| Reused ID | `ValueError` — IDs are permanent and never reused |
+| Incoming schema | `owner` / `category` / `status` / `priority` / `brief` required; unknown enum refused |
+
+`write_all` is **append-only on `by-area`**: only files that receive a new entry are rewritten, from their own parsed entries plus the addition. The ledger is appended as raw YAML (a full `safe_dump` would re-quote ~1,100 truncated briefs). `by-repo` / `by-status` are projected **after** the post-write round-trip succeeds.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Check clean, dry-run, `--apply` with nothing new, or regenerate listed the files it wrote / would write |
+| 1 | `--check-roundtrip` / `--check-views` mismatch, or `--regenerate-views` refused because `by-area` does not round-trip |
+| 2 | Post-`--apply` round-trip or derived-view check failed — the tree is inconsistent; do not ship |
+
+Malformed incoming YAML raises `ValueError` (unknown owner / category / status / priority, missing field, reused ID).
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Regenerated views from the ledger; Detail vanished | Expected. Restore from git. Parse `by-area`, never `id_assignments.yaml`. |
+| `--check-roundtrip` green, `--check-views` red | Round-trip never reads `by-repo` / `by-status`. Run both. `--regenerate-views --apply` after round-trip is green. |
+| `--merge` "succeeded" but nothing changed | Default is dry-run. Pass `--apply`. `--apply` with zero new IDs also writes nothing. |
+| Absolute source paths point at `.claude/worktrees/…` | `ECOSYSTEM_ROOT` walks parents for sibling `juniper-ml` + `juniper-cascor`. A worktree checkout makes `REPO_ROOT.parent` the worktrees dir; parse and render share the constant, so round-trip cannot see the corruption. |
+| Orphan `by-status/foo.md` after a status emptied | `--check-views` reports `ORPHAN` and does **not** delete. Decide deliberately. |
+| New area code / owner | The 15 area codes and 9 owner shortcodes are locked. A new code is a schema change, not a refresh. |
+| Grepped `id_assignments.yaml` for a brief | Briefs there are truncated. Read `by-area/<CODE>.md`. |
+
+Regression: `python3 -m unittest -v tests/test_requirements_consolidate.py` (23 tests; live tree, not a fixture — a renderer that drops one optional section fails against the shipped files).
+
+---
+
 ## Shared-Package CI Workflows
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest/coverage/wheel smoke.
@@ -3104,6 +3202,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.59  | 2026-09-05 | Requirements snapshot consolidation: `by-area` is the corpus of record (ledger has no `detail`); `--check-roundtrip` is by-area only; `--check-views` owns the derived projection; `--apply` required to write |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |

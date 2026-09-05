@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
-**Date**: 2026-09-04
+**Version**: 1.0.71
+**Date**: 2026-09-05
 **Project**: juniper-ml
 
 ---
@@ -48,6 +48,9 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
+| `python3 util/requirements_consolidate.py --check-roundtrip` | Requirements corpus gate (`by-area` only; exit 0/1) |
+| `python3 util/requirements_consolidate.py --check-views` | Derived `by-repo` / `by-status` must match the `by-area` projection |
+| `python3 util/requirements_consolidate.py --merge PATH.yaml` | Preview a v5 refresh (default dry-run; add `--apply` to write) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -583,6 +586,8 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
 
+Tip: never regenerate `notes/requirements/` views from `id_assignments.yaml` — the ledger has no `detail`. Run `python3 util/requirements_consolidate.py --check-roundtrip` then `--check-views` before `--merge … --apply`. `--check-roundtrip` is by-area only. Default is dry-run. Distinct from `requirements_drift_check.py`. Full contract: [REFERENCE — Requirements Snapshot Consolidation](REFERENCE.md#requirements-snapshot-consolidation).
+
 
 ### Host Stack Troubleshooting
 
@@ -657,6 +662,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | X7 census / gate count dropped but a twin still blocks | Module-global expression exemption — must be site-local. See [REFERENCE](REFERENCE.md#x7-off-loop-census). |
 | `ruff --select ASYNC` green on canopy `backend.*` | Expected. Opaque calls are invisible; trust the slice-1a gate, not ruff. |
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
+| `--check-roundtrip` green, views still drift | Round-trip never reads `by-repo` / `by-status`. Run `--check-views`. |
+| `--merge` printed a report but wrote nothing | Default is dry-run. Pass `--apply`. |
+| Regenerated requirements from the ledger; Detail gone | Restore from git. `by-area` is the corpus of record. See [REFERENCE](REFERENCE.md#requirements-snapshot-consolidation). |
+| Requirements source paths point at `.claude/worktrees` | `ECOSYSTEM_ROOT` missed the sibling repos. Do not treat a green round-trip as proof the paths are right. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
@@ -723,12 +732,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Requirements Snapshot Consolidation](REFERENCE.md#requirements-snapshot-consolidation) -- `by-area` is the corpus of record; ledger has no `detail`; `--check-roundtrip` is by-area only
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Last Updated:** 2026-09-05
+**Version:** 1.0.71
 **Maintainer:** Paul Calnon
