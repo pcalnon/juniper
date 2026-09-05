@@ -172,6 +172,7 @@ python3 -m unittest -v tests/test_worktree_inuse_probe.py
 python3 -m unittest -v tests/test_e2e_finding_triage.py
 python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
 python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
+python3 -m unittest -v tests/test_markdown_structure_delta.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.
