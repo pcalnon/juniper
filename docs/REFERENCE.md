@@ -34,6 +34,7 @@
 - [PF Scenario Suites](#pf-scenario-suites)
 - [Perf-Lane Work Gate](#perf-lane-work-gate)
 - [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines)
+- [Perf-Lane Split Comparator](#perf-lane-split-comparator)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [P4 Campaign Suites](#p4-campaign-suites)
 - [X7 Off-Loop Census](#x7-off-loop-census)
@@ -2172,6 +2173,10 @@ Review catch on [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/161
   csv_import operator surface (APD-DATA-018, the half that lives in this repo): `create_dataset` 422 is `ConfigError` / exit 2 on both the recurrence and cascor paths (create runs *before* staging; a 500 stays `RunFailed`); csv_import is registered-available on the stub but not in `STAGEABLE_GENERATOR_ALIASES`, so a successful create still cannot stage (the arc_agi-only unstageable arm is a false green if csv_import is added to the alias map).
 - `tests/test_read_run_metrics.py` -- Hermetic tests for `util/experiments/read_run_metrics.py` (P2 item 0.4): last-row `step_count`, scrape tri-state (`None` is not `False`), `work_invariant` negative control. juniper-ml#1613 adds `WorkloadFingerprintTest` (cosmetic `description`/`name` ignored, `seed` is not, missing YAML is `None` not a shared identity, `single_workload` false when identities are unknown). `util/` is outside pre-commit Python hooks, so this unittest is the gate.
 - `tests/test_make_baseline.py` -- Hermetic tests for `util/experiments/make_baseline.py` (P2 item 1.1): no `--force`, refuse broken work invariant / failed / unmeasured / `validation_warnings` (override recorded), `HOST.json` python-mismatch caveat. juniper-ml#1613 adds mixed-workload refusal + fingerprint recording. Operator surface: [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines).
+- `tests/test_compare_baseline.py` -- Hermetic gate for `util/experiments/compare_baseline.py` (P2 item 1.2, ships in juniper-ml#1622).
+  Pins the three outcomes staying distinct: PASS/FAIL on the exactly-compared work half (**exit 1**, not merely non-zero), REFUSED on identity or host mismatch (exit 2), WAIVED never collapsing into PASS.
+  Also pins that SPEED cannot fail the gate at any magnitude (a 10× slowdown with matching work still PASSes), that a one-step `step_count` difference is enough, that a waiver cannot override a refusal, that a whitespace-only `--accept-work-change` is not a reason, and that the renderer does not claim a waiver that had no effect.
+  `util/` is outside pre-commit Python hooks, so this unittest **is** the gate. Operator surface: [Perf-Lane Split Comparator](#perf-lane-split-comparator).
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`: `load_suite` plus oversize-stall / wall-pin / timeout-ordering. Operator surface: [P4 Campaign Suites](#p4-campaign-suites).
@@ -2662,6 +2667,7 @@ juniper-ml/
 │   ├── test_run_experiment.py              # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, csv_import 422/unstageable, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_read_run_metrics.py            # Hermetic: util/experiments/read_run_metrics.py last-row step_count, scrape tri-state, work_invariant; #1613 workload_fingerprint (cosmetic vs seed, None ≠ shared identity)
 │   ├── test_make_baseline.py               # Hermetic: util/experiments/make_baseline.py Q-8 writer refusals (no --force, work invariant, warnings recorded); #1613 mixed-workload refuse + fingerprint
+│   ├── test_compare_baseline.py            # Hermetic: util/experiments/compare_baseline.py split comparator (P2 1.2) — exit 0/1/2 distinct, speed cannot fail, waiver cannot mask REFUSED (#1622)
 │   ├── test_experiment_config_schemas.py   # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
 │   ├── test_experiment_suite_yamls.py      # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget + per_run_timeout > wall (pf5 was 900/900); PF instruments: § PF Scenario Suites
 │   ├── test_p5_fleet_state.py              # Behavioral: util/ad-hoc/2026-08-26_p5_fleet_state.py census (invocation --advisory, 404-only-None, CHAR vs BYTE, exact Memory Budget required match; hermetic)
@@ -3726,6 +3732,96 @@ Default Prometheus URL: `JUNIPER_EXP_PROMETHEUS_URL` = `http://127.0.0.1:9090`.
 | Editing a suite key (or adding `execution.grafana_bridge`) to turn scraping on | That changes `config_sha256`. Use `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
 
 Coverage: `tests/test_experiment_suite_yamls.py` (R-6 load + oversize stall + wide-cap wall + timeout-above-budget). Driver scrape split: `tests/test_run_experiment.py`. Suite expansion / Grafana env: `tests/test_run_suite.py`.
+After a cascor suite finishes, compare it to a named Q-8 baseline with [`util/experiments/compare_baseline.py`](#perf-lane-split-comparator) — identity first, work exact, speed reported.
+
+---
+
+## Perf-Lane Split Comparator
+
+`util/experiments/compare_baseline.py` is the perf-lane **split comparator** (P2 item 1.2). It implements the rule decided in item 1.5 and written up in [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) §2.2: **identity is checked first**, then work is compared exactly, and speed is reported and never gated.
+
+The CLI ships in [juniper-ml#1622](https://github.com/pcalnon/juniper-ml/pull/1622). It reads a baseline cut by `util/experiments/make_baseline.py` that records `workload_fingerprint` per scenario ([juniper-ml#1613](https://github.com/pcalnon/juniper-ml/pull/1613), on `main`). Prefer merging this docs PR **after** #1622 so the path exists. Concurrent docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) described the comparator as unshipped — **this section supersedes that sentence**.
+
+Whether the run tier ever becomes a required CI check remains open (P1 design §6). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites.
+
+### Two halves
+
+| Half | Field | Contract |
+|------|-------|----------|
+| **WORK** | `step_count` (last sampled histogram count) | Compared **exactly**. Deterministic for a seed-fixed config and contention-immune (identical across 21 cells spanning a 3× step-duration range), so a change is a statement about the **code**. A one-step difference is enough; there is no tolerance to tune. |
+| **SPEED** | mean step duration (`step_sum` / `step_count`) | **Reported, never gated.** The host's own drift floor is 13–20.5%, larger than six competing CPU-bound processes. A speed threshold here would fire on an idle machine. A 10× slowdown with matching work still **PASS**es (`speed.gated` is always `false`). |
+
+Do not gate on `aggregate.csv`'s `wall_seconds` or `manifest.json`'s `timings.drive`. Both are de-ratified (plot/stack overhead, and 5 s poll quantization). The resolving instrument is the cascor step-duration histogram in `$RUN_DIR/artifacts/results/metrics_series.csv`. Recurrence has no equivalent timing surface yet (P2 item 3.1).
+
+### Identity first
+
+A `step_count` difference only means "the code moved" when both sides ran the **same workload**. Collapsing a config edit into a work FAIL is how a gate earns a reputation for lying and gets switched off while still green.
+
+| Condition | Verdict | Exit | What it is |
+|-----------|---------|------|------------|
+| Fingerprint missing from the baseline, candidate mixed/unknown, candidate `work_invariant` broken, or host identity differs | **REFUSED** | `2` | Invalid comparison, not a regression |
+| Same workload, `step_count` differs, no waiver | **FAIL** | `1` | Work regression — the gate firing correctly |
+| Same workload, `step_count` matches | **PASS** | `0` | Speed is printed; it cannot fail the gate |
+| Same workload, `step_count` differs, `--accept-work-change REASON` | **WAIVED** | `0` | Blesses a **work** change. Never PASS. Never overrides a refusal. |
+
+`registry.jsonl`'s `config_sha256` **cannot** serve as identity: it hashes `experiment.description`, so PF-1's five repeats are five hashes. `workload_fingerprint` strips `experiment.description` / `name` and keeps `seed` and `training.params.*`.
+
+Measured on the real artifacts (the case the design exists for):
+
+- Recalibrated PF-1 vs its own baseline → **PASS** (`1770 == 1770`, exit `0`).
+- Pre-cascor#618 PF-1 vs that baseline → **REFUSED** (workload `d09edcc1…` not in baseline `52184ba2…`, exit `2`). Without the precondition the gate would have reported a **127% WORK REGRESSION** (4012 vs 1770) for a different config.
+
+### CLI
+
+Path-invoked. `--suite` is repeatable. Default `--run-root` is `~/.local/state/juniper-experiments` (same as `make_baseline.DEFAULT_RUN_ROOT`). Baseline files are `<run-root>/baselines/<tag>/baseline.json` and `HOST.json`.
+
+```bash
+python util/experiments/compare_baseline.py --baseline pf1-2026-09-03 --suite SUITE_DIR
+python util/experiments/compare_baseline.py --baseline t --suite S --json
+python util/experiments/compare_baseline.py --baseline t --suite S \
+  --accept-work-change "cascor#618 raised the epoch budget"
+```
+
+`--json` emits the typed verdict (parseable; `verdict` is `PASS` / `FAIL` / `WAIVED` / `REFUSED`). Missing tag, unreadable `baseline.json`, or a whitespace-only waiver reason → exit `2` on stderr, no comparison.
+
+`--suite` is repeatable. On #1622, **any** leftover refusal reason wins the whole verdict — a sibling identity miss collapses a real work FAIL to exit `2`, which callers treat as "not a code problem". [juniper-ml#1626](https://github.com/pcalnon/juniper-ml/pull/1626) changes that: FAIL wins over a sibling refusal unless the host is blocked (host mismatch still REFUSES even when work also moved). Until #1626 lands, compare one suite at a time if you need FAIL to stay visible.
+
+An empty candidate (no `registry.jsonl` / no cells) is REFUSED, not a vacuous PASS. A config edit that keeps `step_count` identical is still REFUSED (identity), not PASS — the silent-green complement of the 4012-vs-1770 case.
+
+Cut the baseline first with `python util/experiments/make_baseline.py --tag <tag> --suite SUITE_DIR` (operator-invoked; no `--force`; tags supersede **by name**). Full reader/baseline contract: docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) and [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) §4.
+
+### Host split
+
+`compare_host` splits `HOST.json` differences:
+
+| Class | Fields | Effect |
+|-------|--------|--------|
+| **Blocking** (P1 §2: "same hardware, same thread budget") | `cpu_model`, `cpu_count`, `thread_budget` | Any mismatch → **REFUSED** |
+| **Advisory** | `versions.torch`, `versions.numpy`, `versions.python_runs` | Reported; **PASS** still allowed. Refusing here would make a routine dependency bump un-comparable. |
+| **Not compared** | `total_ram_kb`, `gpu_present`, `platform`, `versions.python_tool` | Ignored by the comparator |
+
+Candidate host is rebuilt by `make_baseline.collect_host` from the candidate manifests **plus this interpreter** (torch/numpy come from the tool, not the run). Same fidelity caveat as cutting the baseline: a HOST.json whose torch was read under a different Python than the runs is worse than one that says it could not tell.
+
+### Waiver
+
+`--accept-work-change` requires a non-empty reason (whitespace-only is refused, exit `2`). It yields **WAIVED**, never PASS, and records the reason. Prefer cutting a **new baseline** — they supersede by name and are cheap.
+
+A waiver blesses a WORK change, never an invalid comparison. Passing it on a REFUSED run does **not** override the refusal (exit stays `2`). The renderer must not claim otherwise: under REFUSED it prints `had NO effect`, not `WAIVED by operator`. Found by running it — the first draft had the exit code right and the words wrong, and the words are what an operator acts on.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Exit `2` treated as a work regression | REFUSED is identity/host/incoherent-candidate, not FAIL. Distinct on purpose — do not `set -e` them together. |
+| `--accept-work-change` on a config-edit suite | No effect. Cut a new baseline; the waiver cannot "compare anything to anything". |
+| Renderer says `WAIVED by operator` but exit is `2` | Bug class pinned by `test_render_does_not_claim_a_waiver_that_had_no_effect`. Current source prints `had NO effect`. |
+| Using `config_sha256` as "same workload" | Hashes `experiment.description`. Use `workload_fingerprint`. |
+| Mixed known + missing cell YAML looks like one workload | On `main` (`#1613`) and #1622, `summarise` drops `None` before uniqueness, so one identified cell plus one unknown/unmeasured cell can **PASS**. [juniper-ml#1617](https://github.com/pcalnon/juniper-ml/pull/1617) / [#1626](https://github.com/pcalnon/juniper-ml/pull/1626) refuse on the rows. Until they land, do not compare a suite with a missing `cells/*/experiment.yaml`. |
+| Repeatable `--suite`: FAIL became exit `2` | #1622: leftover reasons win, so a sibling REFUSE hides a work FAIL. Compare one suite, or wait for #1626 (FAIL wins unless host-blocked). |
+| Adding a speed threshold | There is no threshold field **by design**. Item 1.5 closed that question. |
+| Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
+
+Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
 
 ---
 

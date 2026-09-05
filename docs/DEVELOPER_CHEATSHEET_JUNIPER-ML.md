@@ -726,6 +726,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Driver exit `2` / API `422` on default `equities` | Universe > 14 symbols. Set `dataset.params.symbols` to a short list, or `allow_truncation: true` (writes `DatasetMeta.truncation`). |
 | Requested `max_symbols: 50` still caps at 14 | Request may only lower the ceiling. Raise `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the data service. |
 | Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path or flat `equities`. |
+| `compare_baseline` exit `2` / `REFUSED` | Identity or host mismatch, not a work regression. Do not treat as FAIL. Cut a new baseline for a config edit. |
+| `compare_baseline` exit `1` / `FAIL` | Same workload, `step_count` moved — the gate firing. A one-step difference is enough. |
+| `--accept-work-change` printed but exit is `2` | Waiver had no effect (cannot mask a refusal). Prefer a new baseline tag. |
+| Speed "regression" with matching `step_count` | Expected PASS — speed is never gated (13–20.5% host drift floor). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -875,6 +879,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
+- [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
