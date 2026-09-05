@@ -75,6 +75,7 @@
 | `python3 util/soak_run_probe.py --probe-id ID [--force]` | Run a named soak probe; `--force` if verdict is terminal |
 | `python3 -m unittest -v tests/test_soak_run_probe.py`  | Soak wrapper regressions (`util/` is not pre-commit-gated) |
 | `python3 util/ad-hoc/cascor_freeze_tell.py`            | Cascor-primary freeze tell (exit 1 = in force; 0 ≠ no importer) |
+| `python3 util/soak_run_probe.py --probe-id FULL-SLUG`  | Run a named soak probe (full slug; do not `--force`) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -861,6 +862,8 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Soak `parse_events` AttributeError after a spent session | `message` was a string, not a dict. Re-parse saved `stream.jsonl`; do not re-run. Type guard: #1616. |
 | Soak channel says follow but the task names the pointer path | Mechanical false-positive (P06 `--dest docs/REFERENCE.md`). Verify the doc was actually read. |
 | Soak `--dry-run` exits 2 with no preview | Ledger verdict is `BET-FAILING` / `HOLDS-AT-*`. Pass `--force`; the refuse is before the dry-run branch. |
+| Soak `--probe-id P19` → `no such probe` | Bare ids do not resolve. Use the full slug (`P19-port-check-fail-opens`). |
+| Soak `probe-run --outcome miss` rejected | Missing `--class` (`discoverability` / `hazard` / `pointer-defect`). |
 | Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
 | Soak probe reaped / no `status.json` | Pidfile was under `reports/soak/runs/` (unscanned) or interpreter was `JuniperC*`. Use `/usr/bin/python3`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
@@ -1048,6 +1051,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) -- header-only parser; ACCEPTED is a third disposition
 - [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; exit 2 = failed to measure; idle populated is VALID
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- shipped count is 58; v1 is the name-matching negative example; C5 remedy refuted
+- [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- unprimed probe loop; do not run n≈8–10; `--force` is an open owner decision; full slugs; `--class` on miss
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell) -- exact-prefix hold test; exit 0 is "no user-owned importer"
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)

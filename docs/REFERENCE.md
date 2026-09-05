@@ -930,6 +930,8 @@ Protocol: [`notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`](
 
 `verify-probes` is the residency gate: every probe's `must_be_absent_from_source` phrases must be absent from `AGENTS.md`, and every `pointer` anchor must resolve. The 2026-08-21 pilot ran nine probes whose facts had never left `AGENTS.md`; those tested nothing. CI runs `python3 util/soak_ledger.py verify-probes`.
 
+Probe ids are **full slugs**. `--probe-id P19` exits `2` (`no such probe: P19`). Real ids look like `P19-port-check-fail-opens`. List them from `conf/soak_probes.json` or `soak_next_probe.py --status`.
+
 ### Operator loop
 
 ```bash
@@ -940,6 +942,8 @@ python3 util/soak_run_probe.py --probe-id <ID> --force      # when status is BET
 python3 util/soak_next_probe.py --reveal --probe-id <id>    # AFTER the run, for scoring
 python3 util/soak_ledger.py probe-run --probe-id <id> \
     --outcome follow|source-recovered|miss --session <uuid> --scored-by <who>
+python3 util/soak_ledger.py probe-run --probe-id P15-worktree-converge-not-remove \
+    --outcome miss --class discoverability --session <uuid> --scored-by <who>
 python3 util/soak_ledger.py report
 python3 util/soak_ledger.py status
 ```
@@ -1031,6 +1035,12 @@ Enable the **timer** or **path** unit, not the service. An `[Install]` block on 
 | Timer keeps spending after a terminal verdict | Pass `--force` only for a deliberate characterisation probe; disable the timer if the pooled question is done. Characterisation also needs `--probe-id` — least-covered will not pick the ambiguous probes. |
 | Discriminator under-specifies | Enumerating acceptable answers (P06: "scope **or** refuse") mis-scores a better third path. Score the **property**; record tension in `--note`. Registry-author item. |
 | `status` exits 1 | Open escalation or `BET-FAILING`. Do not `resolve` to green it. |
+| `--probe-id P19` → `no such probe` | Bare ids do not resolve. Use the full slug (`P19-port-check-fail-opens`). |
+| `probe-run --outcome miss` rejected | Missing `--class`. Required values: `discoverability` / `hazard` / `pointer-defect`. |
+| `--status` numbers look like a follow table | They are **post-intervention run counts**, a different quantity. |
+| Three more non-follows redden `main` | 26/40 → 26/43 Wilson upper 0.736 arms the guard; `DryRunDoesNotLeakTheTask` fails on 3.12/3.13/3.14. No code change required. |
+| `report` looks terminal after a channel change | `analyse()` pools pre- and post-intervention. Split as §15.4 requires before treating a pooled upper bound as a stop. |
+| Retention jumped with no new follows | `rescore` is one-way to `source-recovered`. Re-read the original `outcome` column. |
 
 Coverage: `tests/test_soak_ledger.py`, `tests/test_soak_next_probe.py`, `tests/test_soak_run_probe.py` (hermetic — never launches `claude`). `util/` is outside every pre-commit Python hook, so those suites **are** the gate.
 
@@ -2903,6 +2913,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Runner fail-closes on empty/short passphrase, unmounted dest, wrong-filesystem dest, and tmpfs `--tempdir`; `flock` / DB-open holders `skip_or_fail` (a skip overwrites `result=OK`, so the next skip always escalates).
   - `--no-auto-compact=true` is load-bearing. Distinct from `util/juniper-backup.bash` (project-tree `tar | gpg -e`). Operator surface: [`docs/REFERENCE.md` § Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
 - `util/juniper-backup.bash` -- Per-repo project-tree archive to attached external media: `tar -cjf` (bzip2) piped into `gpg -e` (asymmetric, two `ENCRYPT_KEYS`). Build once, copy ciphertext. `--dry-run` writes nothing. Restore is `gpg -d FILE | tar -xjf -` (not `-xzf`). Exit 0/1/2/4. Unattended verify is `--list-packets` only. Operator surface: [Juniper Project-Tree Backup](#juniper-project-tree-backup).
+- `util/soak_next_probe.py` -- Emits the next pointer-follow soak probe's **task only** (unprimed). Default pick is least-covered then registry order; `--probe-id` needs the **full slug** (`P19-port-check-fail-opens`, not `P19`); `--reveal` is scoring-only; `--status` is post-intervention run counts with no task text. Tests: `tests/test_soak_next_probe.py`.
+- `util/soak_run_probe.py` -- Headless `claude -p` wrapper: dispatch, capture, mechanical retrieval channel (`tool_use` inputs + answer text; no `tool_result`), scoring packet. `--dry-run` does not require the `claude` binary and must not print the task. On this tree it refuses `BET-FAILING` / `HOLDS-AT-*` **before** the dry-run branch unless `--force` (`--force` is an open owner decision, not sanctioned). Reaper P1 pidfile is `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid`, not `reports/soak/runs/`. Tests: `tests/test_soak_run_probe.py`. Operator surface: [Pointer-Follow Soak](#pointer-follow-soak).
+- `util/soak_ledger.py` -- Append-only soak ledger (`probe-run` / `report` / `status` / `verify-probes` / `resolve` / `rescore`). Seeded arm decides; organic describes. `source-recovered` stays in the follow-rate denominator. `--outcome miss` requires `--class`. `rescore` is one-way to `source-recovered`. `analyse()` has no era filter (ledger §15.4 is not applied). `status` exits `1` on `BET-FAILING` or an open escalation (by design). Tests: `tests/test_soak_ledger.py`.
 - `util/reap_pytest_orphans.bash` -- Safely reaps orphaned Juniper pytest multiprocessing children (`--dry-run` / `--verbose`).
   - Candidate awk gate: current-user + `/python/` + (`JuniperC[a-z0-9]+` conda path or `Juniper/worktrees/`); empty set exits 0 with "No Juniper python processes found."
   - Orphan when ppid is `1`, user `systemd --user`, or parent gone; live parents KEEP. `SKIPPED` on ps→gone race or missing `PPid:` (never kill).
@@ -6548,6 +6561,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.57  | 2026-09-05 | MEMORY.md index check: local `util/memory_index_check.py` runbook — hard cap 200/25000 (silent newest-first), hook-not-line 120 on NEW slugs only, fail-closed missing file, `--accept` always exits 0 |
 | 0.6.59  | 2026-09-05 | Perf-lane work gate, post-`ml#1743`: determinism **settled** — `step_count` is exact *within a termination branch* (census: 333 runs, 29 of 79 repeated configs diverge, all explained by `completion_reason`), and `ml#1733` made the branch a precondition so a flip REFUSES. Writer-vs-comparator asymmetry and all six defects (A1-A4/A6/A7) **closed**; exit 1 is interpretable; FAIL outranks REFUSED. CI-wiring prohibition **re-grounded**: an owner decision (P1 §6), not a soundness bar. |
 | 0.6.58  | 2026-09-05 | Juniper project-tree backup: `util/juniper-backup.bash` per-repo `.tbz2.gpg` (bzip2, restore `-xjf`), build-once / copy ciphertext, `--dry-run` must not write, unattended verify is `--list-packets` only, `EXCLUDE_CASCOR_SNAPSHOTS` TRUE is `0` |
+| 0.6.47  | 2026-09-04 | Pointer-follow soak operator surface: do not run n≈8–10 (P21/P23 at 1/3 first resolve at 10/31); `--force` is an open owner decision; `--dry-run` is gated by the terminal verdict on this tree (+3 non-follows from 26/40 arms it); full probe slugs; `--outcome miss` needs `--class`; `analyse()` has no era filter |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.59  | 2026-09-05 | Ruleset Context Audit: read-only fleet classifier for `required_status_checks` (`2026-08-10_ruleset_context_audit.py`); BLOCKING vs Tier 1 vs path-gated; advisory_predicate subtracts the live required set; text-mode 0 can still carry `ERROR:` rows |
 | 0.6.16  | 2026-09-04 | Required-context ruleset writer: add vs `--amend-integration-id` (#1612), observed-publisher pre-flight, six invariants, `Memory Budget` unpinned-id hole (#1611) |
