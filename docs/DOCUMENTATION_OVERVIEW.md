@@ -53,6 +53,7 @@
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
 | **Run `equities` / `equities_seq` without a 422** | [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) (14-symbol refuse; unit is symbols because cost is per request; silent slice deleted) | docs/    |
 | **Import a CSV/JSON dataset (byte cap)** | [REFERENCE — CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap) (128 MiB, 422 until opt-in, `IMPORT_DIR` pitfall; equities `max_symbols` still silent) | docs/    |
+| **Bound an `equities` request (do not use a byte cap)** | [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) (per-request cost, silent `max_symbols` slice, default 503 names ≈ 34 min) | docs/    |
 | **Attribute snapshots / pin the dataset instance** | [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin) (`seeded_params`, `--dataset-seed` vs `--seed`, sidecar-chain `--root` trap) | docs/    |
 | **Run a P4 campaign suite** | [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) (19 YAMLs; `include` ≠ `matrix`; cap-128 H2H is n=2; recurrence P4 cells report, they do not gate) | docs/    |
 | **Census X7 off-loop / slice 1a** | [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) (canopy gate is authority for `main.py` only; count 58; do not quote v1; site-local exemption only) | docs/    |

@@ -773,6 +773,7 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `WOULD PRUNE` / nothing deleted | Need `--prune --yes` without `--dry-run`. `up?` is never pruned (`SKIP (live recorded pid)`). |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
+| Default `equities` create hangs / 30 s client timeout | Omitted `symbols` → all 503 S&P names (~34 min). Set `dataset.params.symbols`. `max_symbols` is a **silent** slice (`generator.py:286`). See [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap). |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
 | Suite report only useful number is `wall_seconds` | Pre-#1643 artifact — re-run on current `run_suite`; `wall_seconds` is de-ratified (~5% Grafana-bridge move). |
 | `--compare-baseline` FAIL / missing tag but suite exits 0 | Expected (reporting only). Read `REPORT.md`; run `compare_baseline.py` for its 0/1/2 exits. |
@@ -963,6 +964,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap) -- 128 MiB, 422 until opt-in, experiment-stack `IMPORT_DIR` pitfall
 - [Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) -- `**FIXED` token, cwd pitfall, third reading vs the two §4 counters
 - [Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) -- shipped `*_full` vs design-closed `X_val`
+- [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default 503-name universe, per-request cost, silent `max_symbols` slice
 - [Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs) -- `run_suite` P2 1.4: both gate inputs in `aggregate.csv` / `REPORT.md`; `--compare-baseline` reporting only
 - [Run lister / pruner](REFERENCE.md#run-lister--pruner-list_runspy) -- `list_runs.py` directory-truth scan; `--prune` ≠ `--down`
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps

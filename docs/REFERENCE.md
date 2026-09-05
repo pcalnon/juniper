@@ -5286,6 +5286,7 @@ Measured 2026-09-04 (`juniper-data/util/ad-hoc/2026-09-04_measure_equities_paylo
 |---------|-----------:|----------:|
 | 1 symbol × 26 years | **210 KB** | **~2 s** |
 | Russell 3000 × **1 day** | **92 KB** | **1.7–3.2 h** |
+| 1 symbol × 26 years (`since 2000`) | **210 KB** | **~2 s** |
 
 Per-symbol cost is **~2.1 s** (2026-09-04, optimistic) / **4.01 s** (2026-09-02, conservative). `14 = 30 s ÷ 2.1 s/symbol` — the owner's choice from that range. Yahoo is `yf.download(..., threads=False)` plus 1–2 SEC `companyconcept` GETs (`_SEC_MIN_INTERVAL = 0.12`). The data-client default timeout is **30 s**.
 
@@ -5304,6 +5305,11 @@ The previous default — `EQUITIES_DEFAULT_MAX_SYMBOLS = None`, meaning all **50
 | Shared descriptor | `truncated` / `reason` / `unit` / `cap` / `requested` / `imported` / `records_imported` | Same shape as `csv_import` (that half uses `unit=bytes`). |
 | `equities_seq` | reuses `EquitiesGenerator._resolve_symbols` | Inherits the bound **and** the annotation. `EquitiesSeqParams` subclasses `EquitiesParams`, so the knobs need no redeclaration. |
 | Cache | `JUNIPER_DATA_EQUITIES_CACHE_DIR` | `experiment_stack.bash` `data_up` sets this to `$RUN_DIR/equities-cache`. It does **not** set the two cap env vars — they inherit. |
+| Default universe | bundled `sp500_constituents.csv` (**503** tickers) when `symbols` is omitted | `_resolve_symbols` sorts the CSV keys. Index *titles* over-claim (Russell 3000 published 2,923; Wilshire 5000 published 3,414 as of the 2026-09-04 count). |
+| Boundary | `ordered = ordered[: params.max_symbols]` at `generators/equities/generator.py:286` | Bare slice. **No 422**, no `DatasetMeta.truncation`, no record of dropped tickers. Register `APD-DATA-018` still cites `:264` — that line is now CIK parsing in `_load_constituents`. |
+| Features | 10 `float32` columns in `EQUITIES_FEATURE_COLUMNS` | `open, high, low, close, volume, week52_high, week52_low, total_shares, market_cap, cost_basis`. `Adj Close` is downloaded (`auto_adjust=False`) and kept as `adj_close` for optional `basis_price_field`, then **dropped** from `X`. |
+| `seed` | defaulted (`DEFAULT_GENERATOR_SEED`) | Unused for the temporal split. Real non-reproducibility: `end_date` defaults to the wall clock. |
+| Shares fill | `fundamentals_fill` default `"zero"` | Missing SEC facts → `total_shares` / `market_cap` become **0.0**. The rows stay. |
 
 Failed Yahoo downloads still skip. Missing SEC facts + `fundamentals_fill="zero"` still write `0.0`. The generator never calls `Ticker.info`.
 
@@ -5339,11 +5345,14 @@ To raise the **deployment** ceiling (not the request), set `JUNIPER_DATA_EQUITIE
 | Driver exit `2` / API `422` on default `equities` | You asked for the full S&P 500. Set `symbols` to ≤14 names, or set `allow_truncation: true` and accept a permanent `DatasetMeta.truncation`. |
 | Requested `max_symbols: 50` still caps at 14 | A request may only *lower* the ceiling. Raise `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the **service**, then re-request. |
 | Truncated dataset looks complete | Authorised cut writes `meta.truncation` (`reason=universe_exceeded_symbol_cap`). Count `ticker_vocab` against `imported`. The old silent slice is deleted. |
+| Dataset create hangs / client timeout on default `equities` | You asked for the full S&P 500. Set `symbols` to a short list. `max_symbols` also bounds the list but **truncates silently**. |
+| Equities run silently shorter than `symbols` / the S&P universe | `max_symbols` sliced at `:286`. The NPZ looks complete. Count `ticker_vocab`. |
 | `total_shares` / `market_cap` are all zeros | SEC returned no facts for that CIK, then `fundamentals_fill: zero`. Use `nan` or `drop` if zeros would train. |
 | Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path, or flat `equities`. |
 | `501` / `equities` unavailable | Install `juniper-data[equities]` into the **serving** env (`JuniperData` for the experiment stack; `JuniperCascor1` for in-process bench). |
 | Assumed Yahoo `.info` fields (`trailingPE`, `floatShares`, …) | The generator never calls `Ticker.info`. It uses `yf.download` (chart) + SEC XBRL. |
 | Expected a byte cap to bound wall time | Anti-correlated. One symbol × 26 y is 210 KB / ~2 s; Russell 3000 × 1 day is 92 KB / 1.7–3.2 h. |
+| Expected splits / dividends / 52-week **dates** / reporting date in `X` | Not in `EQUITIES_FEATURE_COLUMNS`. Splits/dividends need `actions=True` (not passed). 52-week **values** are already features; dates and SEC `filed` are computed/downloaded and discarded. |
 
 Do **not** re-introduce a silent prefix slice. Do **not** treat a byte threshold as the binding bound.
 
@@ -5778,6 +5787,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.33  | 2026-09-04 | X7 off-loop census: shipped count is **58** (52 direct + 2 `HELPER` + 4 outside `main.py`); C5 `threading.local()` remedy refuted (T-A4); callgraph guards the adapter; v1 remains the name-matching negative example |
 | 0.6.34  | 2026-09-04 | Experiment run lister / pruner (`list_runs.py`): directory-truth scan, `down`/`up?`/`stale`, `--prune` ≠ `--down`, `--run-root` ignores `JUNIPER_EXP_RUN_ROOT` |
 | 0.6.35  | 2026-09-04 | Train / val / test partition contract: shipped NPZ still requires `*_full`; design drops it (decision 11) but required-fix 0 has not started; `RECURRENCE_SPLITS` still refuses `validation` |
+| 0.6.36  | 2026-09-04 | Equities symbol-cap operator surface (`APD-DATA-018` equities half): per-request cost, silent `max_symbols` slice at `generator.py:286`, default 503-ticker universe is ~67× over the 30 s budget |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
