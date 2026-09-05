@@ -284,6 +284,8 @@ Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`
 
 REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip, case-insensitive `http(s)://` default, require `hostname` (not `netloc`), drop trailing `/` and `/v1`. Hostless values raise `Juniper*ConfigurationError` at init. Cascor WS streams (`CascorTrainingStream` / `CascorControlStream`) and `FakeCascorClient` stay `rstrip("/")` only. Extras floors do not yet require the new wheels — see [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
 
+Tip: `csv_import` refuses sources over 128 MiB with HTTP **422** until `dataset.params.allow_truncation` or `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION`. `file_path` is relative to `JUNIPER_DATA_IMPORT_DIR` (default `/data/imports` — export a real directory before `experiment_stack --up`). Cascor cannot stage it. `equities` `max_symbols` still silent-slices (`generator.py:286`). [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap).
+
 ---
 
 ## CI/CD
@@ -575,6 +577,9 @@ Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe)
 | `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` | `14` | Data-service ceiling for `equities` / `equities_seq`. A request may only lower this. `experiment_stack.bash` does **not** set it. |
 | `JUNIPER_DATA_EQUITIES_ALLOW_TRUNCATION` | `false` | Deployment-wide opt-in to a prefix cut (OR with the request flag). |
 | `JUNIPER_DATA_EQUITIES_CACHE_DIR` | `~/.cache/juniper_data/equities` | Equities OHLCV/SEC cache. Experiment `data_up` sets `$RUN_DIR/equities-cache`. |
+| `JUNIPER_DATA_IMPORT_DIR`      | `/data/imports`    | Prefix `csv_import` `file_path` is resolved against. `experiment_stack` `data_up` does not set this. |
+| `JUNIPER_DATA_CSV_IMPORT_MAX_BYTES` | `134217728` (128 MiB) | Deployment ceiling; a request `max_bytes` may only lower it (`gt=0`). |
+| `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION` | `false`     | Deployment-wide opt-in to a partial csv_import (logical OR with the request). |
 | `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
@@ -749,6 +754,8 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Suite report only useful number is `wall_seconds` | Pre-#1643 artifact — re-run on current `run_suite`; `wall_seconds` is de-ratified (~5% Grafana-bridge move). |
 | `--compare-baseline` FAIL / missing tag but suite exits 0 | Expected (reporting only). Read `REPORT.md`; run `compare_baseline.py` for its 0/1/2 exits. |
 | Mean-step column 1000× the CSV | Report table is ms; `aggregate.csv` is seconds. |
+| Driver exit `2` csv_import `422` | Source over 128 MiB without opt-in, or cascor tried to stage csv_import. [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap). |
+| csv_import `FileNotFoundError` on `--up` | `JUNIPER_DATA_IMPORT_DIR` default is `/data/imports`. Export a real on-host directory; `file_path` is relative to it. |
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | In-use probe reports every tree `IN USE` | That was the first-run failure mode — the probe's own argv. WEAK cmdline must not set the exit code; only cwd/open-fd is STRONG. |
 | In-use probe `CAUTION` / `review` | A process names the path in argv but is not sitting in the tree. Glance; do not treat as `REFUSE`. |
@@ -922,6 +929,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
 - [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
+- [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap) -- 128 MiB, 422 until opt-in, experiment-stack `IMPORT_DIR` pitfall
 - [Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs) -- `run_suite` P2 1.4: both gate inputs in `aggregate.csv` / `REPORT.md`; `--compare-baseline` reporting only
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
