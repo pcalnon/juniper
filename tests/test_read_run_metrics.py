@@ -164,6 +164,40 @@ class SummariseTest(unittest.TestCase):
             self.assertAlmostEqual(summary["drive"]["spread_pct"], 100 * 10 / 60)
             self.assertEqual(summary["cells"], 2)
 
+    def test_work_invariant_is_false_when_one_cell_is_unmeasured(self):
+        """The invariant must describe the SUITE, not the cells that answered.
+
+        `counts` keeps only numeric step_counts, so before the `len(counts) == len(rows)`
+        guard a two-cell suite with one unmeasured cell reported `step_counts=[1770.0]`
+        and `work_invariant=True` -- an invariant over a subset of one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(
+                Path(tmp),
+                [("c000", {"samples": ((63.0, 1770),)}), ("c001", {"with_series": False})],
+            )
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(summary["cells"], 2)
+            self.assertEqual(summary["step_counts"], [1770.0])
+            self.assertFalse(summary["work_invariant"])
+
+    def test_single_workload_false_when_some_identities_unknown(self):
+        """One known fingerprint plus one unknown is not "the same workload".
+
+        `fingerprints` DROPS cells with no fingerprint, so `len(fingerprints) == 1` alone
+        read True here -- the same fail-open the `reasons` comment in
+        `read_run_metrics.py` warns about, left in place on the sibling field. Note the
+        assertion keeps `len(fingerprints) == 1` true: the guard has to come from
+        `identified == len(rows)`, not from the fingerprint set changing.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
+            (suite / "cells" / "c000").mkdir(parents=True, exist_ok=True)
+            (suite / "cells" / "c000" / "experiment.yaml").write_text("experiment:\n  seed: 42\n", encoding="utf-8")
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(len(summary["workload_fingerprints"]), 1)
+            self.assertFalse(summary["single_workload"])
+
 
 class ReadSuiteTest(unittest.TestCase):
     def test_preserves_registry_order_and_cell_ids(self):
