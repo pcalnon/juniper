@@ -197,3 +197,12 @@ class SharedContractTest(unittest.TestCase):
     def test_index_run_root_uses_the_resolver(self) -> None:
         text = (REPO_ROOT / "util" / "snapshot_index.py").read_text(encoding="utf-8")
         self.assertIn("run_root = args.run_root or default_run_root()", text)
+
+
+# Added on harvest. Without this block `python3 tests/test_snapshot_index_root_resolution.py`
+# runs ZERO tests and exits 0 -- a silent pass indistinguishable from a real one. The
+# module form finds all 14. Keep this LAST: classes defined below `unittest.main()` are
+# invisible to the direct form, so the two entry points would report different counts
+# while both printing OK.
+if __name__ == "__main__":
+    unittest.main()

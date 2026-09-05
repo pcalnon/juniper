@@ -2073,12 +2073,12 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_register_close_protocol.py` -- The defect-register operator pair that #1648/#1717 cannot see: the close protocol itself, distinct from the open-set reader and the status crosscheck.
 - `tests/test_stats_summary_render.py` -- `summary.md` scrape-honesty line collection: which lines the renderer must emit, the conditional class-distribution line, the reason sub-bullet, and `present`/`written` key precedence.
 - `tests/test_stats_summary_git_and_confirmed.py` -- The `summary.md` scrape tri-state and git provenance the producer suite cannot see -- `confirmed` None-is-not-False, the N/A fallback, unavailable git, clean-head, and a decreasing count that must not mint a poll sample. Independent sibling of `test_stats_summary_render.py`; see its header for why both were kept.
-- `tests/test_canopy_poller_inventory.py` -- Hermetic gate for the canopy poller census, which can certify a PARTIAL inventory as complete -- a census computed over the pollers it found rather than the pollers required.
-- `tests/test_cascor_freeze_tell.py` -- Hermetic gate for the cascor freeze tell, which false-froze sibling checkouts: the tell must identify the frozen primary, not any checkout that merely imports it.
+- `tests/test_canopy_poller_inventory.py` -- The canopy poller census that can certify a PARTIAL inventory -- a census counting the pollers it found, not the pollers that exist, reports completeness it cannot know.
+- `tests/test_cascor_freeze_tell.py` -- The cascor freeze tell that FALSE-FROZE siblings and missed the real one: both error directions of the same predicate, which a one-sided test cannot separate.
+- `tests/test_ruleset_context_audit.py` -- The ruleset context audit that can make `main` UNMERGEABLE -- promoting a context that never reports leaves every PR blocked forever, so the audit's failure mode is worse than its absence.
+- `tests/test_snapshot_index_root_resolution.py` -- The env-root resolver the `--root` suites cannot see: they always pass `--root` explicitly, so the DEFAULT resolution path they exist to protect is never entered.
+- `tests/test_equities_symbol_cap_operator.py` -- The suite and stack surfaces that can defeat the 14-symbol equities cap (APD-DATA-018), with two anti-vacuous controls -- the cap is only a cap if every surface honours it.
 - `tests/test_e2e_append_statuses.py` -- Hermetic gate for the E2E TSV verdict appender, which shipped with zero tests: which column a verdict lands in, and that an append does not rewrite a neighbouring row.
-- `tests/test_equities_symbol_cap_operator.py` -- The operator-facing half of the equities symbol cap (APD-DATA-018): a ceiling BELOW the measured default, the env-var Settings fields, and the shared refusal renderer that must not report a 40-symbol universe as 0.0 MB.
-- `tests/test_ruleset_context_audit.py` -- The ruleset context audit that can make main unmergeable: a context pinned to an app that never publishes it is never satisfied, so the PR sits BLOCKED with nothing red.
-- `tests/test_snapshot_index_root_resolution.py` -- The snapshot index env-root resolver the --root suite cannot see: which root wins when the flag and the environment disagree, and that an unset root is a refusal rather than the cwd.
 - `scripts/test.bash` -- Manual end-to-end harness for session create/resume launcher flows
 - `scripts/test_resume_file_safety.bash` -- Regression script ensuring invalid `--resume <file.txt>` input does not delete the source file
 
