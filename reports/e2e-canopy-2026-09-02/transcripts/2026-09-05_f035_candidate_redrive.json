@@ -1,0 +1,99 @@
+{
+  "canopy": "http://127.0.0.1:8052",
+  "server_history": {
+    "ok": true,
+    "total": 100,
+    "phases": {
+      "candidate": 99,
+      "output": 1
+    },
+    "candidate": 99
+  },
+  "store_read": {
+    "ok": true,
+    "via": "paths.strs",
+    "len": 0,
+    "type": "list"
+  },
+  "ws_liveness": {
+    "ok": true,
+    "via": "paths.strs",
+    "value": {
+      "metrics_live": false,
+      "state_live": false
+    }
+  },
+  "wire_census_25s": {
+    "responses_naming_store": 62,
+    "responses": 296
+  },
+  "write_census_30s": {
+    "responses": 216,
+    "wrote": [
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500,
+      500
+    ],
+    "omitted": 0,
+    "unparsed": 7
+  },
+  "store_read_after_writes": {
+    "ok": true,
+    "via": "paths.strs",
+    "len": 0,
+    "type": "list"
+  },
+  "loss_figure": {
+    "present": true,
+    "traces": [],
+    "annotations": []
+  },
+  "M-CANDIDATES-07": {
+    "verdict": "FAIL",
+    "reason": "store readable and EMPTY while the server serves candidate history",
+    "named_traces": []
+  }
+}
