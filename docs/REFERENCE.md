@@ -2,7 +2,7 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.58
+**Version:** 0.6.59
 **Status:** Active
 **Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
@@ -26,6 +26,8 @@
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [F-039 Store Probe](#f-039-store-probe)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
+- [Resident-Hazard Gap Triage](#resident-hazard-gap-triage)
+- [Ruleset Context Audit](#ruleset-context-audit)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [PF Scenario Suites](#pf-scenario-suites)
@@ -1810,6 +1812,101 @@ machinery.
 
 ---
 
+## Resident-Hazard Gap Triage
+
+The P5 cut gave every governed repo a resident `## Hazards` block. Three
+ad-hoc tools ask complementary questions. Using only the first one is a
+structural miss: it cannot surface a directive that was never in
+`AGENTS.md`.
+
+Fleet record:
+[`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md).
+
+### The three tools
+
+| Tool | Reads | Question | Default print threshold |
+|------|-------|----------|-------------------------|
+| `util/ad-hoc/2026-08-28_hazard_triage.py` | `AGENTS.md` via `gh api` on **GitHub `main`** (not the local tree) | Which *already-resident* blocks look like hazards? | `--min-score 2` |
+| `util/ad-hoc/2026-08-28_resident_gap_scan.py` | Local checkout, read-only | Which source comments are hazard-shaped and resident *nowhere*? | ranked by **identifier count**; `--max 30` |
+| `util/ad-hoc/2026-08-31_resident_gap_triage.py` | Local checkout; loads the two siblings by path | Gap finding, scored with the four severity signals | `--min-score 3`, `--top 12` |
+
+### Scoring
+
+Four signals, one point each: **prohibition** / **silent-failure** /
+**irreversible** / **hazard-noun**. Score the **block**, not a line and
+not a 2-sentence window. A window-scored build put cascor's known-real
+`max_epochs` / `output_epochs` split (`cascade_correlation.py:1927`) at
+score 2 and buried it; block scoring puts it at 3, rank 1. The sentence
+window survives only to pick the printed snippet.
+
+`WARNING` / `CRITICAL` / `IMPORTANT` used as a **log level** lose the
+`hazard-noun` point only. The demotion is recorded in `demoted`; nothing
+is silently dropped. `--json` writes **every** scored row, including
+those below `--min-score`.
+
+Sort: score desc, then silence-marker present, then identifier count.
+
+### Usage
+
+```bash
+# Already-resident ranking (needs `gh`; hits GitHub main)
+python3 util/ad-hoc/2026-08-28_hazard_triage.py juniper-canopy --min-score 2
+
+# Source-only gap list (local tree; ranks by identifier count, not danger)
+python3 util/ad-hoc/2026-08-28_resident_gap_scan.py . --max 40
+
+# Joined triage — the one to re-run after a cut
+python3 util/ad-hoc/2026-08-31_resident_gap_triage.py \
+    ../juniper-cascor ../juniper-canopy ../juniper-data \
+    --min-score 3 --json /tmp/fleet_triage.json
+
+# Positive control (cascor pre-#609 AGENTS.md)
+git -C ../juniper-cascor show e1b4988c:AGENTS.md > /tmp/pre609.md
+python3 util/ad-hoc/2026-08-31_resident_gap_triage.py \
+    ../juniper-cascor --self-check --agents /tmp/pre609.md
+```
+
+A normal scan always exits **0** (including zero candidates).
+`--self-check` exits **1** if `cascade_correlation.py:1927` is missing,
+scores below 3, or ranks outside the top 5.
+
+### The candidate count is not a health metric
+
+Relocation moves facts *out* of `AGENTS.md`, so source identifiers that
+used to have a resident counterpart no longer do. The gap predicate then
+matches them. **Cutting widens the gap by construction.**
+
+Recorded on the 2026-08-31 fleet pass (notes §3 / §7a / §8):
+
+| Pass | Scored rows | What changed |
+|------|------------:|--------------|
+| First fleet pass | 285 | eight sibling repos; juniper-ml was the scanner, not a row |
+| After the first promotions landed | 281 | each promotion removes itself — expected |
+| Canopy after its cut | 90 (was 63 on 2026-08-28) | ten sections left `AGENTS.md`; the rise is correct |
+
+The health signal is the **score ≥ 3 count** (and whether anything
+*new* appears there), not the total. Re-run after every cut, not only
+before.
+
+### Operator pitfalls
+
+| Symptom | Cause |
+|---------|-------|
+| Total went up after a successful relocation | Expected. Read score ≥ 3 / new rows, not the total. |
+| Using `hazard_triage` alone | Can only rank text already in `AGENTS.md`. Both cascor promotions were invisible to it. |
+| Trusting `resident_gap_scan` top rows | Identifier-count ranking. Fleet-wide first run: ~630 raw; tops were long docstrings. |
+| Huge file / candidate counts on juniper-ml | Pre-[#1519](https://github.com/pcalnon/juniper-ml/pull/1519) the default glob walked in-repo worktrees. `SKIP_DIRS` now drops `.claude`, `worktrees`, `.venv`, and other copy trees. |
+| `hazard_triage` ignores local edits | It fetches `repos/pcalnon/<repo>/contents/AGENTS.md?ref=main` via `gh api`. |
+| Dual-tree repos (juniper-data) | Every hit appears twice (`juniper_data/` and `src/`). Halve before quoting. |
+| Top score is noise | Fleet-highest was recurrence `bench/plots.py` at 4 — presentational. Human review; do not raise the threshold to hide it (that also drops `max_epochs`). |
+| Promoting on severity alone | The residency test is whether **reading the code recovers the fact**. Adjacent rationale stays in the comment. |
+
+Related: [Relocation Completeness (G3)](#relocation-completeness-g3),
+[Memory File Size Budget](#memory-file-size-budget),
+[`AGENTS.md` § Hazards](../AGENTS.md#hazards-resident--do-not-relocate).
+
+---
+
 ## Test Suite Reference
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
@@ -1819,6 +1916,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - Doc-link validator regression tests live in [`juniper-doc-tools/tests/`](juniper-doc-tools/tests/) (Wave 4 of the doc-link migration; exercised by the dedicated `CI -- juniper-doc-tools` workflow).
 - `tests/test_worktree_cleanup.py` -- Tests for `util/worktree_cleanup.bash` argument parsing, dry-run, and error handling; Phase 1 dirty porcelain exit-1 gate (juniper-ml#747) and clean push / Phase 2 path-collision arms (open #753) drive fixture repos via sourced `phase_1_save_and_push` / `phase_2_create_new_worktree`
 - `tests/test_worktree_sweep_scripts.py` -- Tests for `util/ad-hoc/worktree_sweep_*.bash`: survey/apply row compatibility, `SAFE`-only removal, and unknown-repo skips
+- `tests/test_p5_worktree_cleanup.py` -- Hermetic gate for `util/ad-hoc/2026-08-28_p5_worktree_cleanup.py` (the sweeper that deletes trees; `#1632` pins only the independent in-use probe): `pr_state` empty/`null` → `NO-PR-ON-HEAD` and three `gh` failures → `LOOKUP-FAILED` (never conflated); `undisposable` treats `*.log` as disposable including nested `logs/system.log` but a `logs/` directory and `.h5` block; `occupied` is cwd-only and prefix-safe; `harvest` copies and does not delete the source. Fake `proc_root`; no live `/proc` or `gh`.
 - `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
@@ -1925,7 +2023,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `DatasetInstanceIsFixedTest` (juniper-ml#1333): a generator declaring `seed=None` is given `DATASET_SEED`; a declared seed (spiral) is kept; two calls with the same seed agree; a params class with **no** `seed` field is left untouched; `DATASET_SEED` is a constant, not a drifting default. Stand-ins — no cascor tree, no juniper-data tree, no archive. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 - `tests/test_read_run_metrics.py` -- Hermetic tests for `util/experiments/read_run_metrics.py` (P2 item 0.4): last-row `step_count` / `step_sum`, scrape tri-state, `work_invariant` over **measured** cells only (`summarise` drops `None`), fingerprint strips `description`/`name`, recurrence `work_countable: False`. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
 - `tests/test_make_baseline.py` -- Hermetic tests for `util/experiments/make_baseline.py` (P2 item 1.1): no `--force`; refuses broken work invariant / unmeasured / failed / mixed-workload / not-countable; `--accept-warnings` is recorded. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
-- `tests/test_compare_baseline.py` -- Hermetic tests for `util/experiments/compare_baseline.py` (P2 item 1.2): exact work, ungated speed, identity-first REFUSE, host blocking vs advisory, WAIVED ≠ PASS, 0/1/2 stay distinct. Does **not** pin the six open defects. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
+- `tests/test_compare_baseline.py` -- Hermetic tests for `util/experiments/compare_baseline.py` (P2 item 1.2): exact work, ungated speed, identity-first REFUSE, host blocking vs advisory, WAIVED ≠ PASS, 0/1/2 stay distinct, and the A1-A7 refusal ladder (unmeasured / not-succeeded / zero-work / FAIL-over-REFUSED precedence / partial coverage / duplicate fingerprints) closed by ml#1741 + ml#1743. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
   plot arms cover all-rendered PNGs for both kinds (sequence-NPZ stub artifact for §8.2), per-kind plot-name validation, skip-vs-acceptance semantics (eval-disabled / degraded-sampling / disabled-phase skips, matplotlib-unavailable failure), and the `plots_cascor.py` / `plots_recurrence.py` renderer units incl. the `y_reg_` target-key preference;
   `util/` is not pre-commit-lint-gated, so this unittest is the gate. A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the
@@ -1945,7 +2043,14 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   Load-bearing: missing `MEMORY.md` is exit 2 not a silent pass; `--skip-if-absent` is announced; malformed baseline is exit 2; absent baseline treats every row as new.
   The 120 cap binds the **hook** (`len(hook)`), not the line (a 130-char slug with a tiny hook must pass); grandfathered oversize hooks do not fire.
   `--advisory` reports and exits 0; `--accept` writes slugs + a history sample; runway needs two dated samples, shrinking is `inf`, same-day does not divide by zero; shipped constants 200 / 25000 / 120.
+- `tests/test_hazard_triage.py` -- Hermetic gate for the pre-cut HAZARD FINDER `util/ad-hoc/2026-08-28_hazard_triage.py` (`util/` is outside every pre-commit Python hook).
+  A first version scored per LINE and found ZERO of four real hazards in this repo's own `AGENTS.md` -- wrapped prose never reaches two signals on one line, so the finder reported a clean file over real hazards.
+  Same vacuous-pass class as a census that certified 36 sites where 58 is true.
+  Pins block scoring of wrapped bullets, CommonMark fence exclusion (code samples must not spend reviewer judgement), the `<40`-char skip, the min-score threshold, and the live `AGENTS.md` positive control (`>=3` Hazards-section candidates, including `KILL_WORKERS` and `max_epochs`).
 - `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
+- `tests/test_p5_fleet_state.py` -- Hermetic gate for the P5 fleet census `util/ad-hoc/2026-08-26_p5_fleet_state.py`. Complementary leftover the `TARGETS`/`ROSTER` pin in `tests/test_require_context_safely.py` cannot see: `_size_check_is_advisory` reconstructs the `memory_budget_check.py` invocation (a whole-file `"--advisory" in wf` read True fleet-wide because de-advisory comments mention the flag and juniper-ml keeps a live `--advisory` on `relocation_check.py`); `gh_api` returns `None` only on HTTP 404 (a rate-limit used to look like an absent file); sizes are `len()` of decoded text (CHARS), never the API `size` field (BYTES); `memory_budget_required` is an exact context-name match.
+- `tests/test_resident_gap_triage.py` -- Hermetic gate for the third P5 hazard tool `util/ad-hoc/2026-08-31_resident_gap_triage.py` (`util/` is outside every pre-commit Python hook). `#1663` pins the AGENTS.md finder; this pins the leftover that finder cannot see -- SOURCE comments that are resident nowhere. A first version scored a 2-sentence window and buried the known-real cascor `max_epochs` / `output_epochs` split (score 2, below threshold) because prohibition and silence sit four paragraphs apart. Pins block scoring of spread signals, the identifier-already-in-AGENTS.md gap predicate, log-level demotion that never drops a remaining-score hit, `test_*.py` / `worktrees/` skip, silent-failure sort preference, `--min-score` as a print threshold (JSON keeps every scored row), and a synthetic L-2 `self_check` at `cascade_correlation.py:1927`.
+- `tests/test_resident_gap_scan.py` -- Hermetic gate for the P5 resident-gap FINDER `util/ad-hoc/2026-08-28_resident_gap_scan.py` (`util/` is outside every pre-commit Python hook). `#1663` pins the AGENTS.md finder; `#1697` pins triage severity. This pins the leftover those cannot see: IDENT rejects prose-in-backticks (first version filled `names:` with fragments like `), and the verbatim rejection detail (`); `.claude/worktrees` copies are skipped (the documented 23,120-file multiplication; `#1697` only pins `worktrees/`); `legacy/` copies are skipped; contiguous `#` lines join into one block (a per-line split fails `--min-len`); missing `AGENTS.md` is exit 2; ranking is identifier count (why the triage exists); `no_update` is STOP.
   - **Oversize is pool OR cap.** The original gate triggered on `candidate_pool_size >= 16` only, so a wide-**cap** suite at a modest pool shipped and then lost its widest cells to a false `stalled` hours in — the candidate phase slows every iteration as the cascade widens each candidate's input, i.e. "the ml#1069 class, arriving through width instead of through pool size" (`suites/p4/e-i-cascor-cap-ceiling.yaml:46-50`). `max_hidden_units >= 64` now triggers too.
   - **Third contract — wide-cap suites must pin a wall budget**, via either `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I uses the latter, so accepting only the former would fail a correctly-budgeted suite). Thresholds are measured, not guessed: E-I at fixed pool 8 ran cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s** against a 3600 s inherited default, so 128 would have been truncated and 64 clears by only 693 s.
   - **Fourth contract — `per_run_timeout_seconds` > driver wall** (`>` not `>=`): equal destroys the manifest (subprocess kill before the driver writes). Both apps.
@@ -2097,6 +2202,8 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - A `gh` non-zero exit is a `ProbeError` → exit 3, never a silently-empty result; that conflation is the same class as trap 1. A missing `required_status_checks` rule is likewise a hard error rather than a quiet downgrade.
   - Probes retry up to `PROBE_RETRIES` (3) times with backoff. The retry is **delay-only** and never classifies errors as transient vs. permanent — a genuinely broken probe fails every attempt and still raises, so the honesty property holds. It exists because two of the first three live runs died due to a transient `TLS handshake timeout` / `unexpected EOF`, discarding a wait that was minutes away from finishing.
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
+- `util/ad-hoc/2026-08-28_hazard_triage.py` / `2026-08-28_resident_gap_scan.py` / `2026-08-31_resident_gap_triage.py` -- Complementary P5 hazard finders. The first ranks *already-resident* `AGENTS.md` blocks via `gh api` on GitHub `main` (default `--min-score 2`). The second finds hazard-shaped source comments whose identifiers are absent from `AGENTS.md` (local, read-only; ranks by identifier count). The third joins them: gap finding scored with four severity signals on the **block** (default `--min-score 3`; `--json` writes every scored row; `--self-check` pins cascor `cascade_correlation.py:1927`). `SKIP_DIRS` excludes in-repo worktrees (#1519). The candidate **total is not a health metric** — cutting widens the gap by construction. Operator surface: [Resident-Hazard Gap Triage](#resident-hazard-gap-triage).
+- `util/ad-hoc/2026-08-10_ruleset_context_audit.py` -- Read-only fleet classifier for `required_status_checks` (BLOCKING / MATCHED / Tier 1 / path-gated / advisory). Human exit 1 only on `BLOCKING`; `--json` also fails on `error`. Operator surface: [Ruleset Context Audit](#ruleset-context-audit).
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
@@ -2195,10 +2302,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/read_run_metrics.py` -- Canonical reader for the perf-lane's two ratified inputs (P2 item 0.4). Last row of `metrics_series.csv` (`step_sum` / `step_count`); de-ratifies `wall_seconds` and `timings.drive`. `workload_fingerprint` strips cosmetic `experiment.description`/`name`. Recurrence returns `work_countable: False`. Path-invoked; `--sweep` is docstring-only. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_read_run_metrics.py`.
 - `util/experiments/make_baseline.py` -- Operator-only Q-8 writer (P2 item 1.1 / P1 §4). Writes `baselines/<tag>/{baseline.json,HOST.json,manifests/}` under `--run-root` (default `~/.local/state/juniper-experiments`).
   - No `--force`; refuses failed / unmeasured / not-invariant / mixed-workload / not-countable suites.
-  - `metric_contract` still claims `step_count` is deterministic — that claim is the thing juniper-ml#1710 refuted.
+  - `metric_contract`'s work string is **under-specified**: it still reads "deterministic for a seed-fixed config and contention-immune" without the termination-branch condition `ml#1733` established. The written `baseline.json` inherits that wording; the guard itself is correct. Known source gap.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_make_baseline.py`.
 - `util/experiments/compare_baseline.py` -- Split comparator (P2 item 1.2). WORK exact, SPEED reported never gated, identity first. Exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED.
-  - **Do not wire to CI** until termination determinism is settled (juniper-ml#1710).
+  - **Do not wire to CI** — sound since ml#1743, but whether the run tier gates at all is an open OWNER decision (P1 design §6).
   - Writer refusals the comparator still lacks: unmeasured cells, `timed_out` cells, zero-work, `--suite` collapse, duplicate-fingerprint last-wins, unchecked scenario coverage.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_compare_baseline.py`.
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
@@ -2315,6 +2422,7 @@ juniper-ml/
 │   ├── test_env_repr_safety.py           # Lint gate: no raw os.environ-derived subprocess env in tests/ + RedactedEnv behavior
 │   ├── test_worktree_cleanup.py          # Worktree cleanup script tests (225 lines)
 │   ├── test_worktree_sweep_scripts.py    # Ad-hoc sweep script safety/contract tests
+│   ├── test_p5_worktree_cleanup.py       # P5 worktree sweeper: PR-lookup naming, disposable vs harvest, cwd-only occupancy
 │   ├── test_cleanup_session_worktrees.py # Session .claude/worktrees cleaner (merged-PR fail-closed + dry-run)
 │   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
 │   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
@@ -2350,7 +2458,7 @@ juniper-ml/
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown, APD-DATA-018 data_up does not set IMPORT_DIR/MAX_BYTES/ALLOW_TRUNCATION; hermetic)
 │   ├── test_read_run_metrics.py          # Hermetic: util/experiments/read_run_metrics.py last-row step_count/step_sum, fingerprint, work_invariant over measured cells, recurrence not countable
 │   ├── test_make_baseline.py             # Hermetic: util/experiments/make_baseline.py Q-8 writer refusals (no --force, unmeasured/failed/not-invariant/mixed-workload)
-│   ├── test_compare_baseline.py          # Hermetic: util/experiments/compare_baseline.py split comparator (exact work, ungated speed, identity-first REFUSE, 0/1/2 exits). Does not pin the six open defects
+│   ├── test_compare_baseline.py          # Hermetic: util/experiments/compare_baseline.py split comparator (exact work, ungated speed, identity-first REFUSE, 0/1/2 exits, A1-A7 refusal ladder closed by ml#1741 + ml#1743)
 │   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags, JUNIPER_SUITE_GRAFANA_BRIDGE env toggle; hermetic). PF instruments: § PF Scenario Suites
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
@@ -2360,6 +2468,9 @@ juniper-ml/
 │   ├── test_run_experiment.py              # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, csv_import 422/unstageable, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_experiment_config_schemas.py   # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
 │   ├── test_experiment_suite_yamls.py      # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget + per_run_timeout > wall (pf5 was 900/900); PF instruments: § PF Scenario Suites
+│   ├── test_p5_fleet_state.py              # Behavioral: util/ad-hoc/2026-08-26_p5_fleet_state.py census (invocation --advisory, 404-only-None, CHAR vs BYTE, exact Memory Budget required match; hermetic)
+│   ├── test_resident_gap_triage.py         # Hermetic: util/ad-hoc/2026-08-31_resident_gap_triage.py block score / gap predicate / log-level demotion (the leftover #1663 cannot see)
+│   ├── test_resident_gap_scan.py           # Hermetic: util/ad-hoc/2026-08-28_resident_gap_scan.py IDENT / .claude/worktrees skip / CLI exit 2 (the leftover #1663/#1697 cannot see)
 │   ├── test_prompt_validator_contract.py   # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
 │   ├── test_template_agent_skill_lint.py   # Lint: template-agent Skill frontmatter + wiring to real artifacts (PR 5)
 │   ├── test_service_smoke_skill_lint.py    # Lint: service-smoke Skill frontmatter (declared browser MCP for opt-in --ui, NO Agent) + teardown wiring (E-1 Stage 1/2)
@@ -2382,7 +2493,7 @@ juniper-ml/
 │                                         #  juniper-doc-tools PyPI package).
 │
 └── util/                                 # Utility scripts and tools
-    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md)
+    ├── ad-hoc/                           # Single-use/temporary/unfinished scripts (see ad-hoc/README.md); 2026-08-10_ruleset_context_audit.py = required-context fleet classifier (REFERENCE § Ruleset Context Audit)
     ├── assert_release_tag.bash           # Publish guard (P3): ref must be a TAG, and the tag's version must match the wheel actually built
     ├── open_signed_pr.py                 # Cross-repo: open a PR on any Juniper repo with a GitHub-SIGNED commit (createCommitOnBranch)
     ├── wait_for_checks.py                # Cross-repo: wait for a PR's REQUIRED status checks (ruleset-anchored) to finish; read-only, exit 0/1/2/3
@@ -2418,7 +2529,7 @@ juniper-ml/
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + read_run_metrics.py / make_baseline.py / compare_baseline.py (Q-8 split gate — do not CI-wire) + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + read_run_metrics.py / make_baseline.py / compare_baseline.py (Q-8 split gate — sound since ml#1743; CI-wiring is an open OWNER decision) + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -2596,6 +2707,77 @@ close/re-open.
 PR mergeable into `main`, and it does **not** re-land the stack -- do that separately.
 
 Rollout and rationale: [juniper-ml#434](https://github.com/pcalnon/juniper-ml/issues/434).
+
+## Ruleset Context Audit
+
+`util/ad-hoc/2026-08-10_ruleset_context_audit.py` is the **read-only** fleet classifier for `required_status_checks`. It exists because that rule **cannot** be copy-pasted across repos: it names each repo's actual job strings, and a required name that never reports is never satisfied.
+
+The 2026-08-10 incident applied one fleet-union list of 30 contexts to all 9 publishing repos. Every `main` became unmergeable except by admin bypass (200 blocking contexts across the fleet). Incident record: [`notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md`](../notes/JUNIPER_2026-08-10_JUNIPER-ECOSYSTEM_REQUIRED-STATUS-CHECK-CONTEXT-LISTS.md). **§1 counts in that note are historical** — re-run the auditor; do not quote them.
+
+This is the **reader**. The writer that adds one context (with a pre-flight that the repo's CI actually publishes the string) is `util/ad-hoc/2026-08-20_require_context_safely.py`. The CI gate that `~ALL` scope re-arms dependabot / Copilot bypass rows is `util/ruleset_scope_guard.py`. Do not substitute one for another.
+
+### Invoke
+
+```bash
+python util/ad-hoc/2026-08-10_ruleset_context_audit.py              # all 9 publishing repos
+python util/ad-hoc/2026-08-10_ruleset_context_audit.py --repo juniper-ml
+python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json       # machine-readable; see exit codes
+```
+
+Read-only: `gh api` GET of `/repos/pcalnon/<repo>/rules/branches/main` plus `gh pr list --state all --limit 8 --json statusCheckRollup`. Writes nothing. Needs `gh` authenticated to those 9 repos.
+
+Hardcoded fleet (`REPOS`): `juniper-ml`, `juniper-cascor`, `juniper-canopy`, `juniper-data`, `juniper-cascor-worker`, `juniper-deploy`, `juniper-data-client`, `juniper-cascor-client`, `juniper-recurrence`. `--repo` is **not** validated against that list.
+
+### Classification (verified against `audit()`)
+
+| Bucket | Meaning | Require it? |
+|--------|---------|-------------|
+| `BLOCKING` | Required, never seen on the sampled rollups | **No** — remove or rename. This is the 2026-08-10 class. |
+| `MATCHED` | Required and seen at least once | Already required. Human text prints the **count** only; names are in `--json`. |
+| `TIER 1` | Seen on **every** sampled PR after filters, and not advisory | Safe to require. |
+| `PATH-GATED` | Seen on some sampled PRs only (`name [freq/n]`) | **Do not require** — blocks every PR that misses those paths. |
+| `advisory_seen` | Reports, but default-advisory (and not in the live required set) | Leave advisory. **`--json` only** — the human report omits this list. |
+
+Two filters decide Tier 1 vs path-gated (not "every check that reports"):
+
+1. **Always ∩ not-advisory.** A context that misses even one kept PR is path-gated. Dependabot/docs PRs (~22 checks) vs code PRs (~37) is preserved on purpose — those thinner PRs must stay mergeable.
+2. **Half-median rollup drop.** A PR that merged before CI settled (juniper-ml#1061 carried 5 of ~37) would make **every** context look path-gated and collapse Tier 1. Rollups with `len < median/2` are discarded.
+
+### Advisory predicate
+
+`ADVISORY_EXACT` / `ADVISORY_PREFIXES` is a **default**, not the verdict. `advisory_predicate(required)` treats a name as advisory only when it matches the default **and** is **not** in that repo's live required set.
+
+Without the subtraction, promoting a check (ml#1011 made `Sequence Safety` required fleet-wide) leaves the string in `ADVISORY_EXACT` and the now-required context **vanishes from Tier 1** — it looks missing when it is fine. Keeping promoted names in the default list is deliberate: a sibling that has not promoted the check still classifies it as advisory.
+
+Prefix match is `startswith("Cursor Automation:")`, **not** a substring. A wrapped label that merely contains those words is not advisory.
+
+`ADVISORY_EXACT` includes `claude`, `Sequence Safety` / `Sequence Safety (Advisory)`, `Fleet PR Lint`, notification/mutation side-jobs, the pre-#1099 `Bump AGENTS.md Last Updated` name, `Verify AGENTS.md Last Updated`, `Update requirements.lock`, and the umbrella `CodeQL` (the real gate is `Analyze (python)`).
+
+### Exit codes
+
+| Mode | Exit 0 | Exit 1 |
+|------|--------|--------|
+| Human (default) | `TOTAL BLOCKING` is 0 | Any repo has a non-empty `blocking` list |
+| `--json` | No `blocking` and no `error` | Any `blocking` **or** any `error` |
+
+Human mode can exit **0 with `ERROR:` rows** (a `gh` failure does not increment `TOTAL BLOCKING`). `--json` fails closed on those same errors. Do not treat a silent text-mode 0 as "the fleet probe succeeded" — read the `ERROR:` lines, or use `--json`.
+
+A repo whose sampled rollups are all dropped (or that has no recent PRs) has `reported = ∅`, so **every** required context becomes `BLOCKING`. That is a sampling failure, not a 200-context incident. Re-run; do not strip the ruleset from a one-shot empty sample.
+
+### Operator pitfalls
+
+| Symptom | Check |
+|---------|-------|
+| `main` `BLOCKED`, every visible check green | Required name never reports — the class this tool names `BLOCKING`. Confirm with `--repo` before adding another context. |
+| Tier 1 empty / everything path-gated | Thin rollup slipped past the half-median filter, or `--limit 8` hit an unlucky window. The filter is `>= median/2`, not "drop dependabot". |
+| Promoted check missing from Tier 1 | `advisory_predicate` must subtract the live required set. If you forked the script and inlined `is_advisory()` only, you reintroduced the ml#1011 miss. |
+| `Cursor Automation: …` in Tier 1 | Prefix must stay `startswith`. A `in` / substring test will also swallow unrelated labels. |
+| Text exit 0 but one repo says `ERROR:` | Expected — human mode ignores probe failures. Re-run `--json` (exit 1) or that `--repo` alone. |
+| Quoted 23/200 blocking from the 2026-08-10 note | Historical. Re-run; the note's §1 table is the incident, not the live fleet. |
+| Used this script to *add* a required context | Wrong tool. `require_context_safely.py` is the writer (pre-flight + snapshot). This auditor only GETs. |
+| `--help` still says `CANDIDATE` | Stale `__doc__`. Live `audit()` split that bucket into `tier1` / `path_gated` / `advisory_seen`. Trust the function, not the banner. |
+
+Dedicated unittest arm is **not on main** (open juniper-ml#1670). Complementary gates that *are* on main: `tests/test_require_context_safely.py` (writer), `tests/test_ruleset_scope_guard.py` (`~ALL` scope), `tests/test_wait_for_checks.py` (required-context waiter).
 
 ## CI/CD Workflow Inventory
 
@@ -2988,7 +3170,7 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
-Q-8 baselines and the split comparator are a **separate** operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Do not treat a `compare_baseline.py` FAIL as a code regression, and do not wire that tool to CI, until termination determinism is settled (juniper-ml#1710).
+Q-8 baselines and the split comparator are a **separate** operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). A `compare_baseline.py` FAIL is now interpretable — it means the workload, host, termination branch and measurement all matched and `step_count` still moved. Do not wire that tool to CI: whether the run tier gates at all is an unmade **owner** decision (§6 of the P1 design), not a soundness question.
 
 ---
 
@@ -2996,19 +3178,31 @@ Q-8 baselines and the split comparator are a **separate** operator surface: [Per
 
 The Q-8 run-level tools are on main: `util/experiments/read_run_metrics.py` (reader), `make_baseline.py` (writer), `compare_baseline.py` (split comparator). They implement the rule in item 1.5 / §2.2 of [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) and the directory contract in §4 of [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md).
 
-**Do not wire `compare_baseline.py` to CI.** Consensus validation of the perf-lane handoff
-([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) produced a counterexample:
-identical `workload_fingerprint`, seed, and host, all `outcome: succeeded`, different `step_count`.
-Blessing one side and comparing the other is a **false regression** — exit 1 for a change the code
-did not make, the failure mode item 1.5 was designed to avoid. The source comments and
-`baseline.json`'s `metric_contract` still say `step_count` is "deterministic for a seed-fixed
-config and contention-immune". That sentence is the thing #1710 refuted. What survives:
-`step_count` is exact **as a last-row measurement**. What does not: "deterministic, therefore safe
-to gate at zero tolerance."
+**The determinism question is SETTLED, and the reason not to CI-wire has changed.** Consensus
+validation ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) produced a
+counterexample — identical `workload_fingerprint`, seed, and host, all `outcome: succeeded`,
+different `step_count` — and a corpus census then explained it. Over 333 runs / 153 distinct
+configs, **79 configs repeat, 29 of those diverge in `step_count`, and all 29 are explained by
+`completion_reason`: zero remain divergent within a termination branch.** So `step_count` is exact
+and deterministic *given how training ended*; the original contract simply omitted that condition.
+[`ml#1733`](https://github.com/pcalnon/juniper-ml/pull/1733) made the branch part of the
+precondition, so a branch flip now **REFUSES (exit 2)** instead of FAILing.
 
-The review attributes the spread to wall-clock-sensitive termination (the stopping branch can move; `max_wall_seconds` can truncate the histogram). The P2 plan's "invariance follows from the iteration cap" attribution is not established — do not treat a 21-cell or 5-cell identical count as a proof that the next identical config will match.
+Read the census caveat before leaning on it: the 29 divergent configs partition into 74 branches,
+**54 of them singletons**, where within-branch agreement is definitionally guaranteed. Only **20
+branches have n≥2** and genuinely corroborate. No counterexample exists, but the finding rests on
+20 real comparisons.
 
-`ci.yml` already runs the **unittests**. That is not the same as a run-tier gate against a blessed baseline. Leave the run-tier hook unwired until termination determinism is settled.
+The P2 plan's "invariance follows from the iteration cap" attribution was **misattributed** and is
+withdrawn: every PF-1 run at both 20 s and 65 s terminates `early_stopped`, so none is cap-bound.
+The 21-cell invariance is a real empirical regularity with the wrong stated cause.
+
+**Do not wire `compare_baseline.py` to CI — but for a different reason than this section used to
+give.** The tool is now safe on its own merits (see the refusal ladder below). What remains open is
+a **policy** question that belongs to the owner: *whether the run tier gates CI at all*, §6 of the
+P1 design. Item 1.4 deliberately leaves `run_suite`'s exit code untouched by a verdict pending that
+decision, and a test is named for it. `ci.yml` already runs the **unittests**; that is not the same
+as a run-tier gate against a blessed baseline.
 
 ### What each tool does
 
@@ -3036,10 +3230,19 @@ Default `--run-root` is `~/.local/state/juniper-experiments` (`JUNIPER_EXP_RUN_R
 | Exit | Verdict | Meaning |
 |------|---------|---------|
 | `0` | PASS or WAIVED | Same workload, work matched — or an operator blessed a work change with `--accept-work-change REASON` |
-| `1` | FAIL | Same workload, `step_count` moved. The code as written treats this as a regression. Until termination determinism is settled, treat it as **uninterpretable**. |
-| `2` | REFUSED | Cannot compare: identity, host, incoherent candidate, missing baseline, or usage. A waiver **cannot** override a refusal (`render` must print `had NO effect`). |
+| `1` | FAIL | Same workload, same host, **same termination branch**, every cell `succeeded` and measured — and `step_count` still moved. Since `ml#1733` this is interpretable: a cross-branch flip lands on `2`, not here. |
+| `2` | REFUSED | Cannot compare — see the refusal ladder below. A waiver **cannot** override a refusal (`render` must print `had NO effect`). |
 
 Whitespace-only `--accept-work-change` is exit 2. Prefer cutting a **new baseline tag** over a waiver — tags supersede by name and are cheap.
+
+**Precedence is FAIL > REFUSED > PASS, and the order is load-bearing.** It used to be `if reasons:
+REFUSED` first, so one unreadable `--suite` on the command line converted a *real* FAIL on another
+suite into a REFUSE — and a caller treating exit 2 as "cannot compare, don't block" would lose the
+regression. `ml#1733` made that worse by adding four more refusal paths; `ml#1743` fixed the
+ordering. A positively-detected work regression is knowledge and wins; a refusal only means "could
+not verify", which must still beat PASS, so an unverifiable comparison never reports clean. Host
+and baseline-load failures (`basis_reasons`) are the one exception that outranks FAIL — without a
+valid basis there is nothing to have detected.
 
 ### Identity and host
 
@@ -3047,32 +3250,52 @@ Whitespace-only `--accept-work-change` is exit 2. Prefer cutting a **new baselin
 
 Host blocking (REFUSE): `cpu_model`, `cpu_count`, `thread_budget`. Advisory only (reported, never a refusal): `torch`, `numpy`, `python_runs`. Not compared: RAM, GPU, platform, `python_tool`. `HOST.json` is load-bearing: without it the comparison silently becomes cross-hardware. Torch/numpy versions come from **this** interpreter; a python mismatch is recorded as a caveat, not assumed away.
 
-### Writer vs comparator — the asymmetry
+### Writer vs comparator — the asymmetry, now CLOSED
 
-`make_baseline.py` already refuses the cases the comparator still accepts. Verified hermetically against the source on `origin/main`:
+**The asymmetry is closed.** It was real, and this section used to document it as a live hazard:
+`make_baseline` refused inputs the comparator quietly accepted, so a PASS did not mean "every cell
+succeeded and was measured." [`ml#1741`](https://github.com/pcalnon/juniper-ml/pull/1741) and
+[`ml#1743`](https://github.com/pcalnon/juniper-ml/pull/1743) imported every one of those refusals
+into `compare_baseline`. Verified against the source on `origin/main`:
 
 | Input | `make_baseline` | `compare_baseline` |
 |-------|-----------------|--------------------|
-| Any cell `outcome != succeeded` (incl. `timed_out`) | REFUSE | ignored — a matching `step_count` still PASSes |
-| Any cell with `step_count is None` | REFUSE | dropped by `summarise` before uniqueness — 4 of 5 unmeasured + one match PASSes |
-| Both sides `step_count == 0` | writes a zero-work baseline | PASS (`0 == 0`) |
+| Any cell `outcome != succeeded` (incl. `timed_out`) | REFUSE | REFUSE (A2) |
+| Any cell with `step_count is None` | REFUSE | REFUSE (A1) — no longer dropped before uniqueness |
+| Any cell `step_count == 0` | REFUSE | REFUSE (A4) — an equal count of nothing proves nothing |
 | Candidate `step_count` spread across cells | REFUSE ("not repeats") | REFUSE (same) |
+| Cells ended on **different termination branches** | REFUSE | REFUSE (`ml#1733`) |
+| Baseline records **no** `completion_reason` (cut pre-guard) | n/a | REFUSE — fails closed on both sides |
+| Baseline holds duplicate workload fingerprints | n/a | REFUSE (A7) — collision detected, not resolved arbitrarily |
+| Candidate covers only some baseline scenarios | n/a | REFUSE (A6) — names the uncovered ones |
 | Recurrence / `work_countable: False` | REFUSE | REFUSE (speed alone is not gated; source comments quote a 13–20.5% host drift floor) |
 
-A PASS therefore does **not** mean "every cell succeeded and was measured." Read `manifest.outcome` and the series file yourself before blessing or comparing.
+A PASS now does mean "same workload, same host, same termination branch, every cell succeeded and
+measured, every baseline scenario covered." That is the whole point of the ladder: the operator
+should not have to re-read `manifest.outcome` and the series file to know whether a PASS was earned.
 
-### Comparator defects still open (source-verified)
+### The refusal ladder (source-verified, `compare()` order)
 
-These are in `compare()` today. `ci.yml` does not pin them; the unittests cover the happy path and the identity/waiver contracts.
+Each rung `continue`s to the next suite rather than judging it. Order matters — the truncated-
+termination check runs before the rest so a driver-stopped run is never mistaken for a measurement:
 
-1. **Unmeasured cells are dropped, not refused.** `summarise` builds `step_counts` only from numeric values. One measured cell among four empty series still reports `work_invariant: True`.
-2. **`outcome` is never read.** Every cell `timed_out` (or `stalled` / `failed`) still PASSes when the remaining counts match.
-3. **Zero work PASSes.** `0 == 0` is a match. Both sides doing no steps is not a successful comparison.
-4. **One unreadable `--suite` converts FAIL(1) into REFUSE(2).** `reasons` are collected across all `--suite` args; any reason forces REFUSED. A real work miss on suite A plus a missing `registry.jsonl` on suite B exits 2.
-5. **Duplicate fingerprints collapse.** `by_fingerprint = {s["workload_fingerprint"]: s for s in scenarios}` keeps the last row. Two baseline scenarios sharing a fingerprint can produce a false FAIL against the discarded count.
-6. **Scenario coverage is unchecked.** A two-scenario baseline compared to one matching candidate still PASSes. Missing scenarios are not a refusal.
+1. **Truncated termination** — the driver stopped before the workload did, so `step_count` measures
+   the *budget*, not the code.
+2. **`outcome != succeeded`** (A2) · 3. **`step_count is None`** (A1) · 4. **`step_count == 0`** (A4)
+5. **Multiple workloads in one candidate** — its own spread is not a property of the code.
+6. **`work_countable: False`** — the WORK half does not apply, and speed alone is not gateable.
+7. **Work not invariant across cells** — not a set of repeats.
+8. **Mixed termination branches** (`ml#1733`) · 9. **Workload absent from the baseline** — invalid
+   comparison, not a regression. 10. **Baseline/candidate branch mismatch.**
 
-`#1617` / `#1626` (mixed known+unknown identity) and `#1625` (complementary tests) remain open follow-ups; they are not a license to CI-wire the gate.
+Then, after the per-suite loop: **host mismatch** and **duplicate baseline fingerprints** are
+`basis_reasons` (they outrank FAIL); **no scenarios compared** and **partial scenario coverage**
+(A6) are ordinary refusals.
+
+These are pinned by `tests/test_compare_baseline.py`, which is wired in `ci.yml`.
+[`#1713`](https://github.com/pcalnon/juniper-ml/pull/1713) adds further coverage of the A1–A7
+refusals. `#1617` / `#1626` (mixed known+unknown identity) and `#1625` (complementary tests) remain
+open follow-ups; they are not a license to CI-wire the gate — that call is the owner's, above.
 
 ### Recurrence is not countable
 
@@ -3082,10 +3305,14 @@ These are in `compare()` today. `ci.yml` does not pin them; the unittests cover 
 
 | Symptom | Check / Fix |
 |---------|-------------|
-| `compare_baseline` FAIL, exit 1, same YAML / seed / host | Do **not** treat as a code regression. Confirm both sides reached the same termination branch and were not wall-truncated. Until that is settled, cut a new tag or waive with a reason — do not add this tool to `ci.yml`. |
-| `compare_baseline` PASS, but several cells have no `metrics_series.csv` | Expected today — unmeasured rows are dropped. Re-run `read_run_metrics.py` and inspect per-cell `step_count`. |
-| `compare_baseline` PASS, every cell `timed_out` | Expected today — `outcome` is not consulted. `make_baseline` would have refused the same suite. |
-| `compare_baseline` REFUSED, exit 2, after a real work miss | Another `--suite` on the same command was unreadable or incoherent. Split the invocation; do not collapse 1 and 2. |
+| `compare_baseline` FAIL, exit 1, same YAML / seed / host | Interpretable since `ml#1733`/`ml#1743`: the branch, `outcome`, measurement and coverage checks all passed and the count still moved. Investigate the change. Cut a new tag or `--accept-work-change REASON` only once you know *why* it moved. |
+| `compare_baseline` REFUSED, "cells ended on different branches" | Not a regression. The candidate terminated differently from the baseline (`early_stopped` vs `below_threshold` is the canonical pair). Re-run, or re-cut the baseline in the branch you mean to track. |
+| `compare_baseline` REFUSED, "records no completion_reason" | The baseline predates the `ml#1733` guard (e.g. `pf1-2026-09-04`). Expected — re-cut under a new tag; use `pf1-2026-09-04b` or later. |
+| `compare_baseline` PASS, but several cells have no `metrics_series.csv` | **No longer possible** — A1 refuses unmeasured cells. If you see this, the reader drifted; stop and check `read_run_metrics.py`. |
+| `compare_baseline` PASS, every cell `timed_out` | **No longer possible** — A2 reads `outcome`. Same stop condition as above. |
+| `compare_baseline` REFUSED, exit 2, after a real work miss | **No longer possible** — A3 gives FAIL precedence over REFUSED. A real work miss now exits 1 even when another `--suite` is unreadable. |
+| `compare_baseline` REFUSED, "covered N of M baseline scenario(s)" | A6. The candidate did not run every blessed workload; a PASS would have meant only that the ones you ran still match. Run the rest, or cut a narrower baseline. |
+| `compare_baseline` REFUSED, "DUPLICATE workload fingerprint(s)" | A7. Two blessed scenarios share a workload, so which one a candidate compares against is arbitrary. Re-cut the baseline from distinct workloads. |
 | `make_baseline: … already exists` | No `--force`. Choose a new tag. |
 | `make_baseline` refuses `validation_warnings` | Re-run clean, or pass `--accept-warnings` (recorded in `baseline.json`). |
 | `workload … is not in baseline` / `INVALID comparison` | Fingerprint mismatch (often a real config edit, or `output_epochs` / seed). Not a work regression. |
@@ -3094,7 +3321,7 @@ These are in `compare()` today. `ci.yml` does not pin them; the unittests cover 
 | Reader says WORK INVARIANT HOLDS, one cell has no series | `summarise` dropped the None. The invariant is only over **measured** cells. |
 | Tempted to gate SPEED | Source comments quote a 13–20.5% host drift floor, larger than six competing CPU-bound processes. SPEED is reported, never gated. |
 
-Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py` (wired in `ci.yml`). Those suites pin last-row reads, writer refusals, identity-first compare, exact work, ungated speed, and the 0/1/2 exit split. They do **not** pin the six defects above.
+Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py` (wired in `ci.yml`). Those suites pin last-row reads, writer refusals, identity-first compare, exact work, ungated speed, and the 0/1/2 exit split. Since ml#1741 + ml#1743 they also pin the A1-A7 refusals; #1713 adds further coverage.
 
 ---
 
@@ -4120,10 +4347,13 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.55  | 2026-09-04 | F-039 store probe: apply / soak / report / revert for the server-side TOPOPROBE; read the whole series; `--target topology` refuses on current canopy; backup lives in the git dir |
 | 0.6.56  | 2026-09-04 | Conda env torch shadow diagnostic: `util/check_conda_env_torch.bash` exit **2** is P-5 free-threaded, exit **4** is the May-7 regular-3.14 wheel-layout class; do not rebuild from the wrong code |
 | 0.6.57  | 2026-09-05 | MEMORY.md index check: local `util/memory_index_check.py` runbook — hard cap 200/25000 (silent newest-first), hook-not-line 120 on NEW slugs only, fail-closed missing file, `--accept` always exits 0 |
+| 0.6.59  | 2026-09-05 | Perf-lane work gate, post-`ml#1743`: determinism **settled** — `step_count` is exact *within a termination branch* (census: 333 runs, 29 of 79 repeated configs diverge, all explained by `completion_reason`), and `ml#1733` made the branch a precondition so a flip REFUSES. Writer-vs-comparator asymmetry and all six defects (A1-A4/A6/A7) **closed**; exit 1 is interpretable; FAIL outranks REFUSED. CI-wiring prohibition **re-grounded**: an owner decision (P1 §6), not a soundness bar. |
 | 0.6.58  | 2026-09-05 | Juniper project-tree backup: `util/juniper-backup.bash` per-repo `.tbz2.gpg` (bzip2, restore `-xjf`), build-once / copy ciphertext, `--dry-run` must not write, unattended verify is `--list-packets` only, `EXCLUDE_CASCOR_SNAPSHOTS` TRUE is `0` |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
+| 0.6.59  | 2026-09-05 | Ruleset Context Audit: read-only fleet classifier for `required_status_checks` (`2026-08-10_ruleset_context_audit.py`); BLOCKING vs Tier 1 vs path-gated; advisory_predicate subtracts the live required set; text-mode 0 can still carry `ERROR:` rows |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
+| 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
@@ -4477,5 +4707,5 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.6.49
+**Version:** 0.6.59
 **Maintainer:** Paul Calnon

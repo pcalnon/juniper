@@ -116,6 +116,8 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
 - [Conda Env Torch Shadow Diagnostic](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- classify `import torch` / `torch._C` (exit **2** = P-5 free-threaded; exit **4** = May-7; does not rebuild)
 - [Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety) -- `predict_merge` + `Allow-Docs-Rewrite` trailer parity (#926)
+- [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- re-run after an `AGENTS.md` cut; the candidate count grows by construction (health is score ≥ 3)
+- [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- why a required name that never reports leaves `main` unmergeable; re-run, do not quote the 2026-08-10 §1 counts
 - [Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) -- G4 pre-commit split, advisory Sequence Safety / Fleet PR Lint, post-merge `main-verify` catch-up
 - [Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) -- G3 / G3.1 catch-up BASE, stable-title failure notify, trailers vs labels, battery path-gate
 - [YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provisioning) -- ed448-on-card caveat + pointer to the validated transfer procedure
@@ -123,7 +125,7 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm) -- daily report-only open-PR / `cursor/` queue guardrail
 - [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py` (failed `--up` auto-tears down)
 - [PF Scenario Suites](REFERENCE.md#pf-scenario-suites) -- Wave 7.3 instruments (`--dry-run` first; PF-1 matched 4000/4000 epochs; `JUNIPER_SUITE_GRAFANA_BRIDGE`; PF-4/PF-8 are not driver suites)
-- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; do **not** wire the exact `step_count` gate to CI (juniper-ml#1710)
+- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; sound since ml#1743, but do **not** wire the exact `step_count` gate to CI — an open owner decision (P1 design §6), not a soundness bar
 - [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default `equities` / `equities_seq` is 422 at 14 symbols (cost is per request; silent slice deleted in data#354)
 - [Shared-Package CI Workflows](REFERENCE.md#shared-package-ci-workflows) -- the six in-repo `ci-<pkg>.yml` contracts (paths, floors, coverage enforce)
 - [Docs Full Check](REFERENCE.md#docs-full-check) -- weekly cross-repo link validation + the `ECOSYSTEM_REPOS` clone-list lockstep
