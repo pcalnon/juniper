@@ -585,6 +585,43 @@ class ConfigValidationTest(unittest.TestCase):
         """No warning when the caller never asks for an output budget at all."""
         self.assertEqual(self._load(_base_config()).get("validation_warnings", []), [])
 
+    def test_missing_validation_split_override_is_recorded(self) -> None:
+        """Section 6.1 rule 2: a run that defeats cascor's refusal must be MARKED.
+
+        With ``JUNIPER_CASCOR_ALLOW_MISSING_VALIDATION_SPLIT`` set, cascor accepts an
+        artifact with no ``X_val`` and early-stops on ``X_test`` -- so the run's reported
+        f1 / roc_auc are selected on the split they are reported from. The design permits
+        that, behind an explicit switch, and requires it to be recorded. This is the
+        recording, and ``make_baseline.py`` already refuses to bless a warned run without
+        ``--accept-warnings``, so it is a gate rather than a log line.
+        """
+        with mock.patch.dict(os.environ, {rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV: "1"}, clear=False):
+            config = self._load(_base_config())
+        warnings = config.get("validation_warnings", [])
+        self.assertEqual(len(warnings), 1, f"expected exactly one override warning, got {warnings}")
+        self.assertIn("SELECTED-ON", warnings[0])
+        self.assertIn(rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV, warnings[0], "the warning must name the variable to unset")
+
+    def test_missing_validation_split_override_off_is_silent(self) -> None:
+        """Absent, empty and explicitly-false must all stay silent.
+
+        A warning that fires on ``=0`` would train every reader to ignore it, and one that
+        fired on absence would mark every clean run. Both halves are checked because a
+        truthiness test on the raw string would pass the first and fail the second.
+        """
+        for value in (None, "", "0", "false", "no"):
+            # patch.dict snapshots and restores, so mutating inside the block is safe --
+            # and no copy of the environment is built. test_env_repr_safety.py forbids
+            # raw environ-derived mappings: they leak secrets through frame-local reprs,
+            # and its scanner reads the source text, so even naming one in a comment trips
+            # it (which is how this comment came to be worded around the construct).
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV, None)
+                if value is not None:
+                    os.environ[rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV] = value
+                config = self._load(_base_config())
+            self.assertEqual(config.get("validation_warnings", []), [], f"value {value!r} must not warn")
+
     def test_valid_config_loads(self) -> None:
         config = self._load(_base_config())
         self.assertEqual(config["kind"], "cascor")
@@ -710,14 +747,48 @@ class ConfigValidationTest(unittest.TestCase):
         self._assert_rejects(cfg, "unknown key(s) in predict")
 
     def test_recurrence_bad_dataset_split_rejected(self) -> None:
+        """``validation`` stays rejected -- the artifact key is ``X_val``, so the value is ``val``."""
         cfg = _recurrence_config()
         cfg["dataset"]["split"] = "validation"
         self._assert_rejects(cfg, "dataset.split")
 
     def test_recurrence_bad_predict_split_rejected(self) -> None:
+        """Same on the predict key. Two guards, two tests -- E-12 of the rollout plan."""
         cfg = _recurrence_config()
         cfg["predict"]["from_dataset_split"] = "validation"
         self._assert_rejects(cfg, "predict.from_dataset_split")
+
+    def test_recurrence_val_split_accepted_on_both_keys(self) -> None:
+        """``val`` is now a selectable partition -- on BOTH keys.
+
+        Widening ``RECURRENCE_SPLITS`` without this is untested: the two rejection tests
+        above pass whether or not ``val`` was added, because they only ever assert that
+        ``validation`` is refused. A guard's accept set has to be checked separately from
+        its reject set or half of it is never exercised.
+        """
+        cfg = _recurrence_config()
+        cfg["dataset"]["split"] = "val"
+        cfg["predict"]["from_dataset_split"] = "val"
+        config = self._load(cfg)
+        self.assertEqual(config["dataset"]["split"], "val")
+        self.assertEqual(config["predict"]["from_dataset_split"], "val")
+
+    def test_rejection_message_names_val_so_a_typo_is_recoverable(self) -> None:
+        """The error must list ``val``, or a user who typed ``validation`` cannot fix it.
+
+        The guard prints ``sorted(RECURRENCE_SPLITS)``, so this also fails if ``val`` is
+        removed from the set -- which is the point: the message and the set cannot drift.
+        """
+        cfg = _recurrence_config()
+        cfg["dataset"]["split"] = "validation"
+        with self.assertRaises(rx.ConfigError) as ctx:
+            self._load(cfg)
+        self.assertIn("'val'", str(ctx.exception))
+
+    def test_recurrence_splits_holds_exactly_the_npz_partitions(self) -> None:
+        """The accept set is the NPZ partition names, and ``validation`` is not one of them."""
+        self.assertEqual(rx.RECURRENCE_SPLITS, frozenset({"train", "val", "test", "full"}))
+        self.assertNotIn("validation", rx.RECURRENCE_SPLITS)
 
     def test_recurrence_crossval_needs_n_folds(self) -> None:
         cfg = _recurrence_config()
