@@ -445,7 +445,7 @@ an awaited `httpx.AsyncClient`. Do **not** reintroduce a module-global expressio
 health endpoints X7 is defined by. Both scans read `main.py` only; the metrics relay is a named miss.
 Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census).
 
-**Topology step order / phantom W-ids (#1695):** `--step` is order-preserving on one page. `topo` fills the raw-topology store, so a later `topostate` scores M-18 `INDETERMINATE` — harness artifact. Re-drive `--step topostate` alone. Do not hold F-037 open on `W4-01..17` / `W1-12..14` (18 of 20 never existed; F-E2E-007). Triage takes the first severity token in the header. [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
+**Topology step order / W-id facts (#1695):** `--step` is order-preserving on one page. `topo` fills the raw-topology store, so a later `topostate` scores M-18 `INDETERMINATE` — harness artifact. Re-drive `--step topostate` alone. `W4-01..17` / `W1-12..14` **are** matrix §4 steps (17 and 19 numbered steps) — F-E2E-007 claimed they never existed and was withdrawn; F-037 stays OPEN on its undriven `ws-cascade-add-buffer` growth trigger. Triage takes the first severity token in the header. [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
 
 ---
 
@@ -663,7 +663,7 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
 | M-TOPOLOGY-18 `INDETERMINATE` after `topo,…,topostate` | Store already filled. Re-drive `--step topostate` alone. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids). |
-| F-037 still OPEN waiting on W4/W1 rows | Those IDs were never enumerated (F-E2E-007 / #1695). Score M-TOPOLOGY. |
+| "The `W4-*` IDs don't exist" | They do — matrix §4, 17 numbered steps. Grep `### W4`, not `W4-09`. F-E2E-007 made this claim and was withdrawn. |
 | Triage reports P0/P1 on a LEDGER note | First severity token in the header won — do not name another severity in the prose. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
@@ -729,7 +729,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
-- [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; W4/W1 blast-radius IDs are mostly phantom (F-E2E-007 / #1695)
+- [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; the W4/W1 blast-radius IDs are real matrix §4 steps (F-E2E-007 claimed otherwise and was withdrawn)
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference

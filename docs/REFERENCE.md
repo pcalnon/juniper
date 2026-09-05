@@ -1481,7 +1481,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
-- `util/ad-hoc/e2e_seg17_topology_driver.py` -- `--step` is order-preserving on one browser page; `topostate` must run first or alone or M-TOPOLOGY-18 reports `INDETERMINATE`. The module docstring's `W4-01..17` / `W1-12..14` list is stale. Operator surface: [§ Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids). Scorer predicates remain in-flight docs #1675.
+- `util/ad-hoc/e2e_seg17_topology_driver.py` -- `--step` is order-preserving on one browser page; `topostate` must run first or alone or M-TOPOLOGY-18 reports `INDETERMINATE`. The module docstring's `W4-01..17` / `W1-12..14` list is **correct** (matrix §4 steps); three of its step→row aliases are not. Operator surface: [§ Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids). Scorer predicates remain in-flight docs #1675.
 - `util/ad-hoc/e2e_finding_triage.py` -- `pri_of` takes the first severity token anywhere in the bolded header body (not only the parenthetical). Do not name another severity in header prose. Dispositions remain in-flight docs #1646. Same section as the bullet above.
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
@@ -2700,9 +2700,9 @@ Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § X7 off-
 
 ## Canopy E2E Topology Step Order and Blast-Radius IDs
 
-Operator contract for re-driving the canopy topology block without treating a harness artifact as a regression, and without holding a finding open on walkthrough IDs that were never enumerated. Triggered by [juniper-ml#1695](https://github.com/pcalnon/juniper-ml/pull/1695) (F-CANOPY-037 close + F-E2E-007). Distinct from the F-037 **render census** (in-flight docs #1652), the topology **scorer predicates** (in-flight docs #1675), and finding-triage **dispositions** (in-flight docs #1646).
+Operator contract for re-driving the canopy topology block without treating a harness artifact as a regression, and without re-deriving a claim about the walkthrough IDs that has already been refuted once. Triggered by [juniper-ml#1695](https://github.com/pcalnon/juniper-ml/pull/1695), which filed **F-E2E-007** and then **withdrew it the same day** after an independent-consensus review; F-CANOPY-037 remains **OPEN**. Distinct from the F-037 **render census** (in-flight docs #1652), the topology **scorer predicates** (in-flight docs #1675), and finding-triage **dispositions** (in-flight docs #1646).
 
-Verified against `origin/main` `d69c9a73`: `util/ad-hoc/e2e_seg17_topology_driver.py`, `util/ad-hoc/e2e_finding_triage.py`, `reports/e2e/*/statuses.tsv`, and [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md). Ledger status on main still says F-CANOPY-037 **OPEN**; cite #1695 for the close — do not copy that PR's unmerged pass counts.
+Verified against `origin/main` `d69c9a73`: `util/ad-hoc/e2e_seg17_topology_driver.py`, `util/ad-hoc/e2e_finding_triage.py`, `reports/e2e/*/statuses.tsv`, and [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md). F-CANOPY-037 is **OPEN** on main and stays open — #1695 no longer closes it. Do not copy that PR's earlier pass counts: the single combined drive scored 15 PASS / 1 INDETERMINATE, with the 16th PASS coming from a separate control run.
 
 ### `topostate` first, or alone
 
@@ -2727,22 +2727,58 @@ LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
 
 Playwright lives in `JuniperCanopy1`. Default canopy URL is `JUNIPER_E2E_CANOPY_URL` (`http://127.0.0.1:8051`). Results merge into `JUNIPER_E2E_SEG17_RESULTS`. Isolated trio bring-up remains [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
 
-### Do not treat `W4-01..17` / `W1-12..14` as real blockers
+### `W4-01..17` / `W1-12..14` are matrix §4 steps — they are NOT phantom IDs
 
-Four "Blast radius" paragraphs copy the sentence *M-TOPOLOGY-01..18, W4-01..17 and W1-12..14 stay BLOCKED*. That names **20** walkthrough IDs. Against every `reports/e2e/*/statuses.tsv` on main:
+A 2026-09-04 finding (**F-E2E-007**) claimed these 20 identifiers "have never existed" and used that to
+close F-CANOPY-037. **It was withdrawn the same day.** This section records the corrected facts so the
+claim is not re-derived by the next person who greps for the token.
 
-| ID in that phrase | Verdicts on main |
-|-------------------|------------------|
-| `W4-02` | one — `BLOCKED`, F-CANOPY-037, run `20260826T215010Z` |
-| `W1-12` | one — `BLOCKED`, F-CANOPY-037, same run |
-| `W1-12..14` (literal range string used as an id) | one — `BLOCKED(DOM)/PASS(server)`, run `20260810T002233Z` |
-| `W4-01`, `W4-03`…`W4-17`, `W1-13`, `W1-14` | **none, ever** |
+They are defined, in the matrix's §4 workflow scripts:
 
-The W-series elsewhere is real (`W1-17` / `W1-18` PASS; W2/W3/W5/W6 carry many rows). The phrase's 20 IDs are not: **18 have never existed**. The plan document has **zero** `W4-` / `W1-1` matches. The driver's module docstring still lists `W4-01..17` and `W1-12..14` as if they live in the matrix — they do not; `STEPS` is the authority for what is implemented.
+| ID form | Definition | Steps |
+|---------|------------|-------|
+| `W4-NN` | `### W4 — Topology exploration` (matrix `:1005-1023`) | **17**, numbered |
+| `W1-NN` | `### W1 — Cold-start cascor training` | 19; **12/13/14** are the topology-DOM steps |
 
-[juniper-ml#1695](https://github.com/pcalnon/juniper-ml/pull/1695) files this as **F-E2E-007** and closes F-CANOPY-037 against the scoreable M-TOPOLOGY rows. Whether to retire the phantom IDs or define and score the lane is an owner decision; nothing is blocked on the answer. The driver's own comments alias `W4-02` as M-TOPOLOGY-01 (layout cycle).
+Both were added 2026-08-09 in `e835e2b4` (juniper-ml#1036) and **never deleted** — `git log --all -S`
+on three distinctive step strings returns that one commit each. The plan-coverage audit of the same day
+states it outright: *"W4 is a 17-step script"*.
 
-M-TOPOLOGY-11 (select-mode drag) and M-TOPOLOGY-16 (cascade add on a saturated fixture) stay BLOCKED on their own causes — neither is this finding.
+**Why a token grep reads zero.** The steps are written as ordinals (`9.`) under a section heading, not
+as `W4-09`. The `W<n>-NN` form is *section + ordinal*, and it is the id form carrying **98 W-verdicts**
+across `reports/e2e/*/statuses.tsv` — `W5-01`…`W5-29`, `W6-01`…`W6-21` and `W11-01`…`W11-11` all hold
+individual per-step verdicts, including per-step FAILs. **Absence of the token is evidence about the
+spelling, never about the definition.**
+
+**The plan's zero `W4-` matches are the documented design, not evidence of absence.** The plan delegates
+workflow ids to the matrix in terms: *"Workflow ids are the companion matrix's (`W1 … W14`, its §4
+scripts are canonical); this list is a summary, not a second numbering."*
+
+**The driver's module docstring is CORRECT.** It says these ids *"live in the MATRIX … NOT in the
+plan"*. Do not treat it as stale and do not delete it — it is the pointer that resolves this.
+
+**What IS true is coverage, not definition.** W4 has been driven once (`W4-02`, BLOCKED, run
+`20260826T215010Z`) where W5 was driven thirty times. And the driver's step→row aliases carry three
+defects, so do not trust them un-checked:
+
+| Driver comment | Defect |
+|----------------|--------|
+| `M-TOPOLOGY-12 / W4-13` | W4-13 is box-select; the "selection can be cleared" row is **W4-12** |
+| `M-TOPOLOGY-18 / W4-15` | W4-15 is the modebar camera export = **M-TOPOLOGY-14**; M-18 has no W4 step |
+| `M-TOPOLOGY-08 / W1-14` | **Structurally false** — W1-14 compares the *top status bar* against the topology counts; `counts()` never reads the top bar, and the two surfaces are *designed* to diverge under the depth filter |
+
+**F-CANOPY-037 stays OPEN.** Its fix was an `Input` → `State` demotion, so cascade growth now reaches
+the rebuild through exactly one Input, `ws-cascade-add-buffer`. The 2026-09-04 re-drive produced **zero
+cascade adds** on a `COMPLETED` 40/40 fixture, so the trigger the fix created is undriven. Step coverage
+is 9 of 20, not "most". M-TOPOLOGY-11 (select-mode drag) and M-TOPOLOGY-16 (cascade add) stay BLOCKED —
+the latter on a fixture the arc *deliberately* saturated on 2026-09-02 to preserve the 2/40/2/944
+baseline, which is a reversible decision rather than an independent cause.
+
+> **The durable tell, worth more than the facts above.** A non-existence claim that has to *spell* the
+> identifier in order to deny it has already refuted itself. The literal token `W1-13` had never appeared
+> anywhere in this repository's history; it entered for the first time **inside the sentence asserting it
+> had never existed**. Identifiers can be defined without being spelled — ordinals under a heading, table
+> positions, enum indices, generated ids — and a token grep answers only "is this string present?".
 
 ### Finding-header severity trap
 
@@ -2756,9 +2792,9 @@ python3 util/ad-hoc/e2e_finding_triage.py --open-only   # still prints full tota
 | Symptom | Check / fix |
 |---------|-------------|
 | M-TOPOLOGY-18 `INDETERMINATE` after a combined `--step` | An earlier step visited Weight Matrix. Re-drive `--step topostate` alone. |
-| Holding F-CANOPY-037 open until W4/W1 are scored | Those IDs were never enumerated. See F-E2E-007 / #1695. Score M-TOPOLOGY. |
+| "The `W4-*` IDs don't exist" | They do — matrix §4, 17 numbered steps. F-E2E-007 made this claim and was withdrawn. Grep `### W4`, not `W4-09`. |
 | Triage invents a P0/P1 from a bookkeeping note | First severity token in the header won. Rewrite the prose; keep one priority in the parenthetical. |
-| Driver docstring lists `W4-*` / `W1-12..14` as matrix rows | Stale. `STEPS` is the implemented set; the plan has zero of those ids. |
+| Driver docstring lists `W4-*` / `W1-12..14` as matrix rows | **Correct — leave it.** They are matrix §4 steps. `STEPS` is what is *implemented*; the docstring is what is *specified*. |
 
 ---
 
@@ -3171,7 +3207,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 0.6.50  | 2026-09-04 | Topology step order + blast-radius IDs: `topostate` first or alone (M-TOPOLOGY-18 INDETERMINATE is a harness artifact); W4-01..17 / W1-12..14 are mostly phantom (F-E2E-007 / #1695); triage `pri_of` takes the first severity token in the header |
+| 0.6.50  | 2026-09-05 | Topology step order + blast-radius IDs: `topostate` first or alone (M-TOPOLOGY-18 INDETERMINATE is a harness artifact); `W4-01..17` / `W1-12..14` **are** matrix §4 steps — F-E2E-007 claimed otherwise and was withdrawn; triage `pri_of` takes the first severity token in the header |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
