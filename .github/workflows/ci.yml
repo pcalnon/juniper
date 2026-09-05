@@ -933,6 +933,16 @@ jobs:
           # resolved, so DBPATH must be resolved too or the comparison matches nothing).
           # Also pins the scan shape: one find, not a readlink fork per fd on the host.
           python3 -m unittest -v tests/test_duplicati_db_holder_guard.py
+          # tests/test_soak_probe_evidence.py: Hermetic gate for the soak retrieval-evidence extractor, which shipped with zero tests: what counts as evidence for a probe, and that a probe with none is not scored as satisfied.
+          python3 -m unittest -v tests/test_soak_probe_evidence.py
+          # tests/test_soak_wilson_resolving.py: Hermetic gate for the Wilson power table: a table that spends sessions for a WORSE bound is the defect -- monotonicity of the interval in n, and that the resolving-n it reports is actually resolving.
+          python3 -m unittest -v tests/test_soak_wilson_resolving.py
+          # tests/test_soak_run_probe_stopping_rule.py: Stopping-rule paths in `util/soak_run_probe.py` that the dry-run suite cannot reach: the dry run never enters the arms that decide to STOP, so those arms shipped unexercised.
+          python3 -m unittest -v tests/test_soak_run_probe_stopping_rule.py
+          # tests/test_soak_ledger_status_token.py: The `util/soak_ledger.py` status first-token contract the dry-run suite cannot see: the token a downstream reader keys on, pinned against a renaming that keeps the line but changes its meaning.
+          python3 -m unittest -v tests/test_soak_ledger_status_token.py
+          # tests/test_soak_analyse_date_pool.py: Pins that `analyse()` pools the corpus the probe picker now SPLITS by date -- a pooled analysis over a split corpus silently mixes cohorts and reports one number for two populations.
+          python3 -m unittest -v tests/test_soak_analyse_date_pool.py
 
       - name: Run bash regression tests
         run: |
