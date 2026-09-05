@@ -20,6 +20,7 @@
 - [Juniper Project-Tree Backup](#juniper-project-tree-backup)
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
+- [Pointer-Follow Soak](#pointer-follow-soak)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Conda Env Torch Shadow Diagnostic (P-5)](#conda-env-torch-shadow-diagnostic-p-5)
 - [Agent Suite Doctor](#agent-suite-doctor)
@@ -32,6 +33,8 @@
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [PF Scenario Suites](#pf-scenario-suites)
 - [Perf-Lane Work Gate](#perf-lane-work-gate)
+- [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines)
+- [Perf-Lane Split Comparator](#perf-lane-split-comparator)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [P4 Campaign Suites](#p4-campaign-suites)
 - [X7 Off-Loop Census](#x7-off-loop-census)
@@ -46,6 +49,7 @@
 - [Claude.yml Access Validation](#claudeyml-access-validation)
 - [Claude Code Action](#claude-code-action)
 - [CodeQL Analysis](#codeql-analysis)
+- [Required-Context Ruleset Writer](#required-context-ruleset-writer)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -819,6 +823,8 @@ Summary line: `N reaped, M kept (live parent), P protected (live experiment), K 
 
 Regression coverage: `tests/test_reap_pytest_orphans.py` (incl. candidate-filter + SKIPPED arms from juniper-ml#784).
 
+A live soak probe is also a P1/P2 protectee: `util/soak_run_probe.py` writes `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid`. A pidfile under `reports/soak/runs/` is **not** scanned. Operator surface: [Pointer-Follow Soak](#pointer-follow-soak).
+
 Troubleshooting:
 
 | Symptom | Check / Fix |
@@ -826,6 +832,122 @@ Troubleshooting:
 | Expected orphan never listed | Confirm cmdline contains a `JuniperC*` env path or `Juniper/worktrees/`; other-user and non-Juniper python are intentionally excluded. |
 | High `skipped` count, zero reaped | Transient ps→gone race or incomplete `/proc/<pid>/status`; re-run `--dry-run --verbose` once the process table settles. |
 | Live pytest session would be killed | Parent still exists and is not init / `systemd --user` → script prints `KEEP` under `--verbose` and does not kill. |
+
+---
+
+## Pointer-Follow Soak
+
+The pointer-follow soak measures whether a **fresh, unprimed** Claude session retrieves a **relocated** fact from its pointer (usually a `docs/REFERENCE.md` heading) rather than from source. Owner decision 2026-09-03: the soak exists **to inform relocation decisions**, not to print a pooled pass/fail about "relocation in general."
+
+Protocol: [`notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`](../notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md). Trigger and characterisation: [`notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md`](../notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md).
+
+### Pieces
+
+| Piece | Role |
+|-------|------|
+| `conf/soak_probes.json` | Frozen seeded-arm registry. Never edit a probe that already has runs; add a new id. |
+| `reports/soak/pointer_follow_soak.jsonl` | Append-only ledger (observations, rescores, resolves, invalidates). |
+| `util/soak_next_probe.py` | Prints the **task only** (probe id on stderr). `--reveal` is scoring-only. |
+| `util/soak_run_probe.py` | Headless `claude -p` wrapper: dispatch, capture, retrieval channel, scoring packet. |
+| `util/soak_ledger.py` | `probe-run` / `report` / `status` / `verify-probes` / `resolve` / `rescore`. |
+| `util/systemd/juniper-soak-probe.{service,timer,path}` | Unattended **user** units (same wrapper). |
+
+`verify-probes` is the residency gate: every probe's `must_be_absent_from_source` phrases must be absent from `AGENTS.md`, and every `pointer` anchor must resolve. The 2026-08-21 pilot ran nine probes whose facts had never left `AGENTS.md`; those tested nothing. CI runs `python3 util/soak_ledger.py verify-probes`.
+
+### Operator loop
+
+```bash
+python3 util/soak_run_probe.py --dry-run                    # no claude binary required
+python3 util/soak_run_probe.py                              # least-covered probe
+python3 util/soak_run_probe.py --probe-id P23-reaper-over-protection-bias
+python3 util/soak_next_probe.py --reveal --probe-id <id>    # AFTER the run, for scoring
+python3 util/soak_ledger.py probe-run --probe-id <id> \
+    --outcome follow|source-recovered|miss --session <uuid> --scored-by <who>
+python3 util/soak_ledger.py report
+python3 util/soak_ledger.py status                          # exit 1 is often by design
+```
+
+`--dry-run` must not print the task, fact, or discriminator: this wrapper's stdout is read by the operator who later **scores** the run, and echoing the task there re-primes at the far end of the pipeline.
+
+Wrapper exit codes: `0` usable answer + scoring packet; `1` timeout / empty / error result; `2` misuse, or the harness failed before the probe started (including terminal-verdict refuse). Ledger: `probe-run` / `record` / `resolve` → `0` written / `2` rejected; `report` always `0`; `status` → `0` in-progress or holds, **`1` action due**, `2` no data; `verify-probes` → `0` sound / `1` defective.
+
+### Automated vs judgement
+
+Automated (mechanical): probe selection, unprimed dispatch, transcript capture, the **retrieval channel** — did tool inputs or the answer contain the pointer *document path* (anchor stripped)?
+
+Not automated: correctness against the frozen `discriminator`. The wrapper writes `reports/soak/runs/<stamp>-<probe>/scoring_packet.md` and stops. `soak_ledger.py probe-run` still needs a scorer to supply `--outcome`.
+
+Outcomes (`OUTCOMES` in `util/soak_ledger.py`):
+
+| Outcome | Meaning | Follow-rate |
+|---------|---------|-------------|
+| `follow` | Correct **and** retrieved via the pointer | numerator |
+| `source-recovered` | Correct, reached from source (helper / test / grep), not the pointer | stays in **denominator** |
+| `miss` | Acted without the fact | denominator |
+
+`rate` = follows / (follow + miss + source-recovered). `retention` = (follow + source-recovered) / n answers a different question — *did relocation lose the fact?* — and is printed beside the rate, never instead of it. Dropping source-recovered from the denominator was considered and rejected: it would convert `INCONCLUSIVE` into a pass by redefinition.
+
+### Least-covered vs characterisation
+
+Default `soak_next_probe.py` / `soak_run_probe.py` pick **least-covered, then registry order**. That evens the **pooled** estimate.
+
+For a relocation decision the pooled rate is a **mixture**. Characterisation runs (juniper-ml#1616, 2026-09-04; design-conversation §9) selected probes to test membership, not coverage:
+
+- Permutation test (15 probes, 40 runs, 26 follows, 20,000 draws): heterogeneity statistic 30.84, **p = 0.0017**. The probes do not share one rate. Use the stratum, not ~65%, for a specific section.
+- **Per-probe membership is not resolved at n=2–4.** P23 left the "never-follow" group on its third run (0/2 → follow → 1/3). No probe's 95% CI excludes 50% or the pooled rate. Do not treat "P14 never follows" as a property from 0/3.
+- Next cheapest design: drive ambiguous probes (P21 / P23 at 1/3; the 0/3 set) to **n≈8–10**, not even coverage. The timer still fires least-covered — pass `--probe-id` for characterisation.
+- Stopping rule: `soak_run_probe.py` refuses when `status` starts with `BET-FAILING` or `HOLDS-AT-` unless `--force`. Under decision support a terminal **pooled** verdict does not answer the next relocation; `--force` is the deliberate override, not a way to ignore a real stop.
+
+### Verdicts (seeded arm)
+
+Wilson 95% interval vs one reachable boundary (`DECISION_BOUNDARY = 0.75`). Named after what was proven. `BET-HOLDS` is **not** a printable verdict.
+
+| Verdict | Meaning |
+|---------|---------|
+| `IN-PROGRESS` | fewer than 35 seeded runs or 15 distinct probes |
+| `HOLDS-AT-0.75` | Wilson lower bound ≥ 0.75 |
+| `BET-FAILING` | Wilson upper bound < 0.75 |
+| `INCONCLUSIVE` | interval spans 0.75, or hazard stratum empty |
+| `DEGRADED` / `NO-DATA` / `NO-SEEDED-DATA` | instrument integrity; outranks a healthy-looking rate |
+
+Escalations (hazard rung 2, area-systematic rung 3, pointer-defect rung 0) print **alongside** the verdict, never instead of it. `status` exits `1` when they are open — that is the design. `resolve` appends to an append-only ledger; there is no un-resolve. Do not discharge to make the exit code 0.
+
+The **organic** arm is descriptive only (an upper bound). Never used for a verdict.
+
+### Unattended path
+
+These are **user** units, not system units: the probe must see `~/.claude/projects/.../memory/MEMORY.md`. A system unit runs as root with a different `HOME` and measures nothing (same class that ruled out cloud routines).
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp util/systemd/juniper-soak-probe.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now juniper-soak-probe.timer   # or the .path unit
+systemctl --user start juniper-soak-probe                # one-off; no [Install] on the service
+```
+
+Enable the **timer** or **path** unit, not the service. An `[Install]` block on the service is deliberately absent: enabling it would fire an extra uncoordinated probe at every login.
+
+- `ExecStart=/usr/bin/python3 util/soak_run_probe.py --timeout 900` — the reaper candidate filter matches cmdline text `/JuniperC[a-z0-9]+/`; a conda interpreter is reapable from the same cwd. `/usr/bin/python3` is not a candidate.
+- `TimeoutStartSec=1500` must exceed dispatch (120s) + claude (900s) + `--reveal` (120s). If systemd wins the race it cgroup-kills the wrapper **before** `status.json` is written ("crash, not timeout").
+- Timer: `OnCalendar=*-*-* 03,09,15,21:23:00`, `Persistent=false` (a laptop resuming after two days must not stampede missed intervals).
+- Both the unit and the wrapper unset `ANTHROPIC_API_KEY` — a stale key fails with `Credit balance is too low` before the probe starts.
+- Reaper P1 pidfile: `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid` (default `~/.local/state/juniper-experiments`). A pidfile under `reports/soak/runs/` is **not scanned**.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Primed follow | `--reveal` or echoing the task **before** the run. Dry-run stdout is scored later; a leak cannot be un-primed. |
+| Registry leak | `conf/soak_probes.json` is inside the repo and carries every `fact` / `discriminator`. Scoring must run `util/ad-hoc/2026-08-21_soak_probe_evidence.py`; contaminated runs are discarded. |
+| Completed session, empty parse | `parse_events` does `ev.get("message") or {}`; a **string** `message` then raises `AttributeError` **after the session is spent**. Keep `stream.jsonl` and re-parse; do not re-run. Type guard: open juniper-ml#1616. |
+| Channel says follow, maybe not | Mechanical match is `pointer_doc in tool_inputs+answer`. If the task itself contains `--dest docs/REFERENCE.md` (P06), the path appears whether or not the doc was read. Verify by hand (`grep` headings, then a line-range read). |
+| Probe reaped mid-run | Interpreter was `JuniperC*`, or the pidfile was only in `reports/soak/runs/`. A lost run is **not** a miss. |
+| Timer keeps spending | Terminal verdict refuse needs `--force`. Characterisation also needs `--probe-id` — least-covered will not pick the ambiguous probes. |
+| Discriminator under-specifies | Enumerating acceptable answers (P06: "scope **or** refuse") mis-scores a better third path. Score the **property**; record tension in `--note`. Registry-author item. |
+| `status` exits 1 | Open escalation or `BET-FAILING`. Do not `resolve` to green it. |
+
+Coverage: `tests/test_soak_ledger.py`, `tests/test_soak_next_probe.py`, `tests/test_soak_run_probe.py` (hermetic — never launches `claude`). `util/` is outside every pre-commit Python hook, so those suites **are** the gate.
 
 ---
 
@@ -1483,6 +1605,11 @@ job in `ci.yml`.
 > there rather than through the Quality Gate `needs:` — a standalone job that skips on
 > `push` must never be able to fail the aggregate gate.
 >
+> A required context with **no** `integration_id` is satisfied by any app publishing that
+> name ([juniper-ml#1611](https://github.com/pcalnon/juniper-ml/issues/1611)). Pin the
+> publisher with `--amend-integration-id` — see [Required-Context Ruleset Writer](#required-context-ruleset-writer).
+> Do not hand-roll a ruleset PUT.
+>
 > **If it blocks you:** relocate the content to this file and leave a pointer that keeps
 > an accurate open/closed status. If the growth is genuinely warranted, add
 > `Allow-Budget-Overrun: AGENTS.md` and **carry it into the squash message** — that is a
@@ -1911,6 +2038,13 @@ Related: [Relocation Completeness (G3)](#relocation-completeness-g3),
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
 
+Two unittest entry points exist for every `tests/test_*.py` file, and they can disagree.
+
+- `python3 tests/<file>.py` calls `unittest.main()` at the `if __name__ == "__main__"` block. Classes defined **after** that block are never collected.
+- `python3 -m unittest …` (what AGENTS.md and CI use) imports the module fully first, so it sees every class.
+
+Review catch on [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612): `ObservedContextAppsTest` was appended after the existing `__main__` block. Direct execution reported 8 tests; `-m unittest` reported 12. The two negative controls (exact-name near-miss; Bandit app `57789` must not publish `Memory Budget`) were the ones going missing — a green result from a runner that never loaded the cases. Keep `__main__` at EOF so both entry points agree.
+
 - `tests/test_wake_the_claude.py` -- Regression tests for resume/session-id and argument handling in `wake_the_claude.bash`
 - `tests/test_env_repr_safety.py` -- Lint + behavior gate for the env-repr secret-leak class: forbids raw `os.environ`-derived subprocess `env=` mappings in `tests/` (they leak secrets through pytest `--showlocals`-style frame-local reprs) and proves `tests/redacted_env.py`'s `RedactedEnv` masks its repr while behaving as a normal subprocess env mapping. Includes a synthetic-violation self-test; `patch.dict(os.environ, ...)` is deliberately exempt.
 - Doc-link validator regression tests live in [`juniper-doc-tools/tests/`](juniper-doc-tools/tests/) (Wave 4 of the doc-link migration; exercised by the dedicated `CI -- juniper-doc-tools` workflow).
@@ -1920,6 +2054,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_cleanup_session_worktrees.py` -- Hermetic tests for `scripts/cleanup_session_worktrees.py`: `_has_merged_pr` fail-closed (gh fail / bad JSON), dirty/unmerged/detached keeps, self-cwd skip, and `--dry-run` remove of main-ancestor / MERGED-PR clean tips. `LockGateTest` pins the 2026-08-21 liveness gate against real locked worktrees: an otherwise-removable locked tree is kept, the `--dry-run` plan does not promise to remove it, unlocking the same tree makes it removable again (proving the lock is what held it), and an anti-resurrection arm asserts the source never passes `--force`/`-f` to `worktree remove`
 - `tests/test_reap_pytest_orphans.py` -- Tests for `util/reap_pytest_orphans.bash` dry-run, live-parent safety, orphan detection, and isolated kill invocation
   - `TestLiveExperimentProtection`: the P1 pidfile + P2 cmdline keys, reproducing the three shapes a 2026-08-16 dry run would have killed (service/orchestrator/watchdog); the load-bearing live-mode arm proving a genuine orphan still dies while the protected service does not; stale-pidfile conservatism; and a malformed pidfile not aborting the sweep under `set -euo pipefail`
+- `tests/test_soak_ledger.py` -- Gate for `util/soak_ledger.py` (pointer-follow soak). Pins seeded-vs-organic, Wilson-interval verdicts (never `BET-HOLDS`), fail-closed scope, escalations alongside the verdict, session-id collision, and `NO-DATA`/`DEGRADED` on a lost ledger. `util/` is outside pre-commit Python hooks, so this suite **is** the gate.
+- `tests/test_soak_next_probe.py` -- Gate for `util/soak_next_probe.py`. Load-bearing **negative** property: stdout carries the task and nothing else (a leaked fact/pointer/discriminator primes the session and cannot be un-primed).
+- `tests/test_soak_run_probe.py` -- Gate for `util/soak_run_probe.py`. Hermetic (never launches `claude`). Pins dry-run stdout leaking no task/fact/discriminator, and that a pointer miss is never reported as a scored miss (consistent with source-recovered **or** wrong).
 - `tests/test_kill_helpers.py` -- Hermetic process-filter / kill-path tests for `util/kill_all_pythons.bash` and `util/juniper_worker_kill.bash` (PATH-stubbed `ps`/`sudo`/`kill`; bash `kill` builtin disabled; never touches live PIDs)
 - `tests/test_check_conda_env_torch.py` -- Hermetic exit-matrix tests for `util/check_conda_env_torch.bash` (P-5 torch._C shadow diagnostic: 0/1/2/3/4 via `JUNIPER_CONDA_DIR` + stub python; no real conda/torch). Operator surface: [Conda Env Torch Shadow Diagnostic](#conda-env-torch-shadow-diagnostic-p-5).
 - `tests/test_requirements_drift_check.py` -- Tests for `util/requirements_drift_check.py`: structural range validation, BAD_PATH / BAD_RANGE classification, `--ecosystem-root` rewriting, CLI exit codes, JSON output
@@ -2034,6 +2171,12 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   record-and-continue on failure, the G-18 `save_model` CLI re-run via a PATH stub + missing-CLI acceptance failure), `ports.json` endpoint resolution, the §13.4 manifest
   written for every outcome, and the full 0/1/2/3/4 exit matrix incl. `RedactedEnv` subprocess arms.
   csv_import operator surface (APD-DATA-018, the half that lives in this repo): `create_dataset` 422 is `ConfigError` / exit 2 on both the recurrence and cascor paths (create runs *before* staging; a 500 stays `RunFailed`); csv_import is registered-available on the stub but not in `STAGEABLE_GENERATOR_ALIASES`, so a successful create still cannot stage (the arc_agi-only unstageable arm is a false green if csv_import is added to the alias map).
+- `tests/test_read_run_metrics.py` -- Hermetic tests for `util/experiments/read_run_metrics.py` (P2 item 0.4): last-row `step_count`, scrape tri-state (`None` is not `False`), `work_invariant` negative control. juniper-ml#1613 adds `WorkloadFingerprintTest` (cosmetic `description`/`name` ignored, `seed` is not, missing YAML is `None` not a shared identity, `single_workload` false when identities are unknown). `util/` is outside pre-commit Python hooks, so this unittest is the gate.
+- `tests/test_make_baseline.py` -- Hermetic tests for `util/experiments/make_baseline.py` (P2 item 1.1): no `--force`, refuse broken work invariant / failed / unmeasured / `validation_warnings` (override recorded), `HOST.json` python-mismatch caveat. juniper-ml#1613 adds mixed-workload refusal + fingerprint recording. Operator surface: [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines).
+- `tests/test_compare_baseline.py` -- Hermetic gate for `util/experiments/compare_baseline.py` (P2 item 1.2, ships in juniper-ml#1622).
+  Pins the three outcomes staying distinct: PASS/FAIL on the exactly-compared work half (**exit 1**, not merely non-zero), REFUSED on identity or host mismatch (exit 2), WAIVED never collapsing into PASS.
+  Also pins that SPEED cannot fail the gate at any magnitude (a 10× slowdown with matching work still PASSes), that a one-step `step_count` difference is enough, that a waiver cannot override a refusal, that a whitespace-only `--accept-work-change` is not a reason, and that the renderer does not claim a waiver that had no effect.
+  `util/` is outside pre-commit Python hooks, so this unittest **is** the gate. Operator surface: [Perf-Lane Split Comparator](#perf-lane-split-comparator).
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`: `load_suite` plus oversize-stall / wall-pin / timeout-ordering. Operator surface: [P4 Campaign Suites](#p4-campaign-suites).
@@ -2121,6 +2264,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Two protection keys, either sufficient: **P1** the pid is in a run-dir `*.pid`; **P2** the pid's cmdline references a run root (`JUNIPER_EXP_RUN_ROOT`, default `~/.local/state/juniper-experiments`, or `JUNIPER_E2E_RUN_DIR`). Prints `PROTECT` **always** (not `--verbose`-gated) and counts separately.
   - Observed live 2026-08-16 on campaign `e-j-h2h-wide-cap6`: a dry run called the orchestrator, the experiment cascor service, and the watchdog all `WOULD REAP` while healthy. Over-protection is the deliberate safe direction — a stale pidfile still protects.
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
+- `util/soak_next_probe.py` -- Unprimed dispatcher for one pointer-follow soak probe. Default stdout is the **task only** (probe id on stderr). `--reveal` is scoring-only (fact / pointer / discriminator). Least-covered then registry order; pass `--probe-id` for characterisation. Tests: `tests/test_soak_next_probe.py`.
+- `util/soak_run_probe.py` -- Headless `claude -p` wrapper (dispatch, capture, mechanical retrieval channel, scoring packet). Correctness is **not** scored here. `--dry-run` must not require `claude`. Refuses terminal `BET-FAILING` / `HOLDS-AT-*` unless `--force`. Reaper P1 pidfile under `$JUNIPER_EXP_RUN_ROOT/soak-probes/` (not `reports/soak/runs/`). Tests: `tests/test_soak_run_probe.py`. Operator surface: [`docs/REFERENCE.md` § Pointer-Follow Soak](#pointer-follow-soak).
+- `util/soak_ledger.py` -- Append-only pointer-follow soak ledger (`probe-run` / `record` / `report` / `status` / `verify-probes` / `resolve` / `rescore`). Seeded arm decides; organic arm describes. Wilson interval vs 0.75; `source-recovered` stays in the follow-rate denominator. `status` exits 1 when action is due. Tests: `tests/test_soak_ledger.py`. Operator surface: [`docs/REFERENCE.md` § Pointer-Follow Soak](#pointer-follow-soak).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
 - `util/ad-hoc/e2e_seg17_topology_driver.py` -- `--step` is order-preserving on one browser page; `topostate` must run first or alone or M-TOPOLOGY-18 reports `INDETERMINATE`. The module docstring's `W4-01..17` / `W1-12..14` list is **correct** (matrix §4 steps); three of its step→row aliases are not. Operator surface: [§ Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids). Scorer predicates remain in-flight docs #1675.
@@ -2245,6 +2391,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `mergeStateStatus` is reported but never gated on. `BEHIND` is branch freshness, not check completion — all 9 repos set `strict_required_status_checks_policy: true` ("Require branches to be up to date before merging"), which is a **different** setting from the removed `update` rule ("Restrict updates"); the signing-safe fix is `gh api repos/<owner>/<repo>/pulls/<n>/update-branch -X PUT` (server-side, therefore GitHub-signed). Tests: `tests/test_wait_for_checks.py`.
 - `util/ad-hoc/2026-08-28_hazard_triage.py` / `2026-08-28_resident_gap_scan.py` / `2026-08-31_resident_gap_triage.py` -- Complementary P5 hazard finders. The first ranks *already-resident* `AGENTS.md` blocks via `gh api` on GitHub `main` (default `--min-score 2`). The second finds hazard-shaped source comments whose identifiers are absent from `AGENTS.md` (local, read-only; ranks by identifier count). The third joins them: gap finding scored with four severity signals on the **block** (default `--min-score 3`; `--json` writes every scored row; `--self-check` pins cascor `cascade_correlation.py:1927`). `SKIP_DIRS` excludes in-repo worktrees (#1519). The candidate **total is not a health metric** — cutting widens the gap by construction. Operator surface: [Resident-Hazard Gap Triage](#resident-hazard-gap-triage).
 - `util/ad-hoc/2026-08-10_ruleset_context_audit.py` -- Read-only fleet classifier for `required_status_checks` (BLOCKING / MATCHED / Tier 1 / path-gated / advisory). Human exit 1 only on `BLOCKING`; `--json` also fails on `error`. Operator surface: [Ruleset Context Audit](#ruleset-context-audit).
+- `util/ad-hoc/2026-08-20_require_context_safely.py` -- Fleet writer that adds, or with `--amend-integration-id` ([juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612)) **re-pins**, one required status-check context. Dry-run default; `--apply` writes; `--status` never writes.
+  - Observed-only pre-flight (no `--require-observed` flag); amend asks *which app* publishes the exact name.
+  - Six invariants: `rules` verbatim, every *other* context keeps its own `integration_id`, `bypass_actors` verbatim, disk snapshot before the PUT, live re-read immediately before it, post-write verify (drift check stays live except the one intended amend pair).
+  - Do not hand-roll a ruleset PUT. Operator surface: [Required-Context Ruleset Writer](#required-context-ruleset-writer). Tests: `tests/test_require_context_safely.py`.
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
@@ -2349,11 +2499,22 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - **Do not wire to CI** — sound since ml#1743, but whether the run tier gates at all is an open OWNER decision (P1 design §6).
   - Writer refusals the comparator still lacks: unmeasured cells, `timed_out` cells, zero-work, `--suite` collapse, duplicate-fingerprint last-wins, unchecked scenario coverage.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_compare_baseline.py`.
+- `util/experiments/compare_baseline.py` -- Split comparator (P2 item 1.2 / juniper-ml#1622). Identity first (`workload_fingerprint`), then work (`step_count` exact → PASS/FAIL), speed reported and never gated.
+  Exit `0` PASS or WAIVED / `1` FAIL / `2` REFUSED. `--accept-work-change REASON` blesses a work change only (never a refusal; whitespace-only is exit 2). Host `cpu_model` / `cpu_count` / `thread_budget` block; torch/numpy/`python_runs` are advisory.
+  Tests: `tests/test_compare_baseline.py`. Operator surface: [Perf-Lane Split Comparator](#perf-lane-split-comparator).
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   Wave 7.3 instruments: [§ PF Scenario Suites](#pf-scenario-suites). `include` cells carry only their own overrides and do **not** inherit `matrix` (`expand_cells`) — PF-1's repeats are a matrix axis for that reason.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
   - A suite could always reach the budget through a dotted `outputs.max_wall_seconds` override (`suites/p4/e-i-cascor-cap-ceiling.yaml:71` does exactly that), but before this key, an un-overridden cell silently inherited `base_config`'s value — 3600 s for `spiral-baseline` — with no signal. Both mechanisms are accepted by the R-6 gate. Tests: `tests/test_run_suite.py`.
   - **`include` does not inherit `matrix`.** Empty matrix still yields one cell per `base_config`. P4 catalog + the cap-128 n=2 trap: [P4 Campaign Suites](#p4-campaign-suites).
+- `util/experiments/read_run_metrics.py` -- Canonical reader for the cascor perf-lane gate inputs (P2 item 0.4). Reads the last `metrics_series.csv` step-duration row (`step_count` / `step_sum`); `summarise().work_invariant` is true iff every cell shares one count.
+  - `timings.drive` and `aggregate.csv` `wall_seconds` are de-ratified. `--sweep` is docstring-only, not a flag.
+  - juniper-ml#1613 adds `workload_fingerprint()` (strips `experiment.description`/`name`, keeps `seed`) and `summarise().single_workload`.
+  - Operator surface: [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines). Tests: `tests/test_read_run_metrics.py`.
+- `util/experiments/make_baseline.py` -- Operator-invoked Q-8 baseline writer (P2 item 1.1). Writes `baselines/<tag>/{baseline.json,manifests/,HOST.json}`; no `--force`; refusals exit 2.
+  - Refuses failed / unmeasured / broken work invariant / `validation_warnings`. `--accept-warnings` is recorded.
+  - juniper-ml#1613 also refuses mixed workloads and stores `workload_fingerprint`. Never called from `run_suite.py` / `run_experiment.py`.
+  - Tests: `tests/test_make_baseline.py`. Operator surface: [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines).
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -2422,7 +2583,7 @@ juniper-ml/
 ├── images/                    # Project branding (logos v0-v9 in PNG/XCF/ICO, tree photos)
 ├── logs/                      # Runtime log output (.gitkeep)
 ├── papers/                    # Research papers and references
-├── reports/                   # Per-run evidence artifacts (e2e/<RUN_ID>/statuses.tsv — canopy E2E arc verdicts)
+├── reports/                   # Per-run evidence artifacts (e2e/<RUN_ID>/statuses.tsv; soak/pointer_follow_soak.jsonl — pointer-follow soak ledger)
 ├── resources/                 # External resources (AppImages, etc.)
 │
 ├── notes/                     # Development notes, plans, and procedures
@@ -2466,6 +2627,9 @@ juniper-ml/
 │   ├── test_p5_worktree_cleanup.py       # P5 worktree sweeper: PR-lookup naming, disposable vs harvest, cwd-only occupancy
 │   ├── test_cleanup_session_worktrees.py # Session .claude/worktrees cleaner (merged-PR fail-closed + dry-run)
 │   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
+│   ├── test_soak_ledger.py               # Pointer-follow soak ledger (seeded arm, Wilson verdicts, escalations)
+│   ├── test_soak_next_probe.py           # Unprimed soak dispatcher (stdout = task only)
+│   ├── test_soak_run_probe.py            # Soak wrapper (hermetic parse + retrieval channel; never launches claude)
 │   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
 │   ├── test_check_conda_env_torch.py     # Hermetic P-5 torch._C shadow diagnostic exit matrix (0/1/2/3/4)
 │   ├── test_memory_index_check.py        # Hermetic MEMORY.md index gate (missing file = 2; hook-not-line; grandfathered oversize)
@@ -2747,6 +2911,9 @@ close/re-open.
 **`stacked-pr` label.** Silences this guard for a deliberate stack. It does **not** make the
 PR mergeable into `main`, and it does **not** re-land the stack -- do that separately.
 
+To promote this context, or to re-pin its `integration_id`, use the
+[Required-Context Ruleset Writer](#required-context-ruleset-writer). Do not hand-roll a ruleset PUT.
+
 Rollout and rationale: [juniper-ml#434](https://github.com/pcalnon/juniper-ml/issues/434).
 
 ## Ruleset Context Audit
@@ -3007,6 +3174,8 @@ Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety`
 
 `util/experiment_stack.bash` + `util/experiments/run_experiment.py` are the **per-run** CLI experimentation tooling (plan Wave 2.1–2.6; this section is Wave 2.7). They bring up a throwaway juniper-data instance plus **cascor and/or recurrence** (never canopy), drive a single experiment YAML against that stack, and write plots/stats/manifest under a durable `RUN_DIR`. The Wave 7.3 PF scenario instruments that drive them as a matrix are [§ PF Scenario Suites](#pf-scenario-suites).
 
+After a suite finishes, read the ratified metrics with `util/experiments/read_run_metrics.py` and bless a named baseline with `util/experiments/make_baseline.py` — see [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines).
+
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
 This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
@@ -3170,6 +3339,111 @@ ls "$RUN_DIR/artifacts/plots/"
 
 Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 
+### Perf-lane metrics and baselines
+
+The cascor perf lane gates **work**, not wall-clock. Two quantities look like "how long did it take" and are the wrong ones:
+
+| Quantity | Where it lives | Why it is not a gate |
+|---------|----------------|----------------------|
+| `wall_seconds` | `aggregate.csv` (the only timing column there) | Absorbs plot rendering and stack bring-up. De-ratified. |
+| `timings.drive` | `manifest.json` | Quantized to the driver's 5 s status-poll interval (`DEFAULT_POLL_INTERVAL` in `run_experiment.py`). Measured 2026-09-02: at 20 s cells it understated real spread by 25×–182×, and at a poll boundary it overstated by 5×. Not a bound in either direction. |
+
+The resolving instrument is the cascor step-duration histogram, sampled by the driver into `$RUN_DIR/artifacts/results/metrics_series.csv`. It is poll-independent **and** Prometheus-independent: `scrape_confirmed: false` still carries a complete histogram, because that flag describes the Prometheus scrape, not the series.
+
+The gate is **split** (owner decision 2026-09-02):
+
+| Half | Field | Contract |
+|------|-------|----------|
+| **WORK** | `step_count` (last sampled `juniper_cascor_training_step_duration_seconds_count`) | Deterministic for a seed-fixed config and contention-immune (identical across 21 cells spanning a 3× speed range). Gated **exactly**. |
+| **SPEED** | `mean_step_seconds` = `step_sum` / `step_count` | Carries a 13–20.5% host drift floor. **Reported, never gated.** |
+
+`step_totals` reads the **last** series row that carries the pair. The drive loop samples `/metrics` *before* it tests for termination, so that row is post-completion and the count is exact — which is why zero-tolerance gating is safe. A mid-run sample would fail a correct run.
+
+`scrape_confirmed` is a tri-state (ml#1550): `True` scraped, `False` asked and nothing was there, `None` could not ask (Prometheus unreachable). Never collapse `None` into `False`.
+
+Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`. Design: [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) (items 0.4 / 1.1 / 1.5). Recurrence has no equivalent timing surface yet (P2 item 3.1) — this reader is cascor-only.
+
+#### Reader (`util/experiments/read_run_metrics.py`)
+
+Canonical reader for both gate halves. Path-invoked; `--sweep` appears in the module docstring but is **not** a CLI flag.
+
+```bash
+python util/experiments/read_run_metrics.py SUITE_DIR [SUITE_DIR ...]
+python util/experiments/read_run_metrics.py --run RUN_DIR
+python util/experiments/read_run_metrics.py SUITE_DIR --json
+```
+
+`read_suite` walks `registry.jsonl` and attaches per-cell `config_sha256` (from the registry) plus, as of juniper-ml#1613, `workload_fingerprint` (from the materialised cell YAML). `summarise` is the load-bearing aggregate:
+
+| Field | Meaning |
+|-------|---------|
+| `work_invariant` | `True` iff every measured cell reports the **same** `step_count` (and at least one count exists). A suite of repeats that fails it is not a set of repeats. |
+| `single_workload` (#1613) | `True` iff exactly one distinct fingerprint is present. Kept **separate** from `work_invariant` so "cells ran different configs" and "same config, work moved" stay distinguishable. Unknown identities (`None`) do not collapse into a shared identity — `single_workload` is then `False`. |
+
+The table renderer prints `WORK INVARIANT HOLDS` / `BROKEN` and a `drive` vs `step_sum` spread ratio. JSON (`--json`) is the form that carries fingerprints.
+
+#### Workload identity (juniper-ml#1613)
+
+Owner decision 2026-09-04: a `step_count` mismatch is a **FAILURE**, not a warning. That statement is only true when both sides ran the **same workload**, so identity is checked first:
+
+| Condition | Verdict | What it is |
+|-----------|---------|------------|
+| Fingerprints differ, or either side is unknown | **REFUSE** | Invalid comparison, not a regression |
+| Same workload, `step_count` differs | **FAIL** | Work regression |
+| Same workload, `step_count` matches | PASS | Speed is reported, never gated |
+
+Collapsing REFUSE into FAIL is how the gate gets switched off: an ordinary config edit would be reported as a code regression, everyone would learn the gate lies, and it would be disabled while still green.
+
+`registry.jsonl`'s `config_sha256` **cannot** serve as that identity. It hashes the whole materialised cell YAML, including `experiment.description`. PF-1's five repeats differ only there — five cells, five different hashes on `pf1-cascor-spiral-repeats-20260903T040803Z`. A comparator using it would refuse every legitimate comparison, including a suite against its own baseline.
+
+`workload_fingerprint(suite_dir, cell_id)` hashes the same YAML with the cosmetic keys stripped:
+
+| Key | Cosmetic? | Why |
+|-----|-----------|-----|
+| `experiment.description` | yes | Human label for a repeat ("repeat 1" … "repeat 5") |
+| `experiment.name` | yes | Same class |
+| `experiment.seed` | **no** | Changes the computation; two seeds are two workloads |
+| `training.params.*` (e.g. `max_epochs` / `output_epochs`) | **no** | Computation-relevant; the pre-/post-cascor#618 boundary moves the hash |
+
+Missing or unreadable `cells/<cell_id>/experiment.yaml` returns `None`, not a shared identity. Measured both directions: stable `52184ba2…` across all five PF-1 repeats; `d09edcc1…` pre-cascor#618 vs `52184ba2…` post-fix.
+
+`make_baseline` records the fingerprint per scenario and **refuses** a suite whose cells ran different workloads. That is distinct from the work-invariant refusal.
+
+The split **comparator** (`util/experiments/compare_baseline.py`, P2 item 1.2) is **not shipped**. The planned escape `--accept-work-change "<reason>"` does not exist yet; do not invent a flag. Until 1.2 lands, a deliberate workload change is a **new baseline** (tags supersede by name). Whether the run tier ever gates CI remains open (P1 design §6).
+
+#### Baseline (`util/experiments/make_baseline.py`)
+
+Writes the Q-8 directory in §4 of [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md). **Operator-invoked only** — never called from `run_suite.py` or `run_experiment.py`; there is no auto mode. A run that promotes itself can launder a bad number into the reference.
+
+```bash
+python util/experiments/make_baseline.py --tag pf1-2026-09-03 --suite SUITE_DIR
+python util/experiments/make_baseline.py --tag t --suite A --suite B --dry-run
+python util/experiments/make_baseline.py --tag t --suite SUITE_DIR --accept-warnings   # recorded, not silent
+```
+
+Layout under `--run-root` (default `~/.local/state/juniper-experiments`):
+
+```text
+baselines/<tag>/
+  baseline.json              per-scenario summary + metric_contract
+  manifests/<run_id>.json    constituent run manifests, copied verbatim
+  HOST.json                  hardware + thread budget + torch/numpy at capture time
+```
+
+`HOST.json` is load-bearing, not metadata. The run-tier regression definition is "same YAML, same hardware, same thread budget". torch/numpy versions come from **this** interpreter (manifests record only `juniper-*`); a python mismatch is recorded as `versions.caveat` rather than assumed.
+
+There is **no `--force`**. Overwriting a tag in place is the one operation retention forbids, so the flag is absent. Want a different baseline? New tag. Tags must be a single path segment (no `/`, no leading `.`). Refusals and misuse exit `2`. `--dry-run` validates and prints JSON, writes nothing.
+
+| Refusal | Why |
+|---------|-----|
+| No `registry.jsonl` / no cells | Nothing to bless |
+| Any cell `outcome != succeeded` | Failed cells are not a reference |
+| `work_invariant` is false | `step_count` moved between cells — these are not repeats |
+| Cells ran different workloads (#1613) | `single_workload` is false — a scenario must be one workload |
+| Missing `step_count` | Cannot baseline an unmeasured run |
+| `validation_warnings` present | Re-run clean, or pass `--accept-warnings` (sets `accepted_warnings` in `baseline.json`) |
+| Target directory already exists | Supersede by name |
+
 ### Environment overrides
 
 | Variable | Default | Description |
@@ -3208,6 +3482,13 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 | Exit `1` with `matplotlib unavailable` | Install matplotlib in the driver env, or drop `outputs.plots` from the YAML. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
 | Driver exit `2` on default `equities` / API `422` | Universe exceeded the **14-symbol** cap. Set `dataset.params.symbols` to ≤14 names, or opt in with `allow_truncation: true` (permanent `DatasetMeta.truncation`). See [Equities Symbol Cap](#equities-symbol-cap). |
+| Gating on `aggregate.csv` `wall_seconds` or `timings.drive` | De-ratified — read `metrics_series.csv` via `read_run_metrics.py` (last row is the exact `step_count`). |
+| `scrape_confirmed` is `None` / "Prometheus down" | Tri-state "could not ask", not a missing histogram — the series is still the gate input. |
+| `make_baseline` exit `2` `NOT invariant` | `step_count` differed across cells — not a set of repeats; do not `--accept-warnings` this away. |
+| `make_baseline` exit `2` `different workloads` | Fingerprints diverged (#1613) — config edit, not host noise. Cut a **new** baseline; there is no `--force` and no `--accept-work-change` yet. |
+| Using `config_sha256` as "same workload" | It hashes `experiment.description`; PF-1 repeats all differ. Use `workload_fingerprint` (strips `description`/`name`, keeps `seed`). |
+| `make_baseline: … already exists` | Retention: supersede by a new `--tag`. The overwrite flag is deliberately absent. |
+| Blessing from `run_suite` / a self-promoting run | Not hooked up — operator-invoked only. `--dry-run` first. |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
@@ -3364,7 +3645,6 @@ open follow-ups; they are not a license to CI-wire the gate — that call is the
 
 Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py` (wired in `ci.yml`). Those suites pin last-row reads, writer refusals, identity-first compare, exact work, ungated speed, and the 0/1/2 exit split. Since ml#1741 + ml#1743 they also pin the A1-A7 refusals; #1713 adds further coverage.
 
----
 
 ## PF Scenario Suites
 
@@ -3454,6 +3734,94 @@ Default Prometheus URL: `JUNIPER_EXP_PROMETHEUS_URL` = `http://127.0.0.1:9090`.
 | Editing a suite key (or adding `execution.grafana_bridge`) to turn scraping on | That changes `config_sha256`. Use `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
 
 Coverage: `tests/test_experiment_suite_yamls.py` (R-6 load + oversize stall + wide-cap wall + timeout-above-budget). Driver scrape split: `tests/test_run_experiment.py`. Suite expansion / Grafana env: `tests/test_run_suite.py`.
+
+After a cascor suite finishes, compare it to a named Q-8 baseline with [`util/experiments/compare_baseline.py`](#perf-lane-split-comparator) — identity first, work exact, speed reported.
+
+
+## Perf-Lane Split Comparator
+
+`util/experiments/compare_baseline.py` is the perf-lane **split comparator** (P2 item 1.2). It implements the rule decided in item 1.5 and written up in [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) §2.2: **identity is checked first**, then work is compared exactly, and speed is reported and never gated.
+
+The CLI ships in [juniper-ml#1622](https://github.com/pcalnon/juniper-ml/pull/1622). It reads a baseline cut by `util/experiments/make_baseline.py` that records `workload_fingerprint` per scenario ([juniper-ml#1613](https://github.com/pcalnon/juniper-ml/pull/1613), on `main`). Prefer merging this docs PR **after** #1622 so the path exists. Concurrent docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) described the comparator as unshipped — **this section supersedes that sentence**.
+
+Whether the run tier ever becomes a required CI check remains open (P1 design §6). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites.
+
+### Two halves
+
+| Half | Field | Contract |
+|------|-------|----------|
+| **WORK** | `step_count` (last sampled histogram count) | Compared **exactly**. Deterministic for a seed-fixed config and contention-immune (identical across 21 cells spanning a 3× step-duration range), so a change is a statement about the **code**. A one-step difference is enough; there is no tolerance to tune. |
+| **SPEED** | mean step duration (`step_sum` / `step_count`) | **Reported, never gated.** The host's own drift floor is 13–20.5%, larger than six competing CPU-bound processes. A speed threshold here would fire on an idle machine. A 10× slowdown with matching work still **PASS**es (`speed.gated` is always `false`). |
+
+Do not gate on `aggregate.csv`'s `wall_seconds` or `manifest.json`'s `timings.drive`. Both are de-ratified (plot/stack overhead, and 5 s poll quantization). The resolving instrument is the cascor step-duration histogram in `$RUN_DIR/artifacts/results/metrics_series.csv`. Recurrence has no equivalent timing surface yet (P2 item 3.1).
+
+### Identity first
+
+A `step_count` difference only means "the code moved" when both sides ran the **same workload**. Collapsing a config edit into a work FAIL is how a gate earns a reputation for lying and gets switched off while still green.
+
+| Condition | Verdict | Exit | What it is |
+|-----------|---------|------|------------|
+| Fingerprint missing from the baseline, candidate mixed/unknown, candidate `work_invariant` broken, or host identity differs | **REFUSED** | `2` | Invalid comparison, not a regression |
+| Same workload, `step_count` differs, no waiver | **FAIL** | `1` | Work regression — the gate firing correctly |
+| Same workload, `step_count` matches | **PASS** | `0` | Speed is printed; it cannot fail the gate |
+| Same workload, `step_count` differs, `--accept-work-change REASON` | **WAIVED** | `0` | Blesses a **work** change. Never PASS. Never overrides a refusal. |
+
+`registry.jsonl`'s `config_sha256` **cannot** serve as identity: it hashes `experiment.description`, so PF-1's five repeats are five hashes. `workload_fingerprint` strips `experiment.description` / `name` and keeps `seed` and `training.params.*`.
+
+Measured on the real artifacts (the case the design exists for):
+
+- Recalibrated PF-1 vs its own baseline → **PASS** (`1770 == 1770`, exit `0`).
+- Pre-cascor#618 PF-1 vs that baseline → **REFUSED** (workload `d09edcc1…` not in baseline `52184ba2…`, exit `2`). Without the precondition the gate would have reported a **127% WORK REGRESSION** (4012 vs 1770) for a different config.
+
+### CLI
+
+Path-invoked. `--suite` is repeatable. Default `--run-root` is `~/.local/state/juniper-experiments` (same as `make_baseline.DEFAULT_RUN_ROOT`). Baseline files are `<run-root>/baselines/<tag>/baseline.json` and `HOST.json`.
+
+```bash
+python util/experiments/compare_baseline.py --baseline t --suite S --json
+python util/experiments/compare_baseline.py --baseline t --suite S \
+  --accept-work-change "cascor#618 raised the epoch budget"
+```
+
+`--json` emits the typed verdict (parseable; `verdict` is `PASS` / `FAIL` / `WAIVED` / `REFUSED`). Missing tag, unreadable `baseline.json`, or a whitespace-only waiver reason → exit `2` on stderr, no comparison.
+
+`--suite` is repeatable. On #1622, **any** leftover refusal reason wins the whole verdict — a sibling identity miss collapses a real work FAIL to exit `2`, which callers treat as "not a code problem". [juniper-ml#1626](https://github.com/pcalnon/juniper-ml/pull/1626) changes that: FAIL wins over a sibling refusal unless the host is blocked (host mismatch still REFUSES even when work also moved). Until #1626 lands, compare one suite at a time if you need FAIL to stay visible.
+
+An empty candidate (no `registry.jsonl` / no cells) is REFUSED, not a vacuous PASS. A config edit that keeps `step_count` identical is still REFUSED (identity), not PASS — the silent-green complement of the 4012-vs-1770 case.
+
+Cut the baseline first with `python util/experiments/make_baseline.py --tag <tag> --suite SUITE_DIR` (operator-invoked; no `--force`; tags supersede **by name**). Full reader/baseline contract: docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) and [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) §4.
+
+### Host split
+
+`compare_host` splits `HOST.json` differences:
+
+| Class | Fields | Effect |
+|-------|--------|--------|
+| **Blocking** (P1 §2: "same hardware, same thread budget") | `cpu_model`, `cpu_count`, `thread_budget` | Any mismatch → **REFUSED** |
+| **Advisory** | `versions.torch`, `versions.numpy`, `versions.python_runs` | Reported; **PASS** still allowed. Refusing here would make a routine dependency bump un-comparable. |
+| **Not compared** | `total_ram_kb`, `gpu_present`, `platform`, `versions.python_tool` | Ignored by the comparator |
+
+Candidate host is rebuilt by `make_baseline.collect_host` from the candidate manifests **plus this interpreter** (torch/numpy come from the tool, not the run). Same fidelity caveat as cutting the baseline: a HOST.json whose torch was read under a different Python than the runs is worse than one that says it could not tell.
+
+### Waiver
+
+`--accept-work-change` requires a non-empty reason (whitespace-only is refused, exit `2`). It yields **WAIVED**, never PASS, and records the reason. Prefer cutting a **new baseline** — they supersede by name and are cheap.
+
+A waiver blesses a WORK change, never an invalid comparison. Passing it on a REFUSED run does **not** override the refusal (exit stays `2`). The renderer must not claim otherwise: under REFUSED it prints `had NO effect`, not `WAIVED by operator`. Found by running it — the first draft had the exit code right and the words wrong, and the words are what an operator acts on.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+| Exit `2` treated as a work regression | REFUSED is identity/host/incoherent-candidate, not FAIL. Distinct on purpose — do not `set -e` them together. |
+| `--accept-work-change` on a config-edit suite | No effect. Cut a new baseline; the waiver cannot "compare anything to anything". |
+| Renderer says `WAIVED by operator` but exit is `2` | Bug class pinned by `test_render_does_not_claim_a_waiver_that_had_no_effect`. Current source prints `had NO effect`. |
+| Using `config_sha256` as "same workload" | Hashes `experiment.description`. Use `workload_fingerprint`. |
+| Mixed known + missing cell YAML looks like one workload | On `main` (`#1613`) and #1622, `summarise` drops `None` before uniqueness, so one identified cell plus one unknown/unmeasured cell can **PASS**. [juniper-ml#1617](https://github.com/pcalnon/juniper-ml/pull/1617) / [#1626](https://github.com/pcalnon/juniper-ml/pull/1626) refuse on the rows. Until they land, do not compare a suite with a missing `cells/*/experiment.yaml`. |
+| Repeatable `--suite`: FAIL became exit `2` | #1622: leftover reasons win, so a sibling REFUSE hides a work FAIL. Compare one suite, or wait for #1626 (FAIL wins unless host-blocked). |
+| Adding a speed threshold | There is no threshold field **by design**. Item 1.5 closed that question. |
+| Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
+
+Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
 
 ---
 
@@ -4261,6 +4629,100 @@ A User-owned repo cannot currently add the merge-queue **rule** ([enablement run
 
 ---
 
+## Required-Context Ruleset Writer
+
+[`util/ad-hoc/2026-08-20_require_context_safely.py`](../util/ad-hoc/2026-08-20_require_context_safely.py) is the fleet writer that adds — or, as of [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612), **re-pins** — one required status-check context on a repo ruleset. It is retained ad-hoc tooling (owner policy 2026-08-25): there is no general ruleset editor in `util/` proper, and a hand-rolled `gh api .../rulesets/N -X PUT` is the class of edit this module exists to prevent.
+
+Default `--context` is `Guard PR base branch`. Default `--integration-id` is `15368` (the GitHub Actions app). Dry-run is the default; `--apply` writes. `--status` reports and never writes.
+
+### Why a missing `integration_id` is a hole
+
+A required context with no `integration_id` is satisfied by **any** app that publishes a check-run of that name. [juniper-ml#1611](https://github.com/pcalnon/juniper-ml/issues/1611) is the concrete case: `Memory Budget` was the only one of this repo's 17 required contexts left unpinned (the other 16 pin `15368`), so the gate that enforces the memory-budget ratchet for the whole fleet could be satisfied by a namesake from the wrong app.
+
+The add path cannot fix that. An already-required context short-circuits:
+
+```text
+ALREADY REQUIRED (integration_id=...) — no-op
+```
+
+`--amend-integration-id` mutates that one entry in place and leaves every other context object untouched.
+
+### Two pre-flights, on purpose
+
+| Path | Question the pre-flight answers | Lookup |
+|------|----------------------------------|--------|
+| **Add** (default) | Does **anything** publish this exact context **name** here? | `observed_contexts`: check-run names on the 8 most recently updated PR heads, conclusion-agnostic |
+| **Amend** (`--amend-integration-id`) | Is **this app** the publisher of that exact name? | `observed_context_apps`: `{app_id: slug}` for check-runs whose name matches **exactly**; falls back to `main`'s check-runs when PR heads show nothing |
+
+Getting the amend question wrong is not hypothetical: a hardcoded id retargeted `Bandit` (`57789`) at an app that never reports it and left five repos' `main` unmergeable with nothing red — PRs `BLOCKED`, zero failing checks, every required context reporting `SUCCESS`.
+
+Both paths refuse unless the answer is yes. `--allow-unobserved` is the dangerous opt-out (a never-reporting required context blocks every PR, silently). There is **no** `--require-observed` flag — observed-only is simply the default.
+
+### Six invariants (unchanged on amend)
+
+1. `rules` is carried **verbatim** — never rebuilt from a schema-derived allowlist. REST emits `code_quality`, which is absent from the documented REST enum; an allowlist rebuild silently drops it.
+2. Each **other** existing context keeps its **own** `integration_id`. Never rewrite them from a constant: `Bandit` is `57789` on five repos, not Actions' `15368`. Amend mutates exactly one entry.
+3. `bypass_actors` carried verbatim (full-replacement; includes a `null` `actor_id` DeployKey row).
+4. Snapshot to disk **before** the PUT, outside the repo (`~/.local/state/juniper-ruleset-snapshots/`), so rollback does not depend on the history API.
+5. Re-read the live ruleset **immediately** before the PUT — concurrent sessions edit these.
+6. Post-write re-read: rule count, rule-type set, bypass count, enforcement, ref include, `strict`, every prior context still present. `integration_id` drift fails **except** the one intended `(context, new_id)` pair on an amend. Two extra amend assertions: the new id must have **taken**, and the context **count** must be unchanged.
+
+`find_ruleset` selects the ruleset that **carries** `required_status_checks` (by content, not by name). A failed per-ruleset GET is an error, never an absence (ml#1429). Two carrying rulesets is `AMBIGUOUS`.
+
+### Roster
+
+Default `--status` / no-`--repo` `--apply` walks `TARGETS` (nine repos, including `juniper-recurrence`). A repo missing here is silently absent from `--status` and reads as a complete census (ml#1403's class). `tests/test_require_context_safely.py` pins `TARGETS` to the census `ROSTER` in `util/ad-hoc/2026-08-26_p5_fleet_state.py`.
+
+### Usage
+
+```bash
+# Census (never writes)
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --status
+
+# Add: dry-run, then write (default context is Guard PR base branch)
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-cascor --context 'Memory Budget'
+python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-cascor --context 'Memory Budget' --apply
+
+# Amend: re-pin an already-required context (juniper-ml#1612). Dry-run first.
+python3 util/ad-hoc/2026-08-20_require_context_safely.py \
+  --repo juniper-ml --context 'Memory Budget' --amend-integration-id
+python3 util/ad-hoc/2026-08-20_require_context_safely.py \
+  --repo juniper-ml --context 'Memory Budget' --amend-integration-id --apply
+
+# Negative control: the Bandit app must refuse for Memory Budget
+python3 util/ad-hoc/2026-08-20_require_context_safely.py \
+  --repo juniper-ml --context 'Memory Budget' --amend-integration-id --integration-id 57789
+```
+
+`--integration-id` defaults to `15368` and is never `None`, so there is no "is the id explicit?" guard — the observed-publisher refusal is the real gate whether the id was typed or defaulted.
+
+On a failed post-write verify the script prints the rollback:
+
+```bash
+gh api repos/<owner>/<repo>/rulesets/<id> -X PUT --input ~/.local/state/juniper-ruleset-snapshots/<snap>
+```
+
+### Operator pitfalls
+
+| Symptom | What it actually is | What to do |
+|---------|---------------------|------------|
+| `ALREADY REQUIRED … — no-op` | Add path; the context is already on the ruleset | Use `--amend-integration-id` to change its `integration_id` (#1612). Do not hand-roll a PUT |
+| `REFUSING: app N has not been observed publishing` | Amend pre-flight: that app does not publish this exact name here | Pass the id the publishers line named, or land the workflow first. `--allow-unobserved` only with a reason |
+| `REFUSING: nothing in … recent check-runs publishes` | Add pre-flight: the name has never reported | Land the workflow and let it report once; a `pull_request`-only job reading `skipped` on `main` is still observed from PR heads |
+| `ALREADY PINNED` | Amend no-op: current id already equals `--integration-id` | Nothing to do |
+| PR `BLOCKED`, zero failing checks, every required context `SUCCESS` | A required context is pinned to an app that never reports it, or was required before anything published the name | Un-require or re-pin with this writer; then `update-branch`. This is the five-repo outage |
+| `--require-observed` is unknown | Not a flag; observed-only is the default | Drop it |
+| `--status` looks complete but a governed repo is missing | `TARGETS` omission; silent census | Confirm `juniper-recurrence` (and the other eight) appear; the unittest pins the roster |
+| Post-write `integration_id DRIFT` on a neighbour | Invariant 2 failed — some other context's id moved | Rollback from the snapshot; do not re-run `--apply` to "fix" it |
+
+Prefer this writer over `util/ad-hoc/2026-08-20_add_required_context.py`, which writes no snapshot, omits `integration_id` on the new context, and verifies contexts only.
+
+Gate: `python3 -m unittest -v tests/test_require_context_safely.py` (`util/` is outside every pre-commit Python hook). Hermetic: `gh_json` is monkeypatched. Coverage includes `find_ruleset` error-vs-absence (ml#1429), roster lockstep, and (as of #1612) `observed_context_apps` — including two negative controls: a near-miss name (`Memory Budget (Python 3.12)`) must not count as a publisher, and `57789` must not appear for `Memory Budget`.
+
+Related: [PR Base-Branch Guard](#pr-base-branch-guard) (the default context this writer was built to promote), [Memory File Size Budget](#memory-file-size-budget) (the #1611 pin), [CodeQL Analysis](#codeql-analysis) (soak-then-promote via the ruleset, never Quality Gate `needs:`).
+
+---
+
 ## Sibling Packages
 
 ### juniper-observability
@@ -4392,6 +4854,11 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.58  | 2026-09-05 | Juniper project-tree backup: `util/juniper-backup.bash` per-repo `.tbz2.gpg` (bzip2, restore `-xjf`), build-once / copy ciphertext, `--dry-run` must not write, unattended verify is `--list-packets` only, `EXCLUDE_CASCOR_SNAPSHOTS` TRUE is `0` |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.59  | 2026-09-05 | Ruleset Context Audit: read-only fleet classifier for `required_status_checks` (`2026-08-10_ruleset_context_audit.py`); BLOCKING vs Tier 1 vs path-gated; advisory_predicate subtracts the live required set; text-mode 0 can still carry `ERROR:` rows |
+| 0.6.16  | 2026-09-04 | Required-context ruleset writer: add vs `--amend-integration-id` (#1612), observed-publisher pre-flight, six invariants, `Memory Budget` unpinned-id hole (#1611) |
+| 0.6.17  | 2026-09-04 | Perf-lane reader / baseline operator surface: split work (`step_count` exact) vs speed (reported); de-ratified `wall_seconds`/`timings.drive`; last-row histogram; scrape tri-state; `make_baseline` refusals (no `--force`); #1613 workload fingerprint vs `config_sha256` and fail-on-mismatch behind identity |
+| 0.6.18  | 2026-09-04 | Pointer-follow soak operator surface: seeded vs organic, characterisation vs least-covered, `source-recovered` denominator, retrieval-channel / `parse_events` pitfalls (#1616) |
+| 0.6.19  | 2026-09-04 | Dual unittest entry-point trap (#1612 synchronize): `python3 tests/<file>.py` misses `TestCase` classes below `__main__`; CI's `-m unittest` does not. Keep `__main__` at EOF |
+| 0.6.19  | 2026-09-04 | Perf-lane split comparator (`compare_baseline.py`, #1622): identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask a refusal, host block vs advisory |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
