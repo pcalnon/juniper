@@ -917,6 +917,15 @@ jobs:
           # both rulesets were intact (the fail-into-plausible class, ml#1403). gh_json is
           # monkeypatched; nothing talks to GitHub. Absence and AMBIGUOUS are pinned as controls.
           python3 -m unittest -v tests/test_require_context_safely.py
+          # tests/test_e2e_finding_triage_nested_bold.py: complementary leftover of the
+          # finding-triage dispositions (#1642) and pri_of first-token (#1712). Those
+          # suites never feed a header whose body contains **CLOSED date** -- the
+          # F-CANOPY-037 close shape. The header regex is non-greedy to the first **,
+          # so nested bold truncates the body: CLOSED never reaches the parser, and
+          # the Phase 2 open-P0/P1 count then depends on whether "mechanism FIXED"
+          # appears before the inner **. util/ is outside every pre-commit Python
+          # hook, so this suite is the gate. Hermetic temp ledgers; no live note.
+          python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
           # tests/test_duplicati_restore_integrity.py: hermetic coverage for the #1319
           # destination-only restore-integrity harnesses (dlist vs dindex block-coverage +
           # MDC decrypt-to-/dev/null). Pins workdir-inside-dest / exactly-1-dlist /
