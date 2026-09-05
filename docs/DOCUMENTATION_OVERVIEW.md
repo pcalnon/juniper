@@ -72,6 +72,7 @@
 | **Census F-CANOPY-037 topology-graph paint** | [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) (11 sessions; exit 0 is not a paint PASS; idle populated is VALID) | docs/    |
 | **Close or count a defect-register row** | [REFERENCE — Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) (`**FIXED` token, cwd pitfall, third reading vs the two §4 counters) | docs/    |
 | **Read the NPZ / partition contract (`X_full` vs `X_val`)** | [REFERENCE — Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) + [partition design](../notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md) | docs/ + notes/ |
+| **Run / score a pointer-follow soak probe** | [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) (least-covered vs characterisation; `--dry-run` is exempt from the terminal-verdict stop) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |

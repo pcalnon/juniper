@@ -901,6 +901,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | No Monday lockfile PR | A clean tree is a no-op; confirm Actions → Update Lockfiles still runs `juniper-generate-dep-docs`. |
 | `test_ci_tools_drift` red after a ci-tools bump | Widen the `<Y` ceiling in `lockfile-update.yml` + `ci.yml` + `docs-full-check.yml` in the same PR. |
 | `Verify AGENTS.md Last Updated` fails | You changed `AGENTS.md` without bumping `**Last Updated**:`. Set it to today's UTC date and push. |
+| Soak `--dry-run` exits 2 with no preview | Pre-#1690 refuse-before-dry-run. After #1690 a terminal verdict still previews (NOTE on stderr). Do not pass `--force` just to see the preview. |
+| Soak real run exits 2 with `REFUSING` | Ledger is `BET-FAILING` / `HOLDS-AT-*`. `--force` overrides a real run only; disable the timer if the pooled question is done. |
+| Soak `--probe-id P19` → `no such probe` | Use the full slug (`P19-port-check-fail-opens`). |
+| Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
 | X7 census / gate count dropped but a twin still blocks | Module-global expression exemption — must be site-local. See [REFERENCE](REFERENCE.md#x7-off-loop-census). |
 | `ruff --select ASYNC` green on canopy `backend.*` | Expected. Opaque calls are invisible; trust the slice-1a gate, not ruff. |
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
