@@ -35,7 +35,6 @@ from __future__ import annotations
 import argparse
 import re
 import subprocess  # nosec B404 -- fixed argv git invocations, no shell
-import sys
 from pathlib import Path
 
 NEUTRAL_LINE_RE = re.compile(
