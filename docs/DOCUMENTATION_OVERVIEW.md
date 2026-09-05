@@ -61,6 +61,7 @@
 | **Triage post-merge main-verify / G3.1**| [REFERENCE — Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) (incl. stable-title failure notify)       | docs/    |
 | **Provision YubiKey GPG (ed448 caveat)** | [REFERENCE — YubiKey GPG](REFERENCE.md#yubikey-gpg-provisioning) + [keytocard procedure](../notes/JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md) | docs/ + notes/ |
 | **Triage an open-PR budget WARN/ALARM** | [REFERENCE — Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm)                                                            | docs/    |
+| **Triage a Ruleset Scope Guard / `~ALL` fail** | [REFERENCE — Ruleset Scope Guard](REFERENCE.md#ruleset-scope-guard) (`~ALL` re-arms deleted bot bypass rows; exit 2 is not clean) | docs/    |
 | **Cut a GitHub Release / archive notes**| [PyPI publish procedure](../notes/JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md)                                 | notes/   |
 | **Publish an in-repo shared package**   | [REFERENCE — Sibling publish pipelines](REFERENCE.md#independent-sibling-package-publish-pipelines)                              | docs/    |
 | **Understand meta TestPyPI Gate 1**     | [REFERENCE — Meta-Package Publish Pipeline](REFERENCE.md#meta-package-publish-pipeline) (10×6s poll, not `sleep 30`; two-phase verify) | docs/    |
