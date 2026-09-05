@@ -87,6 +87,8 @@
 | `python util/snapshot_backfill.py --root ROOT --explain NAME` | Print one snapshot's provenance; identity is never invented |
 | `python3 -m unittest -v tests/test_snapshot_index.py tests/test_snapshot_classify.py tests/test_snapshot_backfill.py` | Sidecar-chain regressions (no `--prune` on any tool) |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_w6_dataset_driver.py --steps 1,2,4,7` | W6 dataset COLD-migration driver (stops before restart-confirm wipe) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg16_dataset_driver.py --step start,toolbar,selector` | §3.6 Dataset View driver (`--step` is required; select is inert) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
@@ -577,6 +579,8 @@ Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe)
 | `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
 | `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
 | `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
+| `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Playwright dataset-driver target (not derived from `JUNIPER_E2E_CANOPY_PORT`) |
+| `JUNIPER_E2E_CANOPY_LOG`       | `/tmp/juniper-e2e/logs/juniper-canopy.log` | Server-log byte-offset reads for W6 stage/cancel evidence |
 | `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` (2s poll; not `HEALTH_CHECK_INTERVAL`) |
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
 | `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Topology-driver target (Playwright) |
@@ -794,6 +798,9 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `topo` FAIL, depth label still `"0 of 40"` | Expected until F-CANOPY-042 lands in the product — M-06 now requires **both** halves; M-07 requires `"all"`. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
 | `topoevents` M-12 BLOCKED / no Clear button | Build predates `-clear-selection`. Empty-space `plotly_click_events=0` is recorded, not a FAIL. Do not `gd.emit`. |
 | `unknown step(s)` from the topology driver | Name is not in `STEPS`. `topostate` / `topoexport` are valid; `w1grow` / `toposel` are not. |
+| W6 `--steps 1-9` exits `2` | No range parser. Use `1,2,4,7`. Default includes cancel (`7`); restart modal needs `1,2,4,10`. |
+| Live network wiped after "full W6" | You confirmed restart. The driver refuses `#restart-confirm-button` on purpose. |
+| Dataset driver import dies with `_PyObject_NextNotImplemented` | Prefix `LD_LIBRARY_PATH=`. Not a Playwright failure. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Default `equities` create hangs / 30 s client timeout | Omitted `symbols` → all 503 S&P names (~34 min). Set `dataset.params.symbols`. `max_symbols` is a **silent** slice (`generator.py:286`). See [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap). |
