@@ -267,6 +267,7 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
     fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
+    identified = sum(1 for r in rows if r.get("workload_fingerprint"))
     # A suite whose runs expose no work counter cannot satisfy the work invariant -- not because it
     # failed, but because the question does not apply. Kept as a THIRD state so a caller never reads
     # "not countable" as "counted, and they matched".
@@ -296,12 +297,20 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         # because its fixture wrote the string into the reason field, which production never does.
         "truncated_terminations": sorted({str(r.get("outcome")) for r in rows if r.get("outcome") in TRUNCATING_TERMINATIONS}),
         "step_counts": sorted(set(counts)),
-        "work_invariant": countable and len(set(counts)) == 1 and bool(counts),
+        # `len(counts) == len(rows)` is load-bearing: `counts` keeps only cells whose step_count
+        # is numeric, so without it the invariant is a statement about the cells that ANSWERED
+        # rather than about the suite. Measured on `main` before this line: two cells, one with
+        # no step_count, reported `step_counts=[100]` and `work_invariant=True`.
+        "work_invariant": countable and len(counts) == len(rows) and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
         # step_count spread would be a fact about the configs rather than about the host or the
         # code. Recorded separately from work_invariant so the two failures stay distinguishable.
         "workload_fingerprints": fingerprints,
-        "single_workload": len(fingerprints) == 1,
+        # `identified == len(rows)` is the same guard for identity. `fingerprints` DROPS cells with
+        # no fingerprint, so `len(fingerprints) == 1` alone reads True for "one known + one
+        # unknown" -- the exact fail-open the `reasons` comment above warns about, left in place on
+        # the sibling field. Measured on `main` before this line: True.
+        "single_workload": identified == len(rows) and len(fingerprints) == 1,
     }
     if drives:
         out["drive"] = _spread(drives)
