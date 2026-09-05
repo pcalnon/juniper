@@ -169,6 +169,16 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
         # n_windows is input size), so a "baseline" cut from one could only ever back a SPEED
         # comparison -- and this host's 13-20.5% drift floor is precisely why speed is not gated.
         # Blessing one would invite exactly the comparison the lane has ruled out.
+        if summary.get("truncated_terminations"):
+            refusals.append(
+                f"{suite_dir.name}: cells ended on {summary['truncated_terminations']} -- the driver stopped before "
+                f"the workload did, so step_count is a fact about the budget. A baseline must not enshrine one."
+            )
+        if not summary.get("single_completion_reason", True) and summary.get("completion_reasons"):
+            refusals.append(
+                f"{suite_dir.name}: cells ended on different branches {summary['completion_reasons']} -- step_count is "
+                f"deterministic only within a branch, so these are not repeats and their agreement would be luck."
+            )
         if not summary.get("work_countable", True):
             reason = next((r.get("work_uncountable_reason") for r in rows if r.get("work_uncountable_reason")), "no work counter")
             refusals.append(
@@ -215,7 +225,13 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
                 # comparison is INVALID, not that the code regressed. Recorded here so a later
                 # comparison can tell those apart instead of blaming the code for a config edit.
                 "workload_fingerprint": summary["workload_fingerprints"][0] if summary["single_workload"] else None,
-                "work": {"step_count": summary["step_counts"][0] if summary["work_invariant"] else None, "invariant": summary["work_invariant"]},
+                # `completion_reason` is recorded WITH the count because the count is only
+                # meaningful given it (see compare_baseline's precondition).
+                "work": {
+                    "step_count": summary["step_counts"][0] if summary["work_invariant"] else None,
+                    "invariant": summary["work_invariant"],
+                    "completion_reason": summary["completion_reasons"][0] if summary["single_completion_reason"] else None,
+                },
                 "speed": summary.get("mean_step"),
                 "drive": summary.get("drive"),
                 "step_sum": summary.get("step_sum"),
