@@ -1521,6 +1521,7 @@ then:
 
 ```text
 => slack must absorb a single growing commit: >= <max> covers the largest seen.
+```
 
 There is **no** `required slack` field. A number that is neither `max` nor the 2,000 floor was
 not produced by this instrument — it was hand-picked. Size slack from `max` (then the 2,000
@@ -1611,6 +1612,8 @@ Exit **0** pass, advisory, skipped, or `--accept` / **1** over the hard cap or a
 Runway uses the **last two** `history` samples with integer `bytes` and parseable dates. Fewer than two, a same-day pair, or a non-positive span → `n/a`. A shrinking index → `no growth` (`inf`), never a negative day count. Warns at 85% of either hard cap (`::warning::`); over either cap prints `OVER THE HARD CAP`.
 
 
+| Symptom | Cause / fix |
+|---------|-------------|
 | Exit 2 `memory index not found` | Default path uses the **primary** checkout slug. Pass `--memory-file`, or `--skip-if-absent` on CI. |
 | First run flags every row | No baseline / empty `slugs`. `--accept` once after reviewing hooks, then keep new hooks ≤ 120. |
 | Long slug fails a "120-byte line" reading you invented | Cap is the **hook**, not the line. A 130-character slug with ` — tiny` is OK. |
