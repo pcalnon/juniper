@@ -169,6 +169,9 @@ python3 -m unittest -v tests/test_work_countable_contract.py
 python3 -m unittest -v tests/test_termination_branch_precondition.py
 python3 -m unittest -v tests/test_run_suite_uncountable_report.py
 python3 -m unittest -v tests/test_worktree_inuse_probe.py
+python3 -m unittest -v tests/test_e2e_finding_triage.py
+python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
+python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
 python3 -m unittest -v tests/test_register_open_set.py
 python3 -m unittest -v tests/test_register_status_crosscheck.py
 python3 -m unittest -v tests/test_soak_next_probe_split.py
