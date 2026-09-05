@@ -217,7 +217,29 @@ def workload_fingerprint(suite_dir: Path, cell_id: str) -> Optional[str]:
     if isinstance(experiment, dict):
         for key in COSMETIC_EXPERIMENT_KEYS:
             experiment.pop(key, None)
-    return hashlib.sha256(json.dumps(config, sort_keys=True).encode("utf-8")).hexdigest()
+    try:
+        blob = json.dumps(config, sort_keys=True)
+    except (TypeError, ValueError):
+        # `safe_load` produces four types `json.dumps` refuses -- date, datetime, bytes,
+        # set -- plus three shapes no `default=` can rescue, because `default=` is consulted
+        # for VALUES only: a non-str mapping key, mixed-type keys under `sort_keys=True`
+        # (`< not supported between str and int`), and a recursive anchor (`ValueError:
+        # Circular reference detected`, which `safe_load` builds happily).
+        #
+        # The tempting repair is `default=str`. It is WRONG here, and measurably so:
+        # `str()` of a set embeds Python's randomised string hash, so one config yields a
+        # DIFFERENT fingerprint in every process. `compare_baseline` matches the persisted
+        # fingerprint by exact string, and baselines are never rewritten -- so that turns a
+        # loud crash into "different workload, so this is an INVALID comparison", blaming a
+        # config that never changed. `str()` on a tz-aware datetime is additionally
+        # PyYAML-version-dependent (3.13 normalised to naive UTC, 6.x keeps the offset), and
+        # no PyYAML floor is declared for this tooling.
+        #
+        # An unhashable config is genuinely an UNKNOWN identity, so say so. Callers already
+        # treat None as a refusal -- and `summarise` counts unknowns rather than filtering
+        # them, so one bad cell cannot be dropped into a vacuous "single workload".
+        return None
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def read_suite(suite_dir: Path) -> List[Dict[str, Any]]:
