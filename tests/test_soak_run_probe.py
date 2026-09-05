@@ -122,6 +122,20 @@ class RetrievalChannel(unittest.TestCase):
         ch = mod.retrieval_channel({"tool_inputs": [], "answer": ""}, "docs/REFERENCE.md#deep-anchor")
         self.assertEqual(ch["pointer_doc"], "docs/REFERENCE.md")
 
+    def test_pointer_path_in_a_command_arg_currently_counts_as_a_hit(self) -> None:
+        # P06 false-positive (PR #1616): the probe constructs a command containing
+        # `--dest docs/REFERENCE.md`, so the pointer path appears in tool_inputs
+        # whether or not the document was Read. The channel is over-inclusive;
+        # pin that so a future narrowing is a deliberate test break, not a silent
+        # flip of follow vs source-recovered.
+        parsed = {
+            "tool_inputs": [json.dumps({"command": "some-tool --dest docs/REFERENCE.md"})],
+            "answer": "",
+        }
+        ch = mod.retrieval_channel(parsed, "docs/REFERENCE.md#utility-script-reference")
+        self.assertTrue(ch["pointer_doc_referenced"])
+        self.assertEqual(ch["suggests"], "follow")
+
 
 class EventParsing(unittest.TestCase):
     def _log(self, lines: list[dict]) -> Path:
@@ -163,6 +177,89 @@ class EventParsing(unittest.TestCase):
         out = mod.parse_events(p)
         self.assertEqual(out["answer"], "")
         self.assertEqual(out["tool_calls"], [])
+
+    def test_non_object_json_lines_do_not_abort(self) -> None:
+        # Same failure class as a string `message`: a JSON array / string /
+        # number is valid JSON so JSONDecodeError does not skip it, then
+        # `ev.get` raises AttributeError and the rest of a spent session is lost.
+        d = Path(tempfile.mkdtemp())
+        p = d / "stream.jsonl"
+        p.write_text(
+            '["not","an","object"]\n' '"bare string"\n' "42\n" '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n',
+            encoding="utf-8",
+        )
+        self.assertIn("ok", mod.parse_events(p)["answer"])
+
+    def test_null_and_list_message_do_not_abort(self) -> None:
+        log = self._log(
+            [
+                {"type": "assistant", "message": None},
+                {"type": "assistant", "message": []},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "ok"}]}},
+            ]
+        )
+        out = mod.parse_events(log)
+        self.assertIn("ok", out["answer"])
+
+    def test_result_event_with_string_message_still_records_result_meta(self) -> None:
+        # Result handling is BEFORE the type-guard. Moving the guard above it
+        # would drop is_error / duration_ms after a spent session.
+        log = self._log(
+            [
+                {
+                    "type": "result",
+                    "subtype": "success",
+                    "is_error": False,
+                    "duration_ms": 1234,
+                    "num_turns": 3,
+                    "session_id": "s1",
+                    "message": "done",
+                    "result": "final answer from result field",
+                },
+            ]
+        )
+        out = mod.parse_events(log)
+        self.assertFalse(out["result"]["is_error"])
+        self.assertEqual(out["result"]["duration_ms"], 1234)
+        self.assertEqual(out["result"]["num_turns"], 3)
+        self.assertIn("final answer from result field", out["answer"])
+
+    def test_string_message_between_valid_events_does_not_drop_the_later(self) -> None:
+        # Skip must be continue, not break / raise. A later tool_use after a
+        # string-message event is still extracted -- otherwise a mid-stream
+        # system event would silently drop the retrieval evidence.
+        log = self._log(
+            [
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "first"}]}},
+                {"type": "system", "message": "not an object"},
+                {
+                    "type": "assistant",
+                    "message": {
+                        "content": [
+                            {"type": "tool_use", "name": "Read", "input": {"file_path": "docs/REFERENCE.md"}},
+                        ]
+                    },
+                },
+            ]
+        )
+        out = mod.parse_events(log)
+        self.assertIn("first", out["answer"])
+        self.assertEqual(out["tool_calls"], ["Read"])
+
+    def test_string_message_does_not_abort_the_parse(self) -> None:
+        # Live defect (PR #1616): some stream-json events carry `message` as a
+        # bare string. `ev.get("message") or {}` yielded the string, then `.get`
+        # raised AttributeError AFTER the session was spent. The P21 run was
+        # recovered only because stream.jsonl was kept. Existing tests never
+        # constructed a non-dict message, so they passed both before and after.
+        log = self._log(
+            [
+                {"type": "system", "message": "session started"},
+                {"type": "assistant", "message": {"content": [{"type": "text", "text": "survived"}]}},
+            ]
+        )
+        out = mod.parse_events(log)
+        self.assertIn("survived", out["answer"])
 
 
 class TerminalVerdictDoesNotGateADryRun(unittest.TestCase):
