@@ -42,8 +42,8 @@ import os
 import stat
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
-from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "util" / "soak_run_probe.py"
@@ -84,14 +84,14 @@ class ClaudeSearchPaths(unittest.TestCase):
 
 class ResolveClaude(unittest.TestCase):
     def test_which_hit_wins_over_fallback(self) -> None:
-        with mock.patch.object(mod.shutil, "which", return_value="/opt/claude"):
+        with unittest.mock.patch.object(mod.shutil, "which", return_value="/opt/claude"):
             self.assertEqual(mod.resolve_claude(), "/opt/claude")
 
     def test_user_local_fallback_when_which_misses(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             home = Path(tmp)
             claude = _executable(home / ".local/bin/claude")
-            with mock.patch.object(mod.shutil, "which", return_value=None):
+            with unittest.mock.patch.object(mod.shutil, "which", return_value=None):
                 self.assertEqual(
                     mod.resolve_claude(search_paths=(claude, Path(tmp) / "missing")),
                     str(claude),
@@ -102,7 +102,7 @@ class ResolveClaude(unittest.TestCase):
             root = Path(tmp)
             system = _executable(root / "usr/local/bin/claude")
             missing = root / "missing/claude"
-            with mock.patch.object(mod.shutil, "which", return_value=None):
+            with unittest.mock.patch.object(mod.shutil, "which", return_value=None):
                 self.assertEqual(
                     mod.resolve_claude(search_paths=(missing, system)),
                     str(system),
@@ -113,22 +113,22 @@ class ResolveClaude(unittest.TestCase):
             cand = Path(tmp) / "claude"
             cand.write_text("#!/bin/sh\n", encoding="utf-8")
             cand.chmod(0o644)
-            with mock.patch.object(mod.shutil, "which", return_value=None):
+            with unittest.mock.patch.object(mod.shutil, "which", return_value=None):
                 with self.assertRaises(SystemExit) as ctx:
                     mod.resolve_claude(search_paths=(cand,))
             self.assertIn("cannot find the `claude` binary", str(ctx.exception))
 
     def test_missing_binary_exits_with_path_dump(self) -> None:
-        with mock.patch.object(mod.shutil, "which", return_value=None):
-            with mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=False):
+        with unittest.mock.patch.object(mod.shutil, "which", return_value=None):
+            with unittest.mock.patch.dict(os.environ, {"PATH": "/usr/bin:/bin"}, clear=False):
                 with self.assertRaises(SystemExit) as ctx:
                     mod.resolve_claude(search_paths=())
         self.assertIn("/usr/bin:/bin", str(ctx.exception))
 
     def test_unset_path_is_named_in_the_exit(self) -> None:
         env = {k: v for k, v in os.environ.items() if k != "PATH"}
-        with mock.patch.object(mod.shutil, "which", return_value=None):
-            with mock.patch.dict(os.environ, env, clear=True):
+        with unittest.mock.patch.object(mod.shutil, "which", return_value=None):
+            with unittest.mock.patch.dict(os.environ, env, clear=True):
                 with self.assertRaises(SystemExit) as ctx:
                     mod.resolve_claude(search_paths=())
         self.assertIn("(unset)", str(ctx.exception))

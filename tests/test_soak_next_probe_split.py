@@ -33,11 +33,11 @@ import json
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import unittest
+import unittest.mock
 from collections import Counter
 from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 MODULE_PATH = REPO_ROOT / "util" / "soak_next_probe.py"
@@ -190,7 +190,7 @@ class StatusCountsArePostIntervention(unittest.TestCase):
             ledger.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
             buf = io.StringIO()
             err = io.StringIO()
-            with mock.patch.object(snp, "LEDGER", ledger), mock.patch.object(sys, "argv", [str(SCRIPT), "--status"]):
+            with unittest.mock.patch.object(snp, "LEDGER", ledger), unittest.mock.patch.object(sys, "argv", [str(SCRIPT), "--status"]):
                 with redirect_stdout(buf), redirect_stderr(err):
                     rc = snp.main()
             self.assertEqual(rc, 0)
