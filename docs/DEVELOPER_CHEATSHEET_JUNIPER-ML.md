@@ -51,6 +51,7 @@
 | `python util/experiments/run_suite.py --suite PATH --compare-baseline TAG` | Same, plus a reporting-only comparator verdict in `REPORT.md` (FAIL still exits 0) |
 | `python util/experiments/run_suite.py --suite PATH --dry-run` | Preview suite expansion + `--up` / drive / `--down` (writes nothing) |
 | `python util/experiments/run_suite.py --suite PATH --resume SUITE_ID` | Re-run non-`succeeded` cells only |
+| `python util/experiments/read_run_metrics.py --run RUN_DIR --json` | Read ratified perf metrics; recurrence → `work_countable: false` (use JSON; the table is cascor-shaped) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
@@ -939,6 +940,8 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | PF-3 `stalled` at ~120 s while candidates train | Missing `execution.stall_seconds` > 120, or wall still inherited 600 from `spiral-smoke`. |
 | PF-3 `timed_out` / `exit_code: null` / no manifest | `per_run_timeout_seconds` ≤ wall budget — suite killed the driver. |
 | Green PF-5/6/7 treated as a work-gate | Thresholds unratified. Those files measure fit time. Instruments, not verdicts. |
+| `make_baseline` / `compare_baseline` says "no countable work" | Recurrence suite — expected refuse (#1683). Report via `read_run_metrics.py --run RUN_DIR --json`; do not bless a speed-only baseline. |
+| Recurrence `work_invariant` is false on identical-looking cells | Third state: `work_countable` is false, so the invariant is false because the question does not apply. Use `--json`. |
 | HTTP 429 missing `Retry-After` | `SecurityMiddleware` must pass `exc.headers` into the `JSONResponse`. |
 | `Juniper*ConfigurationError: base_url must include a host` | Hostless constructor URL (`""`, `http://`, `http://user:secret@`) — fix the URL, not the service. |
 | `HTTPS://host` talks HTTP / hostname `https` | Wheel predates case-insensitive scheme matching; install client GitHub main or wait for the next PyPI cut. |
@@ -1011,6 +1014,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) -- `**FIXED` token, cwd pitfall, third reading vs the two §4 counters
 - [Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) -- shipped `*_full` vs design-closed `X_val`
 - [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default 503-name universe, per-request cost, silent `max_symbols` slice
+- [Recurrence Work Is Not Countable](REFERENCE.md#recurrence-work-is-not-countable) -- PF-5/6/7 report-only; `work_countable` third state; baseline/compare refuse
 - [Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs) -- `run_suite` P2 1.4: both gate inputs in `aggregate.csv` / `REPORT.md`; `--compare-baseline` reporting only
 - [Run lister / pruner](REFERENCE.md#run-lister--pruner-list_runspy) -- `list_runs.py` directory-truth scan; `--prune` ≠ `--down`
 - [Suite Driver](REFERENCE.md#suite-driver) -- `run_suite.py` expansion, resume, cascor parallel floor, Grafana env toggle

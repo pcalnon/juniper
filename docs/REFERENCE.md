@@ -45,6 +45,7 @@
 - [CSV Import Byte Cap](#csv-import-byte-cap)
 - [Snapshot Sidecar Chain](#snapshot-sidecar-chain)
 - [Suite Driver](#suite-driver)
+- [Recurrence Work Is Not Countable](#recurrence-work-is-not-countable)
 - [Run lister / pruner (`list_runs.py`)](#run-lister--pruner-list_runspy)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [P4 Campaign Suites](#p4-campaign-suites)
@@ -3122,6 +3123,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/snapshot_index.py` -- Read-only archive index + query (design §6.2). `--scan` is append-only over `root/*.h5`; `--verify` opts into cascor's own verifier; `dataset_id` is a query-time join on `JUNIPER_EXP_RUN_ROOT`. No `--prune`. Tests: `tests/test_snapshot_index.py`. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
 - `util/snapshot_classify.py` -- Staged two-axis classifier over the index (handoff §2.4). `--stage load` uses cascor's loader; `--stage train` is unimplemented and refuses without a scratch `JUNIPER_CASCOR_SNAPSHOTS_DIR`; `--write` refuses `--sample`. Tests: `tests/test_snapshot_classify.py`. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
 - `util/snapshot_backfill.py` -- Consolidates index + classification + attribution into one labelled record (handoff §3.4). Population claims stay in their own bucket; run identity is never invented. Tests: `tests/test_snapshot_backfill.py`. Operator surface: [Snapshot Sidecar Chain](#snapshot-sidecar-chain).
+- `util/experiments/compare_baseline.py` -- Split comparator (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED). Recurrence overlay (juniper-ml#1683): refuses a candidate with no countable work; `--accept-work-change` cannot override REFUSED. Cascor WORK/SPEED/host contract: [#1628](https://github.com/pcalnon/juniper-ml/pull/1628). Tests: `tests/test_compare_baseline.py`.
 - `util/snapshot_attribute.py` -- Read-only dataset attribution over the classification sidecar (handoff §3.2). Scores each loadable snapshot against the six 2-D generators with permutation-corrected accuracy, gated on the untrained-null **max** plus a schema-v2 cross-dataset floor.
   - **Dataset instance must be pinned** or the scores are not reproducible: five generators declare `seed=None` and redraw every call.
   - `seeded_params` (juniper-ml#1333) supplies `DATASET_SEED` (`20260824`) only where a generator declares none; spiral keeps its declared seed; `--dataset-seed` overrides; `--seed` only samples snapshots. `--write` refuses `--sample`/`--min-hidden`. Tests: `tests/test_snapshot_attribute.py`. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
@@ -3854,7 +3856,7 @@ Multi-cell campaigns use `util/experiments/run_suite.py` (Wave 7.1 / 7.5) — op
 
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
-This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
+This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`). Recurrence **timings** already land on the manifest; the split gate still has **no recurrence work counter** — see [Recurrence Work Is Not Countable](#recurrence-work-is-not-countable) (lands with juniper-ml#1683).
 
 Recurrence YAML still allow-lists `dataset.split` / `predict.from_dataset_split` as `{train, test, full}` — `"validation"` is exit 2. That is the shipped NPZ contract, not the closed design. Operator surface: [Train / Val / Test Partition Contract](#train--val--test-partition-contract).
 
@@ -4295,6 +4297,8 @@ Test seams (operator-visible): `JUNIPER_SUITE_LAUNCHER`, `JUNIPER_SUITE_DRIVER`,
 | Bridged vs unbridged PF-1 hashes differ | `JUNIPER_SUITE_GRAFANA_BRIDGE` leaked into the YAML. Keep it an env toggle. |
 | Worktree suite takes primary cascor YAML | `JUNIPER_EXP_PROJECT_DIR` rebase must win — confirm the rebased `juniper-cascor/conf/experiments/…` exists. |
 | Repeats are not repeats | `include` cells do not inherit `matrix`. Put the repeat axis on `matrix` (PF-1's `experiment.description` list). |
+| `make_baseline` / `compare_baseline` names "no countable work" on a recurrence suite | Expected — recurrence has no work-done counter. Report the run (`read_run_metrics.py --run RUN_DIR --json`); do not cut a speed-only baseline. See [Recurrence Work Is Not Countable](#recurrence-work-is-not-countable). |
+| Recurrence `work_invariant` is false even when every cell looks the same | Third state: `work_countable` is false, so the invariant is false because the question does not apply — not because the counts differed. Use `--json`; the human table is cascor-shaped. |
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
@@ -4818,6 +4822,104 @@ Coverage: `tests/test_run_suite.py` (expansion, project-dir override, cascor par
 | Snapshots have a cell id but no suite name | Pre-provenance run. Current `--up` exports `JUNIPER_CASCOR_EXPERIMENT`. |
 | `list_runs.py` does not show the suite | It ignores `index.jsonl` and `suites/`. Look under `$JUNIPER_EXP_RUN_ROOT/suites/<SUITE_ID>/`. |
 | `--compare-baseline` FAIL but suite exit `0` | Reporting-only — see docs #1649. |
+
+---
+
+## Recurrence Work Is Not Countable
+
+Lands with [juniper-ml#1683](https://github.com/pcalnon/juniper-ml/pull/1683) (P2 item 3.1). Operator surface for `util/experiments/read_run_metrics.py`, `make_baseline.py`, and `compare_baseline.py` on **recurrence** runs.
+
+The cascor identity / split-gate contract (fingerprint, exact `step_count`, ungated speed, host blocking fields) is a different surface — in-flight docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) / [#1628](https://github.com/pcalnon/juniper-ml/pull/1628). Suite-report `--compare-baseline` wiring is [#1649](https://github.com/pcalnon/juniper-ml/pull/1649). This section is only the recurrence finding and the refuse-rather-than-mis-gate contract.
+
+Design: [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) (item 3.1). The plan's own §1.2 overstated the gap as "recurrence has no timing surface"; #1683 corrects that in the plan. The timings already existed.
+
+### Intent
+
+The split gate has two halves: **WORK** (`step_count`, gated exactly) and **SPEED** (reported, never gated; this host's drift floor is 13–20.5%). Recurrence has **no work-done counter**, so PF-5 / PF-6 / PF-7 can be **reported but never gated** without new instrumentation inside juniper-recurrence. The tools say so and refuse, rather than blessing a speed-only baseline that would invite exactly the comparison the floor rules out.
+
+### Kind detection
+
+`read_run` defaults to `kind: "cascor"` / `work_countable: True`, then overlays recurrence when the manifest has **no** `timings.drive` and **does** have `timings.train`:
+
+| Manifest `timings` | Kind | Work countable | Duration field |
+|--------------------|------|----------------|----------------|
+| `drive` present | `cascor` | `True` | `drive_seconds` (poll-quantized; de-ratified) |
+| no `drive`, `train` present | `recurrence` | `False` | `train_seconds` / `crossval_seconds` (driver-measured, **unquantized**) |
+
+Recurrence `POST /v1/train` is **synchronous**: the response *is* completion, so there is no poll loop and none of cascor `drive`'s 5 s quantization. A run that carries **both** keys stays cascor (the `drive` key wins). A run that carries **neither** also stays the cascor default — do not treat a missing `train` key as "recurrence with zero work".
+
+Recurrence extras (from `artifacts/results/train_response.json`): `n_epochs`, `stopped_reason`, `n_windows`, plus `work_uncountable_reason`.
+
+### Why the work-count candidates fail
+
+Surveyed across **36** real recurrence runs on 2026-09-04 (not assumed from repeats):
+
+| Candidate | Measures | Verdict |
+|-----------|----------|---------|
+| `n_epochs` | iterations to convergence | **Degenerate.** Exactly two values: **1** (28 runs, `stopped_reason=converged`) and **200** (2 runs, `max_epochs`). Tracks the **readout type** (closed-form readouts converge in one epoch). Invariant to `d` and `n_steps` — the two dimensions PF-5 and PF-6 exist to vary — so a gate on it would be vacuous exactly where it is needed. |
+| `dataset.n_windows` | input size | Varies (349 / 1346 / 1574 / 3149) but is **fixed by the config**. A code change that does redundant work does not move it. cascor `step_count` measures work **done**; this measures work **asked for**. |
+| `timings.train` | duration | This is the **speed** half, not work. |
+
+Measured example from #1683 (run `20260809T080104Z-5ebf`): `kind=recurrence`, `work_countable=false`, `train` 0.518 s, `crossval` 1.928 s, `n_epochs` 1, `n_windows` 1574.
+
+### Third state: `work_countable` vs `work_invariant`
+
+`summarise()` keeps three distinguishable outcomes so a caller never reads "not countable" as "counted, and they matched":
+
+| State | `work_countable` | `work_invariant` | Meaning |
+|-------|------------------|------------------|---------|
+| Counted and matched | `True` | `True` | Every cell reports the same `step_count` |
+| Counted and differed | `True` | `False` | `step_count` spread — not a set of repeats |
+| Not countable | `False` | `False` | The work question does not apply (recurrence). `kinds` lists `recurrence`. |
+
+`work_invariant` is `countable AND unique(step_counts) AND nonempty`. An empty suite is also `work_countable: False`. Callers that still treat a missing key as countable stay compatible (`row.get("work_countable", True)`).
+
+The human table from `read_run_metrics.py` is **cascor-shaped** (`polls` / `drive` / `step_sum` / `steps`). It does not print `train_seconds` or `work_uncountable_reason`. Use `--json` (or `--run RUN_DIR`, which always emits JSON) for a recurrence run.
+
+`--sweep` appears only in the module docstring. It is **not** an argparse flag.
+
+### `make_baseline` refuses
+
+A baseline exists to support the WORK gate. `build_baseline` appends a refusal when `summarise().work_countable` is false and raises `BaselineError` (CLI exit **2**). The message names `n_epochs` / input-size and says **Report these runs instead of baselining them.**
+
+A recurrence suite can also trip the later `work_invariant` refusal (`step_counts` is empty). The first message is the one that explains why.
+
+There is still no `--force`. Operator-invoked only — never called from `run_suite.py` / `run_experiment.py`.
+
+```bash
+# Inspect a recurrence RUN_DIR (JSON is the operator path)
+python util/experiments/read_run_metrics.py --run ~/.local/state/juniper-experiments/<RUN_ID> --json
+
+# This exits 2 on a recurrence suite — do not pass --accept-warnings to "make it work"
+python util/experiments/make_baseline.py --tag pf5-try --suite SUITE_DIR --dry-run
+```
+
+### `compare_baseline` refuses
+
+After the single-workload check, `compare()` refuses a candidate whose summary is not `work_countable`. Verdict **REFUSED**, exit **2**. Reason text: the WORK half does not apply; speed alone cannot be compared here (13–20.5% drift floor); report the run rather than gating it.
+
+`--accept-work-change REASON` blesses a **work** change (WAIVED, never PASS). It **cannot** override a refusal — the renderer prints `had NO effect`.
+
+```bash
+python util/experiments/compare_baseline.py --baseline SOME-TAG --suite SUITE_DIR
+# recurrence candidate -> verdict REFUSED, exit 2
+```
+
+### Operator pitfalls
+
+| Pitfall | What actually happens |
+|---------|------------------------|
+| Gate PF-5/6/7 on `n_epochs` | Vacuous — 1 vs 200 by readout type, invariant to `d` / `n_steps`. |
+| Treat `n_windows` as cascor `step_count` | Input size, not work done. Redundant work does not move it. |
+| Cut a "speed-only" baseline so compare can run | `make_baseline` refuses. A speed reference would exist solely to back the comparison the drift floor rules out. |
+| Read `work_invariant: false` as "counts differed" | Check `work_countable` first. False+false is the third state. |
+| Trust the human table for recurrence | Cascor columns only. Use `--json`. |
+| `--accept-work-change` to force a recurrence compare | Still REFUSED. A waiver cannot override a refusal. |
+| Point `--compare-baseline` at a recurrence suite from `run_suite.py` | Same `summarise()` refuse (once #1683 has landed). A failing verdict still does not change the suite exit code — that wiring is [#1649](https://github.com/pcalnon/juniper-ml/pull/1649). |
+
+Coverage: `tests/test_read_run_metrics.py` (`RecurrenceKindTest`) and `tests/test_make_baseline.py` (`RecurrenceRefusalTest`) land with #1683.
+
+In-flight [#1689](https://github.com/pcalnon/juniper-ml/pull/1689) adds `tests/test_work_countable_contract.py` for the leftover those cannot see: `compare()` REFUSED (exit 2) with the honest reason (not FAIL / not "not a set of repeats"), waiver cannot override, planted cascor histogram counts do not make an uncountable suite `work_invariant`, and `drive` wins when both timing keys are present.
 
 ---
 
@@ -6318,6 +6420,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.38  | 2026-09-04 | Canopy E2E topology driver after #1672: M-06/M-07 are AND predicates; M-12 scores Clear selection; second-instance `2026-09-04_canopy_verify_instance.bash` is on `main`. Supersedes the 0.6.37 draft in #1674 |
 | 0.6.40  | 2026-09-04 | Suite driver operator surface: `run_suite.py` expansion / resume / `--only` exit, cascor parallel floor, Grafana env toggle, Q-2 flag forwarding. Distinct from gate-input docs #1649 |
 | 0.6.43  | 2026-09-04 | Canopy E2E dataset drivers: W6 (`--steps`, no ranges, stops before restart-confirm wipe) vs §3.6 (`--step`); `JUNIPER_E2E_CANOPY_URL` is the target, not `JUNIPER_E2E_CANOPY_PORT` |
+| 0.6.45  | 2026-09-04 | Recurrence work is not countable (#1683): kind detection from `timings.train`, `work_countable` third state, `make_baseline` / `compare_baseline` refuse rather than mis-gate PF-5/6/7 |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
