@@ -627,7 +627,9 @@ feat PRs); never treat script exit `0` as “all clean” — read each `verdict
 count) but honors `Allow-Docs-Rewrite` trailers (#926). Docs-only PRs skip the pre-commit battery.
 See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
 
-Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` / `Fleet PR Lint` are **advisory** (not in Quality Gate `needs:`). Labels `allow-symbol-loss` / `docs-rewrite` only demote the PR job via `--advisory`; post-merge `main-verify` needs commit trailers. G4 uses `--from-ref` on PR/merge_group and `--all-files` on push. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
+Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` is a **required** `juniper-ml-rules` context, even though it is absent from Quality Gate `needs:` and the job banner still says advisory.
+`Fleet PR Lint` is the one that is still truly advisory (never fails). Labels `allow-symbol-loss` / `docs-rewrite` green the PR job via `--advisory`; post-merge `main-verify` needs commit trailers.
+G4 uses `--from-ref` on PR/merge_group and `--all-files` on push. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
 
 Tip: `gpg: KEYTOCARD failed: Invalid value` for ed448 on a YubiKey 5 is expected — card has no Curve448. Do not burn Admin PIN retries; follow the ed25519/cv25519 subkey layout in [REFERENCE — YubiKey GPG](REFERENCE.md#yubikey-gpg-provisioning). Stub pinentry must greet with Assuan `OK` (#914). An Ed448 *creation* refusal needing `--compliance=gnupg` is the Ubuntu/Debian FreePG-patched build, not upstream GnuPG.
 
@@ -759,7 +761,7 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Floor/editable green, `import torch` fails | Those checkers never import torch. Classify with `util/check_conda_env_torch.bash`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
-| Sequence Safety red, Quality Gate green | Advisory by design — download `sequence-safety-report`; waive with trailers or (owner) labels |
+| Sequence Safety red, Quality Gate green | Expected split: QG omits it; the ruleset still requires `Sequence Safety`, so the PR is BLOCKED. Download `sequence-safety-report`; waive with trailers (labels green the PR check only) |
 | Label greens Sequence Safety; `main-verify` fails | Put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a landed commit; labels are PR-only |
 | Merge queue stalled (no required check) | Confirm `ci.yml` **and** `codeql.yml` `on.merge_group` still present; `Analyze (python)` must re-post |
 | `Analyze (python)` red: version mismatch | `init`/`autobuild`/`analyze` SHAs split — align to one SHA; keep Dependabot group `codeql-action` |
