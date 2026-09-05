@@ -62,6 +62,10 @@ STEP_COUNT_COLUMN = "juniper_cascor_training_step_duration_seconds_count"
 SERIES_RELPATH = "artifacts/results/metrics_series.csv"
 MANIFEST_RELPATH = "manifest.json"
 
+# Terminal states that stop the DRIVER rather than the workload, so the step-duration histogram is
+# cut short and its count measures the budget, not the code. Never gate on one.
+TRUNCATING_TERMINATIONS = frozenset({"timed_out", "torn_down_early", "stalled"})
+
 
 def _load_json(path: Path) -> Dict[str, Any]:
     try:
@@ -96,8 +100,45 @@ def step_totals(run_dir: Path) -> Tuple[Optional[float], Optional[float]]:
         return None, None
 
 
+def _recurrence_fields(run_dir: Path, timings: Mapping[str, Any]) -> Dict[str, Any]:
+    """Speed and the (absent) work counter for a recurrence run.
+
+    RECURRENCE HAS NO WORK COUNTER, and that is a finding rather than an omission here.
+    Surveyed across 36 runs on 2026-09-04:
+
+    * ``n_epochs`` takes exactly TWO values -- 1 (28 runs, "converged") and 200 (2 runs,
+      "max_epochs") -- because it tracks the READOUT TYPE: closed-form readouts converge in one
+      epoch. It is invariant to ``d`` and ``n_steps``, the two dimensions PF-5 and PF-6 exist to
+      vary, so gating on it would be VACUOUS exactly where it is needed.
+    * ``dataset.n_windows`` does vary (349 / 1346 / 1574 / 3149) but is INPUT SIZE, fixed by the
+      config. A code change that does redundant work does not move it. cascor's ``step_count``
+      measures work DONE; this measures work ASKED FOR.
+
+    So the split gate's WORK half has no recurrence equivalent, and a recurrence run can be
+    reported but not gated. ``work_countable`` says so explicitly so callers refuse rather than
+    quietly compare something that cannot regress.
+    """
+    train = _load_json(run_dir / "artifacts/results/train_response.json")
+    dataset = train.get("dataset") or {}
+    return {
+        "kind": "recurrence",
+        "work_countable": False,
+        "work_uncountable_reason": "recurrence exposes no work-done counter: n_epochs is 1-or-200 by readout type and invariant to d/n_steps; n_windows is input size, fixed by config",
+        "train_seconds": timings.get("train"),
+        "crossval_seconds": timings.get("crossval"),
+        "n_epochs": train.get("n_epochs"),
+        "stopped_reason": train.get("stopped_reason"),
+        "n_windows": dataset.get("n_windows"),
+    }
+
+
 def read_run(run_dir: Path) -> Dict[str, Any]:
-    """Both gate inputs plus provenance for one run directory."""
+    """Both gate inputs plus provenance for one run directory.
+
+    Handles both apps. cascor yields a countable ``step_count``; recurrence does not (see
+    ``_recurrence_fields``), and says so via ``work_countable`` rather than reporting a zero or a
+    ``None`` a caller might read as "matches".
+    """
     run_dir = Path(run_dir)
     manifest = _load_json(run_dir / MANIFEST_RELPATH)
     timings = manifest.get("timings") or {}
@@ -108,10 +149,24 @@ def read_run(run_dir: Path) -> Dict[str, Any]:
     # replaced.
     confirmed = scraped.get("scrape_confirmed") if isinstance(scraped, dict) else None
     step_sum, step_count = step_totals(run_dir)
-    return {
+    row: Dict[str, Any] = {
         "run_dir": str(run_dir),
         "run_id": manifest.get("run_id"),
         "outcome": manifest.get("outcome"),
+        "kind": "cascor",
+        "work_countable": True,
+        # TERMINATION BRANCH -- part of the comparison precondition, not decoration.
+        #
+        # `step_count` is deterministic for a seed-fixed config ONLY GIVEN the branch that ended
+        # training. Censused over the whole corpus 2026-09-04
+        # (util/ad-hoc/2026-09-04_step_count_determinism_census.py): 333 runs, 153 distinct configs,
+        # 79 repeated, of which **29 diverge in step_count** -- and **all 29 are fully explained by
+        # completion_reason**, with ZERO still divergent once grouped by it.
+        #
+        # So a differing reason means a different trajectory, and comparing across it produces a
+        # FALSE FAIL. The observed case: identical config_sha256 and seeds gave 6496
+        # (early_stopped) / 6095 (below_threshold) / 6496 (early_stopped).
+        "completion_reason": manifest.get("completion_reason"),
         "drive_seconds": timings.get("drive"),
         "polls": drive_loop.get("polls"),
         "step_sum_seconds": step_sum,
@@ -119,6 +174,12 @@ def read_run(run_dir: Path) -> Dict[str, Any]:
         "mean_step_seconds": (step_sum / step_count) if step_sum is not None and step_count else None,
         "scrape_confirmed": confirmed,
     }
+    # `drive` identifies a cascor run (a polled training loop); `train` identifies recurrence,
+    # whose POST /v1/train is SYNCHRONOUS -- the response IS completion, so there is no poll loop
+    # and its duration carries none of `drive`'s 5 s quantization.
+    if "drive" not in timings and "train" in timings:
+        row.update(_recurrence_fields(run_dir, timings))
+    return row
 
 
 # Fields that identify a cell to a HUMAN but do not affect the computation. Stripping them is what
@@ -206,10 +267,23 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
     fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
+    # A suite whose runs expose no work counter cannot satisfy the work invariant -- not because it
+    # failed, but because the question does not apply. Kept as a THIRD state so a caller never reads
+    # "not countable" as "counted, and they matched".
+    countable = all(r.get("work_countable", True) for r in rows) if rows else False
+    reasons = sorted({str(r["completion_reason"]) for r in rows if r.get("completion_reason")})
     out: Dict[str, Any] = {
         "cells": len(rows),
+        "kinds": sorted({str(r.get("kind", "cascor")) for r in rows}),
+        "work_countable": countable,
+        # Cells that ended on DIFFERENT branches are not repeats of each other, even at one config.
+        "completion_reasons": reasons,
+        "single_completion_reason": len(reasons) == 1,
+        # These end the run before the workload does, so the histogram is truncated by construction
+        # and its count is a fact about the budget rather than about the code.
+        "truncated_terminations": sorted({r for r in reasons if r in TRUNCATING_TERMINATIONS}),
         "step_counts": sorted(set(counts)),
-        "work_invariant": len(set(counts)) == 1 and bool(counts),
+        "work_invariant": countable and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
         # step_count spread would be a fact about the configs rather than about the host or the
         # code. Recorded separately from work_invariant so the two failures stay distinguishable.

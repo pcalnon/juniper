@@ -39,7 +39,7 @@ from experiments import read_run_metrics as rrm  # noqa: E402
 SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
-def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outcome="succeeded", warnings=None, python="3.13.13", with_series=True) -> Path:
+def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outcome="succeeded", warnings=None, python="3.13.13", with_series=True, reason="early_stopped") -> Path:
     run_dir = root / run_id
     (run_dir / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -49,6 +49,7 @@ def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outco
         "drive_loop": {"polls": 14},
         "environment": {"nproc": 16, "python": python, "platform": "Linux-test", "thread_env": {"OMP_NUM_THREADS": None}},
         "metrics_scraped": {"scrape_confirmed": True},
+        "completion_reason": reason,
     }
     if warnings:
         manifest["validation_warnings"] = warnings
@@ -306,3 +307,48 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecurrenceRefusalTest(unittest.TestCase):
+    """A baseline supports the WORK gate, so a run with no work counter cannot back one.
+
+    Recurrence exposes none (see the reader's RecurrenceKindTest). A "speed-only baseline"
+    would exist solely to support the comparison this host's 13-20.5% drift floor rules out --
+    i.e. it would be an invitation to draw exactly the conclusion the lane rejected. Refusing
+    is the honest outcome; the runs are still worth REPORTING.
+    """
+
+    def _recurrence_suite(self, root: Path) -> Path:
+        suite_dir = root / "rsuite"
+        (suite_dir / "cells").mkdir(parents=True, exist_ok=True)
+        lines = []
+        for idx in range(2):
+            cell_id = f"c{idx:03d}"
+            run_dir = root / f"rrun{idx}"
+            (run_dir / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
+            (run_dir / "manifest.json").write_text(
+                json.dumps({"run_id": f"rrun{idx}", "outcome": "succeeded", "timings": {"train": 0.5, "crossval": 1.9}, "environment": {"nproc": 16, "python": "3.13.13"}}),
+                encoding="utf-8",
+            )
+            (run_dir / "artifacts" / "results" / "train_response.json").write_text(json.dumps({"n_epochs": 1, "stopped_reason": "converged", "dataset": {"n_windows": 1574}}), encoding="utf-8")
+            (suite_dir / "cells" / cell_id).mkdir(parents=True, exist_ok=True)
+            (suite_dir / "cells" / cell_id / "experiment.yaml").write_text(f"experiment:\n  description: r{idx}\n  seed: 42\ntrain:\n  readout: linear\n", encoding="utf-8")
+            lines.append(json.dumps({"cell_id": cell_id, "run_dir": str(run_dir), "overrides": {}, "config_sha256": f"sha-{cell_id}"}))
+        (suite_dir / "registry.jsonl").write_text("\n".join(lines) + "\n", encoding="utf-8")
+        return suite_dir
+
+    def test_refuses_to_baseline_a_run_with_no_work_counter(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._recurrence_suite(Path(tmp))
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("no countable work", str(ctx.exception))
+
+    def test_the_refusal_names_why_rather_than_just_refusing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = self._recurrence_suite(Path(tmp))
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            message = str(ctx.exception)
+            self.assertIn("n_epochs", message)
+            self.assertIn("Report these runs instead", message)

@@ -57,6 +57,12 @@ from pathlib import Path
 
 import yaml
 
+# `util/` on the path so `from experiments import ...` resolves whether this file is run as a
+# script (sys.path[0] = util/experiments) or imported as a module. Without it the sibling imports
+# in _gate_metrics / _run_comparison raise ImportError and their features degrade to blank
+# columns -- silently, which is how a feature ships doing nothing.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 DEFAULT_LAUNCHER = REPO_ROOT / "util" / "experiment_stack.bash"
 DEFAULT_DRIVER = Path(__file__).resolve().parent / "run_experiment.py"
@@ -475,18 +481,76 @@ def execute_cell(cell: dict, cell_yaml: Path, app: str, timeout: float, launcher
     return row
 
 
-def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]") -> int:
+def _gate_metrics(suite_dir: Path, cells: "list[dict]") -> "dict[str, dict]":
+    """Per-cell WORK and SPEED, the perf lane's two ratified gate inputs (P2 item 1.4).
+
+    ``aggregate.csv`` used to carry ``wall_seconds`` and nothing else -- and ``wall_seconds`` is
+    DE-RATIFIED: it absorbs plot rendering and stack bring-up, and enabling the Grafana bridge alone
+    moves it ~5%. A reader who opened the aggregate was analysing the wrong quantity with nothing
+    flagging it. These columns put the right ones beside it.
+    """
+    # NOT wrapped in try/except ImportError. The first draft was, and when the import failed the
+    # columns came out BLANK and REPORT.md said "work invariant: BROKEN -- step_count not measured"
+    # -- indistinguishable from a genuinely broken suite. A missing sibling module is a packaging
+    # bug and should say so loudly.
+    from experiments import read_run_metrics as rrm
+
+    out: "dict[str, dict]" = {}
+    registry = _read_registry(suite_dir)
+    for cell in cells:
+        row = registry.get(cell["cell_id"], {})
+        run_dir = row.get("run_dir")
+        if not run_dir:
+            continue
+        metrics = rrm.read_run(Path(run_dir))
+        metrics["workload_fingerprint"] = rrm.workload_fingerprint(suite_dir, cell["cell_id"])
+        out[cell["cell_id"]] = metrics
+    return out
+
+
+def _run_comparison(tag: str, suite_dir: Path) -> str:
+    """Render a baseline comparison for REPORT.md, never changing the suite's own exit code.
+
+    REPORTING ONLY, and deliberately so. Wiring a comparator verdict to run_suite's exit status
+    would silently make the run tier a gate -- and §6 of the P1 design records that as a SEPARATE
+    owner decision, still open. A failure here is information for a person, not a build outcome.
+    """
+    from experiments import compare_baseline as cb
+
+    try:
+        payload, host = cb._load_baseline(DEFAULT_RUN_ROOT, tag)
+    except cb.CompareError as exc:
+        return f"comparison could not run: {exc}"
+    return cb.render(cb.compare(payload, host, [suite_dir]))
+
+
+def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]", comparison: "str | None" = None) -> int:
     registry = _read_registry(suite_dir)
     metric_keys = sorted({k for row in registry.values() for k in (row.get("metrics") or {})})
     override_keys = sorted({k for cell in cells for k in cell["overrides"]})
+    gate = _gate_metrics(suite_dir, cells)
     csv_path = suite_dir / "aggregate.csv"
     with csv_path.open("w", newline="", encoding="utf-8") as fh:
         writer = csv.writer(fh)
-        writer.writerow(["cell_id", "name", "run_id", "outcome", "exit_code", "wall_seconds", *override_keys, *metric_keys])
+        # step_count / mean_step_seconds sit next to wall_seconds deliberately: the de-ratified
+        # metric stays for continuity, but it is no longer the only thing on offer.
+        writer.writerow(["cell_id", "name", "run_id", "outcome", "exit_code", "wall_seconds", "step_count", "mean_step_seconds", *override_keys, *metric_keys])
         for cell in cells:
             row = registry.get(cell["cell_id"], {})
+            cell_gate = gate.get(cell["cell_id"], {})
             writer.writerow(
-                [cell["cell_id"], cell["name"] or "", row.get("run_id") or "", row.get("outcome") or "not-run", row.get("exit_code"), row.get("wall_seconds"), *[cell["overrides"].get(k, "") for k in override_keys], *[(row.get("metrics") or {}).get(k, "") for k in metric_keys]]
+                [
+                    cell["cell_id"],
+                    cell["name"] or "",
+                    row.get("run_id") or "",
+                    row.get("outcome") or "not-run",
+                    row.get("exit_code"),
+                    row.get("wall_seconds"),
+                    cell_gate.get("step_count", ""),
+                    cell_gate.get("mean_step_seconds", ""),
+                    *[cell["overrides"].get(k, "") for k in override_keys],
+                    *[(row.get("metrics") or {}).get(k, "") for k in metric_keys],
+                ]
             )
     succeeded = [c for c in cells if registry.get(c["cell_id"], {}).get("outcome") == "succeeded"]
     failed = [c for c in cells if registry.get(c["cell_id"], {}).get("outcome") not in (None, "succeeded")]
@@ -497,13 +561,39 @@ def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]") -> int:
         "",
         f"Cells: {len(cells)} total, {len(succeeded)} succeeded, {len(failed)} failed/other, {len(cells) - len(succeeded) - len(failed)} not run.",
         "",
-        "| cell | outcome | wall (s) | " + " | ".join(override_keys + metric_keys) + " |",
-        "|---|---|---|" + "---|" * (len(override_keys) + len(metric_keys)),
+        "| cell | outcome | step_count | mean step (ms) | wall (s) | " + " | ".join(override_keys + metric_keys) + " |",
+        "|---|---|---|---|---|" + "---|" * (len(override_keys) + len(metric_keys)),
     ]
     for cell in cells:
         row = registry.get(cell["cell_id"], {})
+        cell_gate = gate.get(cell["cell_id"], {})
+        mean_step = cell_gate.get("mean_step_seconds")
         values = [str(cell["overrides"].get(k, "")) for k in override_keys] + [str((row.get("metrics") or {}).get(k, "")) for k in metric_keys]
-        lines.append(f"| {cell['cell_id']} | {row.get('outcome') or 'not-run'} | {row.get('wall_seconds') or ''} | " + " | ".join(values) + " |")
+        lines.append(
+            f"| {cell['cell_id']} | {row.get('outcome') or 'not-run'} | {cell_gate.get('step_count') or ''} | "
+            f"{f'{mean_step * 1000:.3f}' if isinstance(mean_step, float) else ''} | {row.get('wall_seconds') or ''} | " + " | ".join(values) + " |"
+        )
+
+    counts = {g.get("step_count") for g in gate.values() if g.get("step_count") is not None}
+    fingerprints = {g.get("workload_fingerprint") for g in gate.values() if g.get("workload_fingerprint")}
+    lines += [
+        "",
+        "## Gate inputs",
+        "",
+        "**`wall_seconds` is DE-RATIFIED** — it absorbs plot rendering and stack bring-up, and enabling the",
+        "Grafana bridge alone moves it ~5%. It is kept for continuity only. The gated quantity is",
+        "**`step_count`** (work, compared exactly); **mean step duration** is reported and never gated,",
+        "because this host's own drift floor is 13–20.5%.",
+        "",
+        f"- **work invariant**: {'HOLDS' if len(counts) == 1 else 'BROKEN'} — step_count {sorted(int(c) for c in counts) if counts else 'not measured'}",
+        f"- **single workload**: {'yes' if len(fingerprints) == 1 else 'NO'} — fingerprint {sorted(f[:12] + '...' for f in fingerprints) if fingerprints else 'unknown'}",
+    ]
+    if len(counts) > 1:
+        lines.append("- These cells are **not repeats of each other**; a baseline must not be cut from them.")
+    if comparison is not None:
+        lines += ["", "## Baseline comparison", "", "```text", comparison, "```", ""]
+        lines.append("The suite's own exit code does NOT reflect this verdict — whether the run tier gates is a")
+        lines.append("separate owner decision (§6 of the P1 design). Read the verdict, or run `compare_baseline.py`.")
     (suite_dir / "REPORT.md").write_text("\n".join(lines) + "\n")
     return 0 if len(succeeded) == len(cells) else 1
 
@@ -514,6 +604,13 @@ def main(argv: "list[str] | None" = None) -> int:
     parser.add_argument("--dry-run", action="store_true", help="Print the expanded cell list and every command; write nothing")
     parser.add_argument("--resume", metavar="SUITE_ID", default=None, help="Resume an existing suite dir, skipping cells already terminal in registry.jsonl")
     parser.add_argument("--only", nargs="*", default=None, metavar="CELL_ID", help="Execute only these cell ids")
+    parser.add_argument(
+        "--compare-baseline",
+        metavar="TAG",
+        default=None,
+        help="After aggregating, compare against this Q-8 baseline and record the verdict in REPORT.md. "
+        "REPORTING ONLY: the suite's exit code is unchanged by the verdict (whether the run tier gates is a separate owner decision).",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -623,7 +720,8 @@ def main(argv: "list[str] | None" = None) -> int:
                 if not continue_on_failure:
                     break
 
-    rc = aggregate(suite_dir, suite, cells)
+    comparison = _run_comparison(args.compare_baseline, suite_dir) if getattr(args, "compare_baseline", None) else None
+    rc = aggregate(suite_dir, suite, cells, comparison=comparison)
     print(f"[suite] wrote {suite_dir}/aggregate.csv + REPORT.md")
     return 1 if (any_failed or rc) else 0
 

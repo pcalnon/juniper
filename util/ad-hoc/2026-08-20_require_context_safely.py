@@ -212,12 +212,60 @@ def observed_contexts(owner: str, repo: str, limit: int = 8):
     return seen
 
 
+def observed_context_apps(owner: str, repo: str, context: str, limit: int = 8):
+    """App ids that have ACTUALLY published a check-run named ``context`` in this repo.
+
+    The name-only :func:`observed_contexts` answers "does anything publish this name here",
+    which is the right pre-flight for ADDING a context. Amending an ``integration_id`` asks a
+    strictly harder question -- "is THIS app the one that publishes it" -- and getting that
+    wrong reproduces the outage this whole tool exists to prevent: an id pointing at an app
+    that never reports leaves the context permanently unsatisfied, so the PR sits BLOCKED with
+    nothing red.
+
+    Returns ``{app_id: app_slug}`` so a refusal can name what actually publishes instead of
+    just saying no.
+    """
+    prs, _ = gh_json(
+        f"repos/{owner}/{repo}/pulls?state=all&sort=updated&direction=desc&per_page={limit}"
+    )
+    found: dict = {}
+    for pr in prs or []:
+        sha = ((pr.get("head") or {}).get("sha")) or ""
+        if not sha:
+            continue
+        runs, _ = gh_json(f"repos/{owner}/{repo}/commits/{sha}/check-runs?per_page=100")
+        for cr in (runs or {}).get("check_runs", []):
+            if cr.get("name") != context:
+                continue
+            app = cr.get("app") or {}
+            if app.get("id") is not None:
+                found[app["id"]] = app.get("slug") or "?"
+    # A PR-gated job reports on PR heads; one that only runs on main may not appear above, so
+    # fall back to main's own check-runs rather than refusing a legitimate amend.
+    if not found:
+        runs, _ = gh_json(f"repos/{owner}/{repo}/commits/main/check-runs?per_page=100")
+        for cr in (runs or {}).get("check_runs", []):
+            if cr.get("name") != context:
+                continue
+            app = cr.get("app") or {}
+            if app.get("id") is not None:
+                found[app["id"]] = app.get("slug") or "?"
+    return found
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--owner", default="pcalnon")
     ap.add_argument("--repo", action="append", default=None, help="repeatable; default: all 9")
     ap.add_argument("--context", default=DEFAULT_CONTEXT)
     ap.add_argument("--integration-id", type=int, default=ACTIONS_INTEGRATION_ID)
+    ap.add_argument(
+        "--amend-integration-id",
+        action="store_true",
+        help="change the integration_id of a context that is ALREADY required (default is a "
+        "no-op on such a context). Refuses unless the id is an app observed publishing that "
+        "exact context name in that repo.",
+    )
     ap.add_argument("--apply", action="store_true", help="write (default is dry-run)")
     ap.add_argument("--status", action="store_true", help="report only, never write")
     ap.add_argument(
@@ -245,14 +293,42 @@ def main() -> int:
         print(f"  ruleset      : {rs['name']} (id={rs['id']})")
         print(f"  required now : {len(names)} contexts")
 
+        amending = False
         if args.context in names:
             cur = next(c for c in contexts_of(rs) if c.get("context") == args.context)
-            print(f"  ALREADY REQUIRED (integration_id={cur.get('integration_id')}) — no-op")
-            continue
+            cur_iid = cur.get("integration_id")
+            if not args.amend_integration_id:
+                print(f"  ALREADY REQUIRED (integration_id={cur_iid}) — no-op")
+                continue
+            # ---- amend path: change the integration_id of an EXISTING context ----
+            # No "is the id explicit?" guard here: --integration-id defaults to
+            # ACTIONS_INTEGRATION_ID, so it is never None and such a check would be dead code.
+            # The real gate is the observed-publisher refusal below, which is what stops a
+            # wrong id regardless of whether it was typed or defaulted.
+            if cur_iid == args.integration_id:
+                print(f"  ALREADY PINNED (integration_id={cur_iid}) — no-op")
+                continue
+            publishers = observed_context_apps(args.owner, repo, args.context)
+            print(f"  amend        : integration_id {cur_iid} -> {args.integration_id}")
+            print(f"  observed publishers of {args.context!r}: "
+                  f"{publishers if publishers else 'NONE'}")
+            if args.integration_id not in publishers and not args.allow_unobserved:
+                print(
+                    f"  REFUSING: app {args.integration_id} has not been observed publishing\n"
+                    f"  {args.context!r} in {repo}. Pinning a context to an app that does not\n"
+                    "  report it leaves the context permanently unsatisfied: the PR sits\n"
+                    "  BLOCKED with zero failing checks and zero pending checks. That is the\n"
+                    "  five-repo outage this tool was written after. Pass --allow-unobserved\n"
+                    "  only with a reason."
+                )
+                rc = 1
+                continue
+            amending = True
 
-        obs = observed_contexts(args.owner, repo)
-        published = args.context in obs
-        print(f"  context observed publishing here: {'YES' if published else 'NO'}")
+        obs = observed_contexts(args.owner, repo) if not amending else set()
+        published = amending or args.context in obs
+        if not amending:
+            print(f"  context observed publishing here: {'YES' if published else 'NO'}")
         if not published and not args.allow_unobserved:
             print(
                 f"  REFUSING: nothing in {repo}'s recent check-runs publishes "
@@ -265,12 +341,17 @@ def main() -> int:
             rc = 1
             continue
 
+        verb = "amend" if amending else "add"
         if args.status:
-            print("  [--status] would add; not writing")
+            print(f"  [--status] would {verb}; not writing")
             continue
         if not args.apply:
-            print(f"  [dry-run] would add {args.context!r} "
-                  f"(integration_id={args.integration_id}) -> {len(names) + 1} contexts")
+            if amending:
+                print(f"  [dry-run] would amend {args.context!r} integration_id "
+                      f"{cur_iid} -> {args.integration_id} ({len(names)} contexts, unchanged)")
+            else:
+                print(f"  [dry-run] would add {args.context!r} "
+                      f"(integration_id={args.integration_id}) -> {len(names) + 1} contexts")
             continue
 
         # ---- snapshot BEFORE the write, outside the repo -------------------
@@ -292,9 +373,19 @@ def main() -> int:
             continue
 
         rule = checks_rule(fresh)
-        rule["parameters"]["required_status_checks"].append(
-            {"context": args.context, "integration_id": args.integration_id}
-        )
+        if amending:
+            # Mutate the ONE entry in place. Every other context object is left untouched,
+            # which is invariant 2 (each existing context keeps its OWN integration_id) --
+            # the invariant whose violation retargeted `Bandit` and cost five repos.
+            target = next(
+                c for c in rule["parameters"]["required_status_checks"]
+                if c.get("context") == args.context
+            )
+            target["integration_id"] = args.integration_id
+        else:
+            rule["parameters"]["required_status_checks"].append(
+                {"context": args.context, "integration_id": args.integration_id}
+            )
         payload = {
             "name": fresh["name"],
             "target": fresh["target"],
@@ -337,9 +428,26 @@ def main() -> int:
             if ctx not in after_pairs:
                 problems.append(f"context DROPPED: {ctx}")
             elif after_pairs[ctx] != iid:
-                problems.append(f"integration_id DRIFT on {ctx}: {iid} -> {after_pairs[ctx]}")
+                # An amend changes exactly ONE context's id BY DESIGN. Whitelisting that one
+                # pair -- rather than relaxing or skipping the drift check -- keeps the
+                # assertion live for all 16 others; a check that is switched off during the
+                # one operation that rewrites ids would be worse than no check.
+                if amending and ctx == args.context and after_pairs[ctx] == args.integration_id:
+                    print(f"  amended      : {ctx}: {iid} -> {after_pairs[ctx]} (intended)")
+                else:
+                    problems.append(f"integration_id DRIFT on {ctx}: {iid} -> {after_pairs[ctx]}")
         if args.context not in after_pairs:
-            problems.append(f"new context {args.context!r} NOT present after write")
+            problems.append(f"context {args.context!r} NOT present after write")
+        if amending and after_pairs.get(args.context) != args.integration_id:
+            problems.append(
+                f"amend DID NOT TAKE: {args.context!r} is "
+                f"{after_pairs.get(args.context)}, expected {args.integration_id}"
+            )
+        if amending and len(after_pairs) != len(before_pairs):
+            problems.append(
+                f"context COUNT changed during an amend: "
+                f"{len(before_pairs)} -> {len(after_pairs)}"
+            )
 
         if problems:
             print("  !! POST-WRITE VERIFICATION FAILED:")

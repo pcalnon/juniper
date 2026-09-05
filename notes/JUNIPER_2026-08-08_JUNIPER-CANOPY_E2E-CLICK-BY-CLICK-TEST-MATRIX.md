@@ -535,7 +535,7 @@ no highlight animation is active (`:406-413`).
 > |---|---|---|
 > | M-TOPOLOGY-09 | **PASS** | stats bar recolours `rgb(248,249,250)` → `rgb(52,58,64)` on a theme flip |
 > | M-TOPOLOGY-10 | **PASS** | selects, names the node, and `Layer: Hidden` is right — requires canopy#564 |
-> | M-TOPOLOGY-12 | **FAIL** | **F-CANOPY-046** — `plotly_click_events=0`; no event fires on empty space |
+> | M-TOPOLOGY-12 | **FAIL** | **F-CANOPY-046** — `plotly_click_events=0`; no event fires on empty space *(row restated and now PASS — see the 2026-09-04 update below)* |
 > | M-TOPOLOGY-15 | **PASS** | tooltip appeared (gesture proven), DOM unchanged, 0 API calls |
 >
 > **The -10 scorer is falsified, not merely green**: driven against the pre-canopy#564 build it FAILS
@@ -552,6 +552,43 @@ no highlight animation is active (`:406-413`).
 >
 > **Section total is now 15 PASS / 1 FAIL / 2 BLOCKED.** The record of the FAIL is kept below, because
 > the near-miss that produced it is the part worth re-reading.
+>
+> **UPDATE, 2026-09-04 — F-CANOPY-042 and F-CANOPY-046 are both FIXED (canopy#570, canopy#573), and
+> THREE row predicates were tightened or restated in the same pass. Section total: 16 PASS / 0 FAIL /
+> 2 BLOCKED — the M-TOPOLOGY section has no failing row for the first time in this arc.** (Counted from
+> the verdict column, not carried forward: -11 select-drag and -16 cascade-add glow remain BLOCKED.)
+>
+> Both fixes were verified by the same method: a **second canopy on `:8052`** launched from the fix
+> branch beside the arc's `:8051` instance, both pointed at the same cascor and juniper-data, so the
+> only difference between the two runs is which code the process imported
+> (`util/ad-hoc/2026-09-04_canopy_verify_instance.bash`). The 2/40/2/944 fixture was never touched.
+> This is the direct answer to *"a checkout is not a deployment"* — rather than restarting the shared
+> instance and hoping, run both and compare.
+>
+> | row | `:8051` parent | `:8052` fix | fix |
+> |---|---|---|---|
+> | M-TOPOLOGY-06 | `label='0 of 40' hidden='20 of 40'` → **FAIL** | `label='20 of 40' hidden='20 of 40'` → **PASS** | canopy#570 |
+> | M-TOPOLOGY-07 | `label='0 of 40'` at rest → **FAIL** | `label='all'` → **PASS** | canopy#570 |
+> | M-TOPOLOGY-12 | control absent → **BLOCKED** | control clicked, cleared → **PASS** | canopy#573 |
+>
+> **The three predicate changes matter more than the three verdicts.**
+>
+> - **M-TOPOLOGY-06** was `label == want **OR** counts["hidden"] == want` and had been passing on the
+>   counts branch for the whole arc — the stats bar tracked the filter while the label sat at
+>   `"0 of 40"`. **An `OR` over two independent claims scores the easier one.** F-CANOPY-042 had to be
+>   found by eye because this row could not fail on it.
+> - **M-TOPOLOGY-07** *read* the label into its record and asserted only `display`. It logged
+>   `'0 of 40'` on every run of this arc and scored PASS. The defect was in the scorer's own output.
+> - **M-TOPOLOGY-12** now names the control the app offers instead of the gesture it withdrew. The
+>   empty-space click is still driven and still counted — `plotly_click_events=0` on **both** builds,
+>   identically — but recorded rather than scored, because a deliberately withdrawn promise scored as a
+>   product FAIL forever measures the matrix, not the app. A build without the control scores
+>   **BLOCKED**: a product that has no affordance cannot be asked whether its affordance works.
+>
+> The net is **+1 PASS, −1 FAIL** (15/1/2 → 16/0/2): only M-TOPOLOGY-12 changes verdict, because -06
+> and -07 were *already* reading PASS — vacuously. **Both of them read PASS before this pass and FAIL
+> after it when driven against unchanged parent code**, which is the tightening rather than a
+> regression, and is the only reason their new PASS means anything.
 >
 > **UPDATE, 2026-09-03 — M-TOPOLOGY-14 is scored, and it is a FAIL.** The `topoexport` step finds the
 > camera button (9 modebar buttons; they are `<BUTTON class="modebar-btn">`, **not** `<a>` — an earlier
@@ -633,13 +670,13 @@ no highlight animation is active (`:406-413`).
 | M-TOPOLOGY-03 | `network-visualizer-display-mode` (:131)                                                                         | select `Weight Matrix`                  | Switches to a heatmap fed by `network-visualizer-raw-topology-store`; `Total Connections` becomes `"—"` (`:437-448`). Empty raw topology → empty figure + all zeros.                                                                                         | `GET /api/topology/raw` (`:6477`) | VIS, DOM, NET  | AUTO                           | B    | FA-1 | PASS |
 | M-TOPOLOGY-04 | `network-visualizer-display-mode`                                                                                | select `Node Graph`                     | Back to the node graph.                                                                                                                                                                                                                                      | `GET /api/topology`               | VIS            | AUTO                           | B    | FA-1 | PASS |
 | M-TOPOLOGY-05 | `network-visualizer-view-mode` (:145)                                                                            | select `3D`                             | 3-D rendering (`:486-492`). **View-state (zoom/pan/dragmode) is applied only in 2-D** (`:505-512`) — do not expect zoom persistence in 3-D.                                                                                                                  | —                                 | VIS            | AUTO                           | B    | FA-2 | PASS |
-| M-TOPOLOGY-06 | `network-visualizer-depth-slider` (:179)                                                                         | drag + release (`updatemode="mouseup"`) | Hierarchy filter keeps the first *k* cascade units; stats bar reads `"k of N"` (`:516-519`); label `-depth-label` (:174) reads `"all"` at max, else `"k of N"`.                                                                                              | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | PASS |
-| M-TOPOLOGY-07 | `network-visualizer-depth-slider-container` (:190)                                                               | passive                                 | Ships `display:none`; a clientside callback bumps `max` to `hidden_units` and reveals the container only when there is ≥1 hidden unit; the user-picked value survives grow events unless it exceeds the new max (`:666-700`).                                | —                                 | DOM            | AUTO                           | B    | FA-2 | PASS |
+| M-TOPOLOGY-06 | `network-visualizer-depth-slider` (:179)                                                                         | drag + release (`updatemode="mouseup"`) | Hierarchy filter keeps the first *k* cascade units; stats bar reads `"k of N"` (`:516-519`) **and** label `-depth-label` (:174) reads `"k of N"` — **both**, not either (predicate tightened 2026-09-04; the old `OR` passed on the counts branch alone).                                                                                              | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | PASS |
+| M-TOPOLOGY-07 | `network-visualizer-depth-slider-container` (:190)                                                               | passive                                 | Ships `display:none`; a clientside callback bumps `max` to `hidden_units` and reveals the container only when there is ≥1 hidden unit; the user-picked value survives grow events unless it exceeds the new max (`:666-700`). **At rest the label reads `"all"`** — asserted since 2026-09-04; it was read and discarded before, and logged `"0 of 40"` on every run while the row scored PASS.                                | —                                 | DOM            | AUTO                           | B    | FA-2 | PASS |
 | M-TOPOLOGY-08 | `network-visualizer-input-count` / `-hidden-count` / `-output-count` / `-connection-count` (:200/:207/:214/:221) | passive                                 | Stats bar counts, written by the rebuild callback. `-input-count` is the G-6-style input-width oracle used in W6.                                                                                                                                            | —                                 | DOM            | AUTO                           | B    | FA-1 | PASS |
 | M-TOPOLOGY-09 | `network-visualizer-stats-bar` (:195)                                                                            | theme change                            | Background/foreground recolour (`:529-543`).                                                                                                                                                                                                                 | —                                 | VIS            | AUTO                           | B    | —    | PASS |
 | M-TOPOLOGY-10 | `network-visualizer-graph` (:247)                                                                                | **click** a node                        | Selects it; `-selection-info` (:235) shows `Selected: <text>` + inferred `Layer:` and becomes visible. Clicking the same node again clears the selection (`:605-635`).                                                                                       | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | PASS |
 | M-TOPOLOGY-11 | `network-visualizer-graph`                                                                                       | **box / lasso** select                  | Modebar carries `select2d` + `lasso2d` (:251). Selection lists up to 5 node names + `Selected: N node(s)` (`:581-603`).                                                                                                                                      | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | BLOCKED |
-| M-TOPOLOGY-12 | `network-visualizer-graph`                                                                                       | click empty space                       | Selection cleared, `-selection-info` hidden (`:637-638`).                                                                                                                                                                                                    | —                                 | DOM            | AUTO                           | B    | FA-2 | FAIL |
+| M-TOPOLOGY-12 | `network-visualizer-clear-selection`                                                                             | click "Clear selection"                 | **RESTATED 2026-09-04 (F-CANOPY-046).** A selection can be cleared: the button clears it and `-selection-info` hides. Was *"click empty space, selection clears"* — a gesture that emits **no `plotly_click` at all**, which canopy#573 withdrew rather than implemented. The empty-space click is still driven and **recorded, not scored**. A build with no control scores **BLOCKED**, not FAIL. | —                                 | DOM            | AUTO                           | B    | FA-2 | PASS |
 | M-TOPOLOGY-13 | `network-visualizer-graph`                                                                                       | zoom / pan                              | Relayout captured into `-view-state` (:263) incl. `dragmode` and autorange reset (`:292-327`); re-applied on the next 2-D rebuild.                                                                                                                           | —                                 | VIS, DOM       | AUTO                           | B    | FA-2 | PASS |
 | M-TOPOLOGY-14 | `network-visualizer-graph`                                                                                       | modebar **camera** (PNG export)         | Downloads `canopy_network_<YYYYmmdd>_<HHMMSS>.png` at `scale: 2` — the filename is regenerated on every rebuild (`:415-426`).                                                                                                                                | —                                 | VIS (download) | AUTO                           | B    | FA-2 | PASS |
 | M-TOPOLOGY-15 | `network-visualizer-graph`                                                                                       | **hover** a node                        | Plotly-native hover tooltip only. **There is no `hoverData` callback** — the only graph Inputs are `relayoutData` (:294), `clickData` (:552) and `selectedData` (:553). Hover must not fire a request or change the DOM outside the Plotly tooltip.          | none                              | VIS, NET       | **DEAD-EXPECTED** (Dash layer) | B    | FA-2 | PASS |
