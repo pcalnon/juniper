@@ -637,6 +637,72 @@ fails if anyone wires a consumer without restoring a writer.
 
 **LIVE RE-DRIVE INCONCLUSIVE (2026-08-26, run `20260826T174225Z`, `e2e_p1wave_redrive.py --step f035,f035probe,storeprobe`; stays OPEN).** The adapter is provably correct — `/api/metrics/history` held 3216 candidate-phase entries in the exact `{epoch, metrics.loss, phase}` shape, and a direct simulation of `_candidate_series_from_history` kept 99/99 from the last-100 window. But the shared `metrics-panel-metrics-store` was **empty** (`len 0`) on BOTH the Training Metrics and Candidate Metrics tabs post-run, and the **main** metrics loss plot was empty too — the store never populated from the available history (the liveness-gated fast-interval poll starved/demoted throughout the congested run; F-CANOPY-004 territory). So M-CANDIDATES-07's live render cannot be exercised while the upstream store is empty — this is the instrument/F-004 condition, not an F-035 regression. The fix stands on its unit suite + the adapter simulation; the live render is blocked on the same store-population/staleness that F-CANOPY-004 tracks. Row stays as-is pending an F-004 render.
 
+> **THE OWED RE-DRIVE IS DONE (2026-09-05) — M-CANDIDATES-07 is FAIL, and the blocker is now measured
+> rather than inferred: the store is WRITTEN and never applied.**
+>
+> Driven against canopy main **`94220f0`** with
+> `util/ad-hoc/2026-09-04_f035_candidate_loss_redrive.py`. This re-drive exists separately from
+> `e2e_p1wave_redrive.py --step f035` for one reason: the 2026-08-26 attempt used the client-side
+> `storeprobe` this arc later ruled **inadmissible** (it read `None` for every store on the app,
+> including one whose heatmap was visibly rendering, and reported that as "empty"). This one uses the
+> repaired reader (`state.paths.strs`) and **refuses to score an unreadable store as an empty one**.
+>
+> | measurement | result |
+> |---|---|
+> | server, the handler's own endpoint | `{"history": [...]}`, **99 of 100 rows `phase:"candidate"`** |
+> | `ws-liveness-store` | `{'metrics_live': False, 'state_live': False}` — the WS demotion gate is **open**, so the REST branch is the one running |
+> | **writes to `metrics-panel-metrics-store`, parsed off `/_dash-update-component`** | **17 writes of 500 rows** in 30 s; `omitted=0`, `unparsed=0` |
+> | store read **immediately before** those writes | `ok` via `paths.strs`, `len=0` |
+> | store read **immediately after** those writes | `ok` via `paths.strs`, **`len=0`** |
+> | `candidate-metrics-panel-loss-plot` | present, **zero traces**, after a 45 s budget |
+>
+> **The server sends 500 rows seventeen times and the client's copy stays empty.** That is the
+> **F-CANOPY-039 signature** — one store id, two different values — on a *different* store, after
+> canopy#549 fixed it for the topology store (which is now healthy: M-TOPOLOGY re-drives 16 PASS).
+>
+> **canopy#524's adapter is correct and unreachable.** The panel renders exactly what it is given. So
+> this finding's own fix stands, and its row stays FAIL on an upstream cause.
+>
+> **Two hypotheses ruled OUT by measurement, not argument.**
+>
+> - *The WS demotion gate is engaged.* `_update_metrics_store_handler` returns `no_update` only
+>   `if ws_live and not full_fetch`, and `ws-liveness-store` reads `metrics_live: False`.
+> - *The callback is starved, silent, or writing empty.* It is none of those: every one of the 17
+>   captured writes carried 500 rows. An earlier count in this session reported only "13 of 74
+>   responses naming the store", which established that the callback was *speaking* and **nothing about
+>   whether a value landed** — a `no_update` for an output can still name it in the body. Parsing the
+>   bodies is what separated the two.
+>
+> **A THIRD hypothesis was ruled out by the log, and a fourth was NOT ruled out by it — the difference
+> matters.** The handler warns on both its failure paths (`Metrics history API returned <code>` and
+> `Failed to fetch metrics from API`). The instance log carries **zero** of either, so the fetch is
+> neither erroring nor non-OK. It also carries zero `Fetched N metrics from …` debug lines — but the
+> log has **zero DEBUG lines at all**, so that absence says nothing about whether the handler ran. An
+> instrument that cannot produce a non-zero answer has not measured anything.
+>
+> **WHAT IS NOT ESTABLISHED, and the instrument that cannot establish it.** Whether the reader and the
+> writer are addressing *the same store instance*. The duplicate-instance hypothesis is exactly what
+> F-CANOPY-039's investigation chased, and this arc's own note records the limitation:
+> **"`dcc.Store` has no DOM; `paths.strs` hides duplicates"** (`util/ad-hoc/README.md`). The reader used
+> here goes through `paths.strs`. **It therefore cannot answer the question its own result raises.** The
+> next instruments are the ones the arc already built for this store —
+> `util/ad-hoc/e2e_f039_metrics_store_soak.py` and `e2e_f039_duplicate_store_probe.py` — and note that
+> the latter's `exit 1` is "could not run", not a verdict.
+>
+> **A correction to an earlier statement in this session.** The server check was first run at
+> `?limit=100`, the code's default `window_size`; the live display-mode store asks for **500**, which is
+> what the captured writes carry. The candidate-phase content holds at either limit, so no conclusion
+> moves — but the figure to quote is 500.
+>
+> **Matrix effect: none.** M-CANDIDATES-07 was already FAIL. What changes is the *basis* — from
+> "blocked on an upstream store that is empty for reasons attributed to F-CANOPY-038/-039" to a measured
+> written-and-not-applied, with the duplicate-instance question named and its instrument identified. The
+> row's "re-drive owed" state is closed.
+>
+> Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-05_f035_candidate_redrive.{txt,json}`
+> (bracketing reads + write census) and `…/2026-09-04_f035_candidate_redrive.{txt,json}` (the first
+> pass, kept because its weaker mention-count is the contrast that motivated parsing the bodies).
+
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
