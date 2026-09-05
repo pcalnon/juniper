@@ -220,8 +220,10 @@ Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFER
 - `--open-only` hides closed rows; the totals block still counts every finding.
 - Always exits 0. A green shell is not "no open P0/P1".
 
+```bash
 python3 util/ad-hoc/e2e_finding_triage.py
 python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
 
