@@ -138,6 +138,11 @@ python3 -m unittest -v tests/test_resident_gap_triage.py
 python3 -m unittest -v tests/test_resident_gap_scan.py
 python3 -m unittest -v tests/test_hazard_triage.py
 python3 -m unittest -v tests/test_require_context_safely.py
+python3 -m unittest -v tests/test_run_suite_gate_metrics.py
+python3 -m unittest -v tests/test_list_runs_classify_guards.py
+python3 -m unittest -v tests/test_register_close_protocol.py
+python3 -m unittest -v tests/test_stats_summary_render.py
+python3 -m unittest -v tests/test_stats_summary_git_and_confirmed.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.
