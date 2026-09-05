@@ -38,9 +38,42 @@ ID_RE = re.compile(r"APD-[A-Z]+-\d+[ab]?")
 TABLE_ROW_RE = re.compile(r"^\| (APD-[A-Z]+-\d+[ab]?) *†? *\|")
 
 
-def main() -> int:
-    text = REGISTER.read_text(encoding="utf-8")
+def _status_cell(line: str) -> str:
+    """Second pipe cell -- the status marker on a §4 row, the finding on a §5.1 row.
+
+    ``**FIXED`` is only a close when it lives HERE. A whole-line search treats a
+    §5.1 verification cell that *mentions* ``**FIXED`` as a table close -- the
+    exact false-AGREE the third reading exists to catch.
+    """
+    cells = line.split("|")
+    return cells[2] if len(cells) > 2 else ""
+
+
+def crosscheck(text: str) -> int:
+    """Compare §4 **FIXED rows against the §2 prose list and the §5.1 table.
+
+    Extracted so a fixture can drive the three-set agreement without touching
+    the living register. Exit 0 on AGREE, 1 on DISAGREE or missing headings.
+    """
     lines = text.splitlines()
+
+    # -- §4 / §5 headings: fail CLOSED before counting anything ----------------
+    #
+    # There is no §4 window -- every table row in the document is scanned, and
+    # `_status_cell` is what keeps a §5.1 verification row out of `table_fixed`.
+    # That works only while §4 exists. With the heading absent the scan still
+    # finds the §5.1 tables and prints "§4 tables : N rows" for a document that
+    # has no §4, then DISAGREEs -- telling the operator their prose and tables
+    # disagree when the real fault is a missing heading. A census over the wrong
+    # section reported as the right one is the failure this tool exists to catch,
+    # so it must refuse rather than diagnose the symptom.
+    # Only §4 is checked HERE. The §5 half is already fail-closed below, on the
+    # `### 5.1` / `### 5.2` window, and a document may legitimately carry those
+    # sub-headings without a `## 5.` parent -- requiring the parent refused every
+    # well-formed fixture that does exactly that.
+    if not any(line.startswith("## 4.") for line in lines):
+        print("could not locate §4/§5 headings", file=sys.stderr)
+        return 1
 
     # -- §4 table rows: the machine-readable source of truth -------------------
     table_fixed: set[str] = set()
@@ -53,7 +86,7 @@ def main() -> int:
         # A row can appear in both a §4 table and a §5.1 verification table;
         # §5.1 rows are the ones whose second cell is not a status marker.
         table_all.add(entry_id)
-        if "**FIXED" in line:
+        if "**FIXED" in _status_cell(line):
             table_fixed.add(entry_id)
 
     # -- §2 Status paragraph: the prose enumeration ----------------------------
@@ -94,6 +127,10 @@ def main() -> int:
 
     print("\nAGREE" if ok else "\nDISAGREE")
     return 0 if ok else 1
+
+
+def main() -> int:
+    return crosscheck(REGISTER.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":
