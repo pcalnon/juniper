@@ -174,9 +174,10 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
                 f"{suite_dir.name}: cells ended on {summary['truncated_terminations']} -- the driver stopped before "
                 f"the workload did, so step_count is a fact about the budget. A baseline must not enshrine one."
             )
-        if not summary.get("single_completion_reason", True) and summary.get("completion_reasons"):
+        if not summary.get("single_completion_reason"):
             refusals.append(
-                f"{suite_dir.name}: cells ended on different branches {summary['completion_reasons']} -- step_count is "
+                f"{suite_dir.name}: completion_reason is not a single known branch "
+                f"(seen {summary.get('completion_reasons')}, cells={summary.get('cells')}) -- step_count is "
                 f"deterministic only within a branch, so these are not repeats and their agreement would be luck."
             )
         if not summary.get("work_countable", True):

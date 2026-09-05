@@ -280,10 +280,6 @@ class CliTest(unittest.TestCase):
         self.assertNotEqual(cb.EXIT[cb.FAIL], cb.EXIT[cb.REFUSED])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class TerminationBranchTest(unittest.TestCase):
     """The determinism question, settled 2026-09-04 and pinned here.
 
@@ -351,3 +347,41 @@ class TerminationBranchTest(unittest.TestCase):
             payload, host = _baseline(Path(tmp), "t", base)
             cand = _suite(Path(tmp), "cand", reason=None)
             self.assertEqual(cb.compare(payload, host, [cand])["verdict"], cb.REFUSED)
+
+    def test_mixed_known_and_missing_reason_is_refused(self):
+        # Dropping None before uniqueness (the ml#1613 / #1622 class) would treat one
+        # early_stopped cell plus one null as a single branch and PASS.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", cells=2, reason="early_stopped")
+            row = rrm.read_suite(cand)[1]
+            mpath = Path(row["run_dir"]) / "manifest.json"
+            m = json.loads(mpath.read_text())
+            m["completion_reason"] = None
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertEqual(cb.EXIT[result["verdict"]], 2)
+
+    def test_driver_timeout_with_null_reason_is_refused(self):
+        # Production shape: the driver writes outcome=timed_out while the service is still
+        # TRAINING, so completion_reason is None. Stuffing "timed_out" into the reason field
+        # is not how manifests look; the guard must read outcome.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", cells=2, reason="early_stopped")
+            row = rrm.read_suite(cand)[1]
+            mpath = Path(row["run_dir"]) / "manifest.json"
+            m = json.loads(mpath.read_text())
+            m["outcome"] = "timed_out"
+            m["completion_reason"] = None
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("BUDGET", " ".join(result["reasons"]))
+
+
+if __name__ == "__main__":
+    unittest.main()

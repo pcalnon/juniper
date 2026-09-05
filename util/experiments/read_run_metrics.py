@@ -271,17 +271,32 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     # failed, but because the question does not apply. Kept as a THIRD state so a caller never reads
     # "not countable" as "counted, and they matched".
     countable = all(r.get("work_countable", True) for r in rows) if rows else False
-    reasons = sorted({str(r["completion_reason"]) for r in rows if r.get("completion_reason")})
+    # Do NOT drop missing reasons before the uniqueness test (ml#1613 / #1622 class). One known
+    # branch plus one null would otherwise read as single_completion_reason=True and the
+    # comparator would PASS a suite whose precondition cannot be checked.
+    raw_reasons = [r.get("completion_reason") for r in rows]
+    reasons = sorted({str(value) for value in raw_reasons if value})
+    # Driver-initiated stops live on `outcome` (timed_out / stalled / torn_down_early). The
+    # service is still TRAINING then, so completion_reason is None -- looking only at the
+    # reason field makes the truncation guard vacuous on every real driver stop.
+    truncated = sorted(
+        {
+            str(label)
+            for row in rows
+            for label in (row.get("completion_reason"), row.get("outcome"))
+            if label in TRUNCATING_TERMINATIONS
+        }
+    )
     out: Dict[str, Any] = {
         "cells": len(rows),
         "kinds": sorted({str(r.get("kind", "cascor")) for r in rows}),
         "work_countable": countable,
         # Cells that ended on DIFFERENT branches are not repeats of each other, even at one config.
         "completion_reasons": reasons,
-        "single_completion_reason": len(reasons) == 1,
+        "single_completion_reason": bool(rows) and all(raw_reasons) and len(reasons) == 1,
         # These end the run before the workload does, so the histogram is truncated by construction
         # and its count is a fact about the budget rather than about the code.
-        "truncated_terminations": sorted({r for r in reasons if r in TRUNCATING_TERMINATIONS}),
+        "truncated_terminations": truncated,
         "step_counts": sorted(set(counts)),
         "work_invariant": countable and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its

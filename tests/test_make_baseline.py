@@ -148,6 +148,14 @@ class BuildRefusalTest(unittest.TestCase):
             with self.assertRaises(mb.BaselineError):
                 mb.build_baseline("t", [empty])
 
+    def test_refuses_mixed_known_and_missing_completion_reason(self):
+        # Blessing this would record early_stopped from the one known cell and hide the null.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{"reason": "early_stopped"}, {"reason": None}])
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("single known branch", str(ctx.exception))
+
     def test_refuses_validation_warnings_by_default(self):
         with tempfile.TemporaryDirectory() as tmp:
             suite = _write_suite(Path(tmp), [{"warnings": ["max_epochs without output_epochs"]}])

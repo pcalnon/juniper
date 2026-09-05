@@ -35,13 +35,13 @@ from experiments import read_run_metrics as rrm  # noqa: E402  (path-invoked uti
 SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
-def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0, 100), (63.4, 1770)), scrape=True, with_series=True, reason="early_stopped") -> Path:
+def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0, 100), (63.4, 1770)), scrape=True, with_series=True, reason="early_stopped", outcome="succeeded") -> Path:
     """Build a synthetic RUN_DIR. ``samples`` is an ordered list of (sum, count) poll rows."""
     run_dir = root / run_id
     (run_dir / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
     manifest = {
         "run_id": run_id,
-        "outcome": "succeeded",
+        "outcome": outcome,
         "timings": {"drive": drive, "total": drive + 3},
         "drive_loop": {"polls": polls},
         "metrics_scraped": {"grafana_bridge": True, "scrape_confirmed": scrape, "target_file_written": True},
@@ -149,6 +149,22 @@ class SummariseTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             suite = _write_suite(Path(tmp), [("c000", {"with_series": False}), ("c001", {"with_series": False})])
             self.assertFalse(rrm.summarise(rrm.read_suite(suite))["work_invariant"])
+
+    def test_single_completion_reason_is_false_when_one_cell_is_missing(self):
+        # Same None-drop hole as single_workload: one known reason plus one null is not a match.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {"reason": "early_stopped"}), ("c001", {"reason": None})])
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertFalse(summary["single_completion_reason"])
+            self.assertEqual(summary["completion_reasons"], ["early_stopped"])
+
+    def test_truncated_terminations_reads_outcome_not_just_reason(self):
+        # Production timed_out: driver outcome, service completion_reason still None.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {"reason": "early_stopped"}), ("c001", {"reason": None, "outcome": "timed_out"})])
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(summary["truncated_terminations"], ["timed_out"])
+            self.assertFalse(summary["single_completion_reason"])
 
     def test_spread_statistics(self):
         with tempfile.TemporaryDirectory() as tmp:
