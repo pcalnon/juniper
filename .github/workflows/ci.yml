@@ -998,6 +998,24 @@ jobs:
           python3 -m unittest -v tests/test_soak_ledger_status_token.py
           # tests/test_soak_analyse_date_pool.py: Pins that `analyse()` pools the corpus the probe picker now SPLITS by date -- a pooled analysis over a split corpus silently mixes cohorts and reports one number for two populations.
           python3 -m unittest -v tests/test_soak_analyse_date_pool.py
+          # tests/test_canopy_poller_inventory.py: Hermetic gate for the canopy poller census, which can certify a PARTIAL inventory as complete -- a census computed over the pollers it found rather than the pollers required.
+          python3 -m unittest -v tests/test_canopy_poller_inventory.py
+          # tests/test_cascor_freeze_tell.py: Hermetic gate for the cascor freeze tell, which false-froze sibling checkouts: the tell must identify the frozen primary, not any checkout that merely imports it.
+          python3 -m unittest -v tests/test_cascor_freeze_tell.py
+          # tests/test_e2e_append_statuses.py: Hermetic gate for the E2E TSV verdict appender, which shipped with zero tests: which column a verdict lands in, and that an append does not rewrite a neighbouring row.
+          python3 -m unittest -v tests/test_e2e_append_statuses.py
+          # tests/test_equities_symbol_cap_operator.py: The operator-facing half of the equities symbol cap (APD-DATA-018): a ceiling BELOW the measured default, the env-var Settings fields, and the shared refusal renderer that must not report a 40-symbol universe as 0.0 MB.
+          python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
+          # tests/test_list_runs_classify_guards.py: Guards in the run classifier that the happy-path suite cannot reach: an unreadable manifest, a run with no terminal state, and the arms that decide a run is unclassifiable rather than defaulting it into a bucket.
+          python3 -m unittest -v tests/test_list_runs_classify_guards.py
+          # tests/test_register_close_protocol.py: The defect-register close protocol operator pair: closing an entry requires BOTH halves shipped, and a one-sided close is refused rather than recorded.
+          python3 -m unittest -v tests/test_register_close_protocol.py
+          # tests/test_ruleset_context_audit.py: The ruleset context audit that can make main unmergeable: a context pinned to an app that never publishes it is never satisfied, so the PR sits BLOCKED with nothing red.
+          python3 -m unittest -v tests/test_ruleset_context_audit.py
+          # tests/test_run_suite_gate_metrics.py: The suite-report gate VALUES, not just their presence: a report that prints a gate line computed from the wrong field reads as a pass to every human reader.
+          python3 -m unittest -v tests/test_run_suite_gate_metrics.py
+          # tests/test_snapshot_index_root_resolution.py: The snapshot index env-root resolver the --root suite cannot see: which root wins when the flag and the environment disagree, and that an unset root is a refusal rather than the cwd.
+          python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
 
       - name: Run bash regression tests
         run: |
