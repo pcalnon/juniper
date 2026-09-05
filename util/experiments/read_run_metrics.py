@@ -31,7 +31,10 @@
 #
 #   THE GATE IS SPLIT (owner decision, 2026-09-02), and these are its two halves:
 #     * WORK  -- step_count. Deterministic for a seed-fixed config, and CONTENTION-IMMUNE: measured
-#                identical across 21 cells spanning a 3x range of step duration. Gateable exactly.
+#                identical across 21 cells spanning a 3x range of step duration. Gateable exactly --
+#                but the determinism holds only WITHIN a termination branch (completion_reason).
+#                Corpus census 2026-09-04: 29 of 79 repeated configs diverge across branches, zero
+#                within one. Comparing across branches is what produced the ml#1710 false FAIL.
 #     * SPEED -- mean_step_seconds (= step_sum / step_count). Carries a 13-20.5% host drift floor
 #                and is NOT gated; it is reported.
 #####################################################################################################################################################################################################
@@ -214,7 +217,29 @@ def workload_fingerprint(suite_dir: Path, cell_id: str) -> Optional[str]:
     if isinstance(experiment, dict):
         for key in COSMETIC_EXPERIMENT_KEYS:
             experiment.pop(key, None)
-    return hashlib.sha256(json.dumps(config, sort_keys=True).encode("utf-8")).hexdigest()
+    try:
+        blob = json.dumps(config, sort_keys=True)
+    except (TypeError, ValueError):
+        # `safe_load` produces four types `json.dumps` refuses -- date, datetime, bytes,
+        # set -- plus three shapes no `default=` can rescue, because `default=` is consulted
+        # for VALUES only: a non-str mapping key, mixed-type keys under `sort_keys=True`
+        # (`< not supported between str and int`), and a recursive anchor (`ValueError:
+        # Circular reference detected`, which `safe_load` builds happily).
+        #
+        # The tempting repair is `default=str`. It is WRONG here, and measurably so:
+        # `str()` of a set embeds Python's randomised string hash, so one config yields a
+        # DIFFERENT fingerprint in every process. `compare_baseline` matches the persisted
+        # fingerprint by exact string, and baselines are never rewritten -- so that turns a
+        # loud crash into "different workload, so this is an INVALID comparison", blaming a
+        # config that never changed. `str()` on a tz-aware datetime is additionally
+        # PyYAML-version-dependent (3.13 normalised to naive UTC, 6.x keeps the offset), and
+        # no PyYAML floor is declared for this tooling.
+        #
+        # An unhashable config is genuinely an UNKNOWN identity, so say so. Callers already
+        # treat None as a refusal -- and `summarise` counts unknowns rather than filtering
+        # them, so one bad cell cannot be dropped into a vacuous "single workload".
+        return None
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
 
 def read_suite(suite_dir: Path) -> List[Dict[str, Any]]:
@@ -267,6 +292,7 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     means = [r["mean_step_seconds"] for r in rows if isinstance(r.get("mean_step_seconds"), (int, float))]
 
     fingerprints = sorted({r["workload_fingerprint"] for r in rows if r.get("workload_fingerprint")})
+    identified = sum(1 for r in rows if r.get("workload_fingerprint"))
     # A suite whose runs expose no work counter cannot satisfy the work invariant -- not because it
     # failed, but because the question does not apply. Kept as a THIRD state so a caller never reads
     # "not countable" as "counted, and they matched".
@@ -296,12 +322,20 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
         # because its fixture wrote the string into the reason field, which production never does.
         "truncated_terminations": sorted({str(r.get("outcome")) for r in rows if r.get("outcome") in TRUNCATING_TERMINATIONS}),
         "step_counts": sorted(set(counts)),
-        "work_invariant": countable and len(set(counts)) == 1 and bool(counts),
+        # `len(counts) == len(rows)` is load-bearing: `counts` keeps only cells whose step_count
+        # is numeric, so without it the invariant is a statement about the cells that ANSWERED
+        # rather than about the suite. Measured on `main` before this line: two cells, one with
+        # no step_count, reported `step_counts=[100]` and `work_invariant=True`.
+        "work_invariant": countable and len(counts) == len(rows) and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
         # step_count spread would be a fact about the configs rather than about the host or the
         # code. Recorded separately from work_invariant so the two failures stay distinguishable.
         "workload_fingerprints": fingerprints,
-        "single_workload": len(fingerprints) == 1,
+        # `identified == len(rows)` is the same guard for identity. `fingerprints` DROPS cells with
+        # no fingerprint, so `len(fingerprints) == 1` alone reads True for "one known + one
+        # unknown" -- the exact fail-open the `reasons` comment above warns about, left in place on
+        # the sibling field. Measured on `main` before this line: True.
+        "single_workload": identified == len(rows) and len(fingerprints) == 1,
     }
     if drives:
         out["drive"] = _spread(drives)

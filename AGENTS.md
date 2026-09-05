@@ -71,6 +71,7 @@ python3 -m unittest -v tests/test_wake_the_claude.py
 python3 -m unittest -v tests/test_env_repr_safety.py
 python3 -m unittest -v tests/test_worktree_cleanup.py
 python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+python3 -m unittest -v tests/test_p5_worktree_cleanup.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
 python3 -m unittest -v tests/test_kill_helpers.py
@@ -132,7 +133,33 @@ python3 -m unittest -v tests/test_run_suite.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py
+python3 -m unittest -v tests/test_p5_fleet_state.py
+python3 -m unittest -v tests/test_resident_gap_triage.py
+python3 -m unittest -v tests/test_resident_gap_scan.py
+python3 -m unittest -v tests/test_hazard_triage.py
 python3 -m unittest -v tests/test_require_context_safely.py
+python3 -m unittest -v tests/test_matrix_set_verdicts.py
+python3 -m unittest -v tests/test_e2e_matrix_fill.py
+python3 -m unittest -v tests/test_e2e_matrix_rescore.py
+python3 -m unittest -v tests/test_e2e_unfilled_rows.py
+python3 -m unittest -v tests/test_e2e_f037_render_census.py
+python3 -m unittest -v tests/test_e2e_row_coverage.py
+python3 -m unittest -v tests/test_soak_probe_evidence.py
+python3 -m unittest -v tests/test_soak_wilson_resolving.py
+python3 -m unittest -v tests/test_soak_run_probe_stopping_rule.py
+python3 -m unittest -v tests/test_soak_ledger_status_token.py
+python3 -m unittest -v tests/test_soak_analyse_date_pool.py
+python3 -m unittest -v tests/test_run_suite_gate_metrics.py
+python3 -m unittest -v tests/test_list_runs_classify_guards.py
+python3 -m unittest -v tests/test_register_close_protocol.py
+python3 -m unittest -v tests/test_stats_summary_render.py
+python3 -m unittest -v tests/test_stats_summary_git_and_confirmed.py
+python3 -m unittest -v tests/test_canopy_poller_inventory.py
+python3 -m unittest -v tests/test_cascor_freeze_tell.py
+python3 -m unittest -v tests/test_ruleset_context_audit.py
+python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
+python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
+python3 -m unittest -v tests/test_e2e_append_statuses.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.

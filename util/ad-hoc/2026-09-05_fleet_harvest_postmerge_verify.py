@@ -19,7 +19,10 @@ lost fence or a lost table separator.  Run `2026-09-05_markdown_structure_check.
 over the same tree for the structural half.  Neither one substitutes for the other.
 
 Usage:
-    2026-09-05_fleet_harvest_postmerge_verify.py <repo-dir> <pr> [<pr> ...]
+    2026-09-05_fleet_harvest_postmerge_verify.py <repo-dir> [--ref=REF] <pr> [<pr> ...]
+
+The tree examined is REF (default origin/main), fetched first -- never the working
+tree, which is routinely behind it.
 """
 
 import json
@@ -36,6 +39,29 @@ def gh(repo: Path, *args: str) -> str:
         raise SystemExit(f"gh {' '.join(args)} failed: {out.stderr.strip()}")
     return out.stdout
 
+
+def _safe_read(path: Path) -> str:
+    """Read a file, or return "" for anything unreadable (dangling symlink, permissions)."""
+    try:
+        return path.read_text(errors="replace")
+    except OSError:
+        return ""
+
+
+def _show(repo: Path, ref: str, path: str) -> str | None:
+    """File content at ``ref``, or None when the path is absent there.
+
+    Read the REF, never the working tree. A shared checkout is routinely behind the
+    branch that was just merged -- juniper-canopy's was, and reading it made this script
+    report 207 of 238 lines "absent" from a file that had merged perfectly. That is the
+    worst possible failure for a tool whose whole job is to authorise closing the source
+    PR: it argues for re-doing work that is already done.
+    """
+    out = subprocess.run(
+        ["git", "-C", str(repo), "show", f"{ref}:{path}"],
+        capture_output=True, text=True, check=False,
+    )
+    return out.stdout if out.returncode == 0 else None
 
 def added_lines(diff: str) -> dict[str, list[str]]:
     """Map path -> added lines, from a unified diff."""
@@ -59,7 +85,12 @@ def main() -> int:
         print(__doc__)
         return 2
     repo = Path(sys.argv[1]).resolve()
-    prs = sys.argv[2:]
+    args = sys.argv[2:]
+    ref = "origin/main"
+    if args and args[0].startswith("--ref="):
+        ref = args.pop(0).split("=", 1)[1]
+    prs = args
+    subprocess.run(["git", "-C", str(repo), "fetch", "origin", "--quiet"], check=False)
 
     problems = 0
     for pr in prs:
@@ -70,16 +101,22 @@ def main() -> int:
         missing_total = 0
         detail: list[str] = []
         for path, lines in per_file.items():
-            target = repo / path
-            if not target.exists():
+            at_ref = _show(repo, ref, path)
+            if at_ref is None:
                 # The carrier may have renamed or folded the file; search the tree.
+                # `rglob` yields DANGLING SYMLINKS -- juniper-canopy's notes/ carries
+                # several cross-repo links to juniper-ml files that were renamed under
+                # the 2026-07-04 notes convention. `read_text` on one raises
+                # FileNotFoundError and kills the whole verification, so a repo with one
+                # stale link could never be checked. Skip what cannot be read; a file
+                # that is not there cannot be hiding the content we are looking for.
                 haystack = "\n".join(
-                    p.read_text(errors="replace")
+                    _safe_read(p)
                     for p in repo.rglob("*.md")
-                    if ".git" not in p.parts
+                    if ".git" not in p.parts and p.is_file()
                 )
             else:
-                haystack = target.read_text(errors="replace")
+                haystack = at_ref
             present = {ln.strip() for ln in haystack.splitlines()}
             missing = [ln for ln in lines if ln not in present]
             if missing:
