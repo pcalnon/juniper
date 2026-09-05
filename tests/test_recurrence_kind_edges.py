@@ -46,12 +46,7 @@ run_suite = importlib.util.module_from_spec(_spec)
 assert _spec.loader is not None
 _spec.loader.exec_module(run_suite)
 
-SERIES_HEADER = (
-    "ts_unix,fsm_status,current_epoch,current_hidden_units,"
-    "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total,"
-    "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio,"
-    f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
-)
+SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
 def _recurrence_run(
