@@ -1,0 +1,66 @@
+{
+  "canopy": "http://127.0.0.1:8052",
+  "cascor": "http://127.0.0.1:8202",
+  "events": [
+    {
+      "t": 65.3,
+      "what": "rebuild wrote a figure"
+    }
+  ],
+  "server_growth": [
+    {
+      "t": 17.6,
+      "hidden": 48
+    }
+  ],
+  "dom_growth": [
+    {
+      "t": 5.0,
+      "hidden": "0"
+    },
+    {
+      "t": 70.8,
+      "hidden": "48"
+    }
+  ],
+  "start_hidden": 44,
+  "start_dom": {
+    "input": "0",
+    "hidden": "0",
+    "output": "0",
+    "conn": "0"
+  },
+  "start_buffer": {
+    "ok": true,
+    "via": "paths.strs",
+    "value": {
+      "events": [],
+      "gen": 0,
+      "last_drain_ms": 0
+    }
+  },
+  "buffer_gen": [
+    {
+      "t": 5.0,
+      "gen": 0,
+      "events": 0
+    },
+    {
+      "t": 17.6,
+      "gen": 6,
+      "events": 1
+    }
+  ],
+  "counters": {
+    "buffer_writes": 0,
+    "rebuild_writes": 1,
+    "responses": 1114
+  },
+  "end_hidden": 48,
+  "end_dom": {
+    "input": "2",
+    "hidden": "48",
+    "output": "2",
+    "conn": "1324"
+  }
+}
