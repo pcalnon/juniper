@@ -53,6 +53,7 @@
 | `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
 | `python3 -m unittest -v tests/test_list_runs.py`       | Lister/pruner state + `--prune` safety pins |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step probe` | Score Topology-tab rows against isolated `:8051` (`STEPS` names only) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python3 util/ruleset_scope_guard.py` | Assert this repo's rulesets are not scoped `~ALL` (Quality Gate hard need) |
@@ -567,6 +568,8 @@ Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe)
 | `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
 | `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` (2s poll; not `HEALTH_CHECK_INTERVAL`) |
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
+| `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Topology-driver target (Playwright) |
+| `JUNIPER_E2E_SEG17_RESULTS`    | `$JUNIPER_E2E_RUN_DIR/seg17_results.json` | Topology-driver merged JSON |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
@@ -771,6 +774,9 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | One green topology paint "closes" F-037 | Need 11 sessions. Census exit 0 with `painted==0` is a measured miss, not a harness fail. `scope=invalid` means train first. [F-CANOPY-037](REFERENCE.md#f-canopy-037-render-census). |
 | `list_runs.py` empty but runs exist | Default `--run-root` ignores `JUNIPER_EXP_RUN_ROOT`; pass `--run-root`. Non-convention names are invisible. |
 | `WOULD PRUNE` / nothing deleted | Need `--prune --yes` without `--dry-run`. `up?` is never pruned (`SKIP (live recorded pid)`). |
+| `topo` PASS, depth label still `"0 of 40"` | Expected on `main` — M-06's `OR` can pass on the stats bar; M-07 never asserts the label. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
+| `topoevents` M-12 FAIL, `plotly_click_events=0` | Expected on `main` — empty-space click is unreachable. Do not `gd.emit`. |
+| `unknown step(s)` from the topology driver | Name is not in `STEPS`. `topostate` / `topoexport` are valid; `w1grow` / `toposel` are not. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Default `equities` create hangs / 30 s client timeout | Omitted `symbols` → all 503 S&P names (~34 min). Set `dataset.params.symbols`. `max_symbols` is a **silent** slice (`generator.py:286`). See [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap). |
@@ -979,6 +985,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert; read the whole series; `--target topology` refuses
 - [Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- exit **2** is P-5 free-threaded; exit **4** is May-7 wheel layout
 - [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local `MEMORY.md` gate; hook-not-line; CI cannot see `~/.claude`
+- [Canopy E2E Topology Driver](REFERENCE.md#canopy-e2e-topology-driver) -- `e2e_seg17_topology_driver.py`; `STEPS` is the authority; M-06/M-07/M-12 can PASS the easier half
 - [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` (restore `-xjf`); not the Duplicati `$HOME` lane
 - [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- required-context classifier; 2026-08-10 class; text-mode 0 can still carry `ERROR:`
 - [Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) -- header-only parser; ACCEPTED is a third disposition
