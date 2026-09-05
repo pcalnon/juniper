@@ -141,6 +141,20 @@ class IdentityRefusalTest(unittest.TestCase):
             self.assertEqual(cb.EXIT[result["verdict"]], 2)
             self.assertIn("INVALID comparison rather than a regression", " ".join(result["reasons"]))
 
+    def test_a_non_dict_work_section_is_REFUSED_not_an_AttributeError(self):
+        # A baseline is written once and never rewritten, so a malformed `work` outlives the
+        # writer that made it. `(matched.get("work") or {}).get(...)` passes a truthy non-dict
+        # through to `.get` and aborts the whole comparison -- including the sibling suites whose
+        # reasons were already collected. It must read as "no branch recorded" and take the
+        # existing fail-closed path instead.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _suite(Path(tmp), "s")
+            payload, host = _baseline(Path(tmp), "t", suite)
+            payload["scenarios"][0]["work"] = "1770 steps"
+            result = cb.compare(payload, host, [suite])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("no completion_reason", " ".join(result["reasons"]))
+
     def test_unknown_identity_is_refused(self):
         with tempfile.TemporaryDirectory() as tmp:
             base = _suite(Path(tmp), "base")

@@ -103,6 +103,18 @@ def _dist_version(name: str) -> Optional[str]:
         return None
 
 
+def _section(blob: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """``blob[key]`` when it is a mapping, else ``{}``.
+
+    NOT `blob.get(key) or {}`. That guards FALSY -- `None`, `{}` -- and passes a truthy non-dict
+    straight through to the next `.get`, where a manifest carrying `"environment": "linux"` dies
+    with `AttributeError: 'str' object has no attribute 'get'` instead of being refused for
+    cause. Same fix as ml#1781 made in `read_run_metrics.py`; these files are the rest of it.
+    """
+    value = blob.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def collect_host(manifests: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     """Build HOST.json from the runs plus this host, flagging any fidelity gap.
 
@@ -111,17 +123,17 @@ def collect_host(manifests: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     as the runs did, so the check is performed and recorded rather than assumed -- a HOST.json
     carrying a plausible but wrong torch version is worse than one that says it could not tell.
     """
-    run_pythons = sorted({(m.get("environment") or {}).get("python") for m in manifests if (m.get("environment") or {}).get("python")})
+    run_pythons = sorted({p for p in (_section(m, "environment").get("python") for m in manifests) if p})
     tool_python = platform.python_version()
-    thread_envs = [(m.get("environment") or {}).get("thread_env") for m in manifests]
-    nprocs = sorted({(m.get("environment") or {}).get("nproc") for m in manifests if (m.get("environment") or {}).get("nproc")})
+    thread_envs = [_section(m, "environment").get("thread_env") for m in manifests]
+    nprocs = sorted({n for n in (_section(m, "environment").get("nproc") for m in manifests) if n})
 
     host: Dict[str, Any] = {
         "cpu_model": _cpu_model(),
         "cpu_count": nprocs[0] if len(nprocs) == 1 else nprocs,
         "total_ram_kb": _total_ram_kb(),
         "gpu_present": _gpu_present(),
-        "platform": sorted({(m.get("environment") or {}).get("platform") for m in manifests if (m.get("environment") or {}).get("platform")}),
+        "platform": sorted({pl for pl in (_section(m, "environment").get("platform") for m in manifests) if pl}),
         "thread_budget": thread_envs[0] if thread_envs and all(t == thread_envs[0] for t in thread_envs) else thread_envs,
         "versions": {
             "python_tool": tool_python,
