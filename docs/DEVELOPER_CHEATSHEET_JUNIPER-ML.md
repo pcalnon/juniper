@@ -76,6 +76,14 @@
 | `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py . --min-score 3` | Rank source comments that are hazard-shaped and resident nowhere |
 | `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py ../juniper-cascor --self-check --agents /tmp/pre609.md` | Positive control: cascor `max_epochs` split must score ≥ 3 and rank top 5 |
 | `python3 util/ad-hoc/2026-08-28_hazard_triage.py juniper-canopy --min-score 2` | Rank *already-resident* `AGENTS.md` blocks (`gh api` on GitHub `main`) |
+| `python util/snapshot_index.py --scan --root ROOT` | Append-only index of `ROOT/*.h5` (`snapshots_index.jsonl`) |
+| `python util/snapshot_index.py --root ROOT --stats` | Summarise the index (needs `--scan` first) |
+| `python util/snapshot_classify.py --root ROOT --stats` | Index-stage population table (~1s; two axes) |
+| `python util/snapshot_classify.py --root ROOT --stage load --sample 300` | Load-stage cost probe (`--write` refuses `--sample`) |
+| `python util/snapshot_classify.py --root ROOT --from-sidecar --category fails_to_load` | Query stored load verdicts (do not re-derive) |
+| `python util/snapshot_backfill.py --root ROOT --write` | Consolidate labelled record (`observed`/`measured`/`inferred`/`population`) |
+| `python util/snapshot_backfill.py --root ROOT --explain NAME` | Print one snapshot's provenance; identity is never invented |
+| `python3 -m unittest -v tests/test_snapshot_index.py tests/test_snapshot_classify.py tests/test_snapshot_backfill.py` | Sidecar-chain regressions (no `--prune` on any tool) |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
@@ -582,7 +590,7 @@ Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe)
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
-| `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `util/experiment_stack.bash` (not `/tmp`) |
+| `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `util/experiment_stack.bash` (not `/tmp`); also the query-time join for `snapshot_index.py --resolve-datasets` / `--dataset-id` |
 | `JUNIPER_EXP_LOCK_ROOT`        | `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments` | Ephemeral port lockdirs (`8110`–`8289`) |
 | `JUNIPER_EXP_PROJECT_DIR`      | parent of juniper-ml | Ecosystem root — **set in git worktrees** |
 | `JUNIPER_EXP_HEALTH_TIMEOUT`   | `90`               | Per-service health wait for experiment `--up` (cold-start sized) |
@@ -592,7 +600,7 @@ Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe)
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_CASCOR_SNAPSHOTS_DIR` | `~/Development/python/Juniper/juniper-cascor/cascor-snapshots` | Dual-use: cascor write dir **and** snapshot-tool `--root` default. Do **not** redirect for the sidecar chain — pass `--root`. |
-| `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_attribute.py` |
+| `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_classify.py --stage load` and `snapshot_attribute.py` |
 | `JUNIPER_DATA_ROOT`            | `~/Development/python/Juniper/juniper-data` | Override juniper-data tree for generator imports |
 | `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` | `14` | Data-service ceiling for `equities` / `equities_seq`. A request may only lower this. `experiment_stack.bash` does **not** set it. |
 | `JUNIPER_DATA_EQUITIES_ALLOW_TRUNCATION` | `false` | Deployment-wide opt-in to a prefix cut (OR with the request flag). |
@@ -723,6 +731,8 @@ Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always str
 Tip: REST client `base_url` on GitHub-main data/cascor/recurrence clients is normalised (case-insensitive scheme, `hostname` required, trailing `/v1` stripped). `HTTPS://host` on an older wheel silently becomes `http://HTTPS://host`. Cascor WS streams stay rstrip-only. Host cascor is `:8201`, constructor default is `:8200`. See [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
 
 Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or returns non-JSON, while `--batch` soft-`ERROR`s that row and keeps going. A deleted `.py` stays in `true_delta` for the symbol screen but is filtered out of the pre-commit battery, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST`.
+
+Tip: snapshot sidecar chain is index → classify → attribute → backfill. Pass `--root`; do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR`. Classify `--write` refuses `--sample`; `--from-sidecar` is required to read `fails_to_load`. Backfill `formerly_broken` on zero-node rows is a **population** claim (`380/380` of `15927`), not a per-file fact. See [REFERENCE — Snapshot Sidecar Chain](REFERENCE.md#snapshot-sidecar-chain).
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
 
@@ -924,6 +934,12 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Worker WS closes 4001 / 4008 | 4001 = API-key auth enabled (send `X-API-Key`); 4008 = registration shape (string `worker_id` + dict `capabilities`). |
 | `--batch` row `verdict=ERROR` | Soft-fail for that tip only; the other PRs in the report remain valid. `--pr` would have exited `2` instead. |
 | Deleted `.py` gate-clean but `DAMAGED` | The battery skipped the missing path while the symbol screen saw `LOST` — expected. |
+| `snapshot_index` / classify / backfill: `h5py is required` | `conda activate JuniperCascor1` — all four tools import `h5py` via `snapshot_index`. |
+| `no index … run --scan first` | Index is a prerequisite. `--scan` is append-only over `ROOT/*.h5`. |
+| `--category fails_to_load` empty after a load `--write` | Re-derived from the index. Use `--from-sidecar`. |
+| Classify `--write` exits 2 | `--sample` with `--write` is refused so a partial sidecar cannot replace the full one. |
+| `--stage train` exits 2 | Unimplemented. Unset / real-archive `JUNIPER_CASCOR_SNAPSHOTS_DIR` fails first (`create_snapshot` hazard). |
+| Quoted `formerly_broken` on every zero-node file | Population claim (`380/380` of `15927`). `--explain` shows `not_verified_here`. |
 | Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
 | Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
 | `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
