@@ -231,6 +231,28 @@ class WorkloadFingerprintTest(unittest.TestCase):
             suite = _write_suite(Path(tmp), [("c000", {}), ("c001", {})])
             self.assertFalse(rrm.summarise(rrm.read_suite(suite))["single_workload"])
 
+    def test_non_json_yaml_is_none_not_a_crash(self):
+        # PyYAML loads an unquoted ISO date as datetime.date; json.dumps then TypeErrors.
+        # Unknown identity must come back as None so callers can refuse, not abort the suite.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment:\n  seed: 42\ndataset:\n  params:\n    start_date: 2015-01-01\n")
+            self.assertIsNone(rrm.workload_fingerprint(suite, "c000"))
+
+    def test_malformed_cell_yaml_is_none_not_a_crash(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "experiment: [\nunterminated\n")
+            self.assertIsNone(rrm.workload_fingerprint(suite, "c000"))
+
+    def test_non_dict_cell_yaml_is_none(self):
+        # A list (or scalar) is loadable YAML but is not a config; hashing it would invent an
+        # identity for something that is not a workload.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = Path(tmp) / "s"
+            self._cell(suite, "c000", "- not\n- a\n- mapping\n")
+            self.assertIsNone(rrm.workload_fingerprint(suite, "c000"))
+
 
 class CliTest(unittest.TestCase):
     def test_json_mode_emits_parseable_payload(self):
