@@ -1022,6 +1022,12 @@ jobs:
           python3 -m unittest -v tests/test_e2e_append_statuses.py
           # tests/test_recurrence_kind_edges.py: Recurrence-kind edges in `util/experiments/read_run_metrics.py`: a manifest whose `timings`, `drive_loop` or `dataset` is a truthy NON-mapping. `or {}` guards absence, not type, so a list or string reached `.get` and took down `read_suite` -- and with it make_baseline, compare_baseline, and run_suite.aggregate, which then destroys its own aggregate.csv.
           python3 -m unittest -v tests/test_recurrence_kind_edges.py
+          # tests/test_e2e_finding_triage.py: The E2E finding-triage dispositions, which shipped with zero tests: `accepted` is a THIRD state and not a synonym for fixed or open, the first heading wins so a later `fixed` cannot close an earlier `open`, and `--open-only` hides rows without changing the totals.
+          python3 -m unittest -v tests/test_e2e_finding_triage.py
+          # tests/test_e2e_finding_triage_nested_bold.py: Header truncation in `util/ad-hoc/e2e_finding_triage.py`: a nested-bold heading must not be cut at the inner marker, which would split one finding's identity into two and double-count it.
+          python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
+          # tests/test_e2e_finding_triage_priority.py: `pri_of` first-token severity, lifted out of a nested function so it can be imported: the FIRST severity token anywhere in the bolded header body wins, so a header naming another severity in prose before the parenthetical triages as that severity (F-CANOPY-037 / F-E2E-007).
+          python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
 
       - name: Run bash regression tests
         run: |
