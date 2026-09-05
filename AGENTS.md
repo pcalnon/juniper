@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-03
+**Last Updated**: 2026-09-05
 
 ---
 
@@ -71,6 +71,7 @@ python3 -m unittest -v tests/test_wake_the_claude.py
 python3 -m unittest -v tests/test_env_repr_safety.py
 python3 -m unittest -v tests/test_worktree_cleanup.py
 python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+python3 -m unittest -v tests/test_p5_worktree_cleanup.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
 python3 -m unittest -v tests/test_kill_helpers.py
@@ -132,6 +133,10 @@ python3 -m unittest -v tests/test_run_suite.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py
+python3 -m unittest -v tests/test_p5_fleet_state.py
+python3 -m unittest -v tests/test_resident_gap_triage.py
+python3 -m unittest -v tests/test_resident_gap_scan.py
+python3 -m unittest -v tests/test_hazard_triage.py
 python3 -m unittest -v tests/test_require_context_safely.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
