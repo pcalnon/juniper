@@ -1038,6 +1038,12 @@ jobs:
           python3 -m unittest -v tests/test_run_suite_uncountable_report.py
           # tests/test_worktree_inuse_probe.py: Hermetic coverage for `util/ad-hoc/2026-09-02_worktree_inuse_probe.py`, the guard that REFUSES a destructive worktree cleanup: cwd and open-fd hits are STRONG, a cmdline mention alone is only a caution, and a process owned by another user is reported unreadable rather than counted as absent.
           python3 -m unittest -v tests/test_worktree_inuse_probe.py
+          # tests/test_e2e_finding_triage.py: The E2E finding-triage dispositions, which shipped with zero tests: `accepted` is a THIRD state and not a synonym for fixed or open, the first heading wins so a later `fixed` cannot close an earlier `open`, and `--open-only` hides rows without changing the totals.
+          python3 -m unittest -v tests/test_e2e_finding_triage.py
+          # tests/test_e2e_finding_triage_nested_bold.py: Header truncation in `util/ad-hoc/e2e_finding_triage.py`: a nested-bold heading must not be cut at the inner marker, which would split one finding's identity into two and double-count it.
+          python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
+          # tests/test_e2e_finding_triage_priority.py: `pri_of` first-token severity, lifted out of a nested function so it can be imported: the FIRST severity token anywhere in the bolded header body wins, so a header naming another severity in prose before the parenthetical triages as that severity (F-CANOPY-037 / F-E2E-007).
+          python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
 
       - name: Run bash regression tests
         run: |
