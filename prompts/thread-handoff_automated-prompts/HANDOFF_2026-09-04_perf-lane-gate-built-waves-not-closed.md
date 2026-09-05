@@ -118,11 +118,19 @@ unless stated otherwise.**
 - **The 25×–182× understatement is a COEFFICIENT-OF-VARIATION ratio, and it is specific to 20 s
   cells.** Raw sd ratio is 18.75–151.58×. At ≥60 s it **collapses to 0.86–1.25×**, where `drive` sd
   can *exceed* `step_sum` sd. Do not restate it as a general property of `drive`.
-- **The quiet-run drift floor is 15.0–20.5%** (`max/min − 1`, applied consistently). Earlier
-  sessions — including this one — quoted **13–20.5%**, which mixes two normalizations: the 13% is
-  `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks. The
-  underlying six values are correct; only the band was wrong. **The conclusion is unaffected and
-  slightly strengthened**, since the true lower bound is higher.
+- ~~**The quiet-run drift floor is 15.0–20.5%**~~ — **REFUTED 2026-09-05; the original 13–20.5% was
+  correct and stands.** This bullet claimed the band mixed normalizations, "the 13% is
+  `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks". Recomputed
+  from the six values in §5 / §8.4 of
+  [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md):
+  the two quiet 20 s runs (18.42 → 20.81 ms) give **12.98%** under `max/min − 1` and **11.48%** under
+  `(max−min)/max`, so the 13.0% figure is *already* `max/min − 1` — the same formula as the 20.5%.
+  The band was never mixed. Worse, **15.0% is the `modest load 4/16` run** (18.42 → 21.18 ms), a
+  LOADED measurement; promoting it to the lower bound of a *quiet* floor folds a load effect into the
+  noise band and makes §8.4's central claim circular (6 workers at +19.9% sitting *inside* a 20.5%
+  quiet band only means something while that band holds no loaded runs). **Do not "correct" the
+  13–20.5% string in source, tests or docs** — it is right in all 9 sites. Normalization is now
+  pinned in the sweep note itself so this cannot be re-derived.
 - **THE WORK GATE'S PREMISE IS SETTLED (2026-09-04, `ml#1733` `a0420375`) — it was UNDER-specified, not wrong.**
   `step_count` was claimed deterministic and contention-immune. Consensus validation produced a
   counterexample from the existing corpus, which I then reproduced directly. Cell `c006-9c53874e`,
@@ -333,8 +341,12 @@ branch merged and deleted" (false — would have destroyed #1683), "Waves 0, 1 a
 and Wave 4 entirely, dropped the whole arc tail and retained-state section, and never named the P2
 plan its nine item references pointed at.
 
-**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
-**15.0–20.5%** above. **Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
+~~**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
+**15.0–20.5%** above.~~ — **this consensus finding was itself WRONG and is withdrawn (2026-09-05);
+see the struck bullet in §2.** Both endpoints are `max/min − 1` over quiet runs; 15.0% is the
+`modest load 4/16` measurement. A consensus lane can agree on a wrong recomputation — the arithmetic
+was never re-run against the six source values, only the *claim* about which formula produced them.
+**Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
 
 **Refuted structurally — the most consequential result.** Lane B1 broke the gate's core premise
 (§2 of this document) and found six ways `compare_baseline.py` reaches a wrong verdict. **C2 is now
