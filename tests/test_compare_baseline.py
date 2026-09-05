@@ -213,6 +213,82 @@ class WaiverTest(unittest.TestCase):
             result = cb.compare(payload, host, [candidate], accept_work_change="I really mean it")
             self.assertEqual(result["verdict"], cb.REFUSED)
 
+    def test_a_real_FAIL_beats_a_SIBLING_suite_refusal(self):
+        """The multi-suite case the single-suite guard above cannot reach.
+
+        ``test_waiver_does_not_mask_a_refusal`` passes ONE suite whose identity is unknown.
+        That suite yields no scenario result at all, so "did work move?" finds nothing and
+        the chain falls through to REFUSED no matter where the refusal check sits. The
+        guard therefore cannot detect a reordering of the verdict chain at all.
+
+        This is the case that discriminates. TWO suites are compared:
+
+          * ``moved``   -- same workload as the baseline, different ``step_count``, so it
+                           DOES produce a scenario result and the work half does not match;
+          * ``foreign`` -- a different workload, so its identity is unknown and it
+                           contributes a REFUSAL reason and no scenario.
+
+        Now "work moved" and "a refusal reason exists" are simultaneously true. ml#1741
+        settled the precedence deliberately -- **FAIL > REFUSED > PASS** -- because the old
+        ``if reasons: REFUSED`` first meant one unreadable suite on the command line
+        converted a REAL regression on another suite into "could not compare", and a caller
+        treating exit 2 as non-blocking then loses the regression entirely.
+
+        So the verdict here is FAIL / exit 1: a positively-detected work regression is
+        knowledge and outranks an unrelated refusal. Pinned so a future reordering that
+        restores the old precedence, and re-loses the regression, goes red.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770, epochs=4000)
+            payload, host = _baseline(Path(tmp), "t", base)
+            moved = _suite(Path(tmp), "moved", step_count=1771, epochs=4000)
+            foreign = _suite(Path(tmp), "foreign", step_count=1770, epochs=500)
+
+            result = cb.compare(payload, host, [moved, foreign])
+
+            self.assertEqual(result["verdict"], cb.FAIL, "a detected regression outranks an unrelated refusal")
+            self.assertEqual(cb.EXIT[result["verdict"]], 1, "exit 1, not the refusal's 2 -- a caller must be able to block")
+            self.assertTrue(result["reasons"], "the sibling's refusal reason must still survive into the result")
+
+    def test_a_waived_run_still_REPORTS_the_uncompared_sibling(self):
+        """With a waiver the same pair is WAIVED / exit 0 -- so the REPORT is the only signal.
+
+        A waiver blesses the deliberate work change, and under the FAIL > REFUSED
+        precedence it carries the whole run to exit 0 even though ``foreign`` was never
+        compared to anything. That is defensible only while the operator is still TOLD:
+        ``render`` prints every reason as a ``REFUSED:`` line regardless of verdict, so the
+        uncompared suite is named on screen.
+
+        This pins that reporting, not the exit code. If someone later suppresses reasons
+        under a non-REFUSED verdict as cosmetic, exit 0 becomes genuinely silent about a
+        suite that was never compared -- and nothing else in this file would notice.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770, epochs=4000)
+            payload, host = _baseline(Path(tmp), "t", base)
+            moved = _suite(Path(tmp), "moved", step_count=1771, epochs=4000)
+            foreign = _suite(Path(tmp), "foreign", step_count=1770, epochs=500)
+
+            result = cb.compare(payload, host, [moved, foreign], accept_work_change="deliberate epoch bump")
+            self.assertEqual(result["verdict"], cb.WAIVED)
+            self.assertEqual(cb.EXIT[result["verdict"]], 0)
+
+            text = cb.render(result)
+            self.assertIn("REFUSED:", text, "the uncompared sibling must be named even under WAIVED")
+            self.assertIn("foreign", text)
+
+    def test_moved_work_alone_IS_waivable(self):
+        # The other control, and the reason this guard is narrow: with NO refusing sibling,
+        # a waiver legitimately turns a moved-work FAIL into WAIVED / exit 0. If this ever
+        # goes red, the guard above has over-tightened and broken the waiver's real purpose.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770, epochs=4000)
+            payload, host = _baseline(Path(tmp), "t", base)
+            moved = _suite(Path(tmp), "moved", step_count=1771, epochs=4000)
+            result = cb.compare(payload, host, [moved], accept_work_change="deliberate epoch bump")
+            self.assertEqual(result["verdict"], cb.WAIVED)
+            self.assertEqual(cb.EXIT[result["verdict"]], 0)
+
     def test_render_does_not_claim_a_waiver_that_had_no_effect(self):
         """Found by running it: the first draft printed "WAIVED by operator" under a REFUSED
         verdict, which reads as though the override worked. Exit code was right (2), the words
