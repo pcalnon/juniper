@@ -1,0 +1,10 @@
+[t=    747ms] navigating to http://127.0.0.1:8052
+[t=   4671ms]   welcome modal not present/visible
+[t=   6674ms] STEP topostate -- M-TOPOLOGY-13 / -18 (view state, raw-store gate)
+[t=  10411ms]   modal cleared after 1 attempt(s)
+[t=  80176ms]   wake_topology: {'already': False, 'woke': True, 'elapsed_s': 62.0, 'attempts': 2}
+[t= 122443ms]   M-TOPOLOGY-18 raw-store gate: empty_in_node_graph=True populated_in_weight_matrix=True (filled in 6.6s) -> PASS
+[t= 238607ms]   M-TOPOLOGY-13 zoom/pan: relayout_events=2 range_changed=True persisted=True -> PASS
+[t= 245121ms]   screenshot: /tmp/juniper-e2e/shots/seg17_topostate.png
+[t= 245142ms]   topostate verdicts: [('M-TOPOLOGY-18', 'PASS'), ('M-TOPOLOGY-13', 'PASS')]
+[t= 245142ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f037_m18_isolated.json
