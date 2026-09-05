@@ -43,7 +43,7 @@
 | `python util/experiments/run_suite.py --suite util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml --dry-run` | Expand a P4 campaign suite (no writes); see [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) |
 | `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum`) |
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
-| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). **Do not wire to CI.** |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Sound since #1743; CI-wiring is an open **owner** decision. |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -54,6 +54,9 @@
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
+| `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py . --min-score 3` | Rank source comments that are hazard-shaped and resident nowhere |
+| `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py ../juniper-cascor --self-check --agents /tmp/pre609.md` | Positive control: cascor `max_epochs` split must score ≥ 3 and rank top 5 |
+| `python3 util/ad-hoc/2026-08-28_hazard_triage.py juniper-canopy --min-score 2` | Rank *already-resident* `AGENTS.md` blocks (`gh api` on GitHub `main`) |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
@@ -68,6 +71,8 @@
 | `python3 util/memory_index_check.py` | Check the Claude Code `MEMORY.md` index (200 lines / 25k bytes; new-row hook ≤ 120) |
 | `python3 util/memory_index_check.py --accept` | Grandfather current slugs + record one growth sample (always exit 0) |
 | `python3 -m unittest -v tests/test_memory_index_check.py` | Hermetic index-gate suite (CI cannot see `~/.claude`) |
+| `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` | Fleet required-context audit (BLOCKING / Tier 1 / path-gated; read-only) |
+| `python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json --repo juniper-ml` | Same, one repo, JSON (exit 1 on BLOCKING **or** probe error) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -273,6 +278,7 @@ REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip,
 | AGENTS.md date bump    | **You bump it**; CI verifies on PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; no bot commit) |
 | Shared-package CI      | Path-scoped `ci-<pkg>.yml` under `.github/workflows/` (six packages; see REFERENCE)         |
 | Open-PR budget alarm   | Daily 14:00 UTC `pr-budget-alarm.yml` (report-only); `gh workflow run pr-budget-alarm.yml`  |
+| Ruleset context audit  | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` (read-only; see tip below)         |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
 | Re-run main-verify     | `gh workflow run main-verify.yml --repo pcalnon/juniper-ml` (dispatch; catch-up BASE still applies) |
@@ -292,6 +298,13 @@ commit trailer in BASE..HEAD — the per-PR `allow-symbol-loss` label is WARN-on
 `NEEDS-UPDATE-BRANCH` means behind-main; `DAMAGED-FIX-FIRST` is gate **or** symbol **or** docs `fail`.
 Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
 [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
+
+**Ruleset context audit:** a required name that never reports leaves `main` unmergeable with every
+visible check green (2026-08-10 fleet-union of 30). Re-run the auditor; do not quote the note's
+§1 counts. Text-mode exit 0 can still print `ERROR:` (`--json` fails closed). `advisory_predicate`
+subtracts the live required set so a promoted check (ml#1011 `Sequence Safety`) stays in Tier 1.
+Writer is `require_context_safely.py`, not this script.
+[REFERENCE.md § Ruleset Context Audit](REFERENCE.md#ruleset-context-audit).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -547,10 +560,12 @@ Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
-Tip: `compare_baseline.py` is a **split** gate (exact `step_count`, ungated speed) and is **not** safe to wire to CI.
-Consensus validation ([#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) produced a counterexample: identical
-fingerprint/seed/host, different `step_count`, all `outcome: succeeded` — blessing one side is a false regression.
-`make_baseline` refuses unmeasured / `timed_out` cells; the comparator still PASSes them.
+Tip: `compare_baseline.py` is a **split** gate (exact `step_count`, ungated speed). The #1710 counterexample is
+**settled**: a corpus census (333 runs) showed all 29 divergences are explained by `completion_reason`, and #1733 made
+the termination branch part of the precondition — a branch flip now REFUSES (2) instead of FAILing (1). #1741 + #1743
+closed the writer/comparator asymmetry, so the comparator now refuses unmeasured / `timed_out` / zero-work cells too.
+**Still do not wire it to CI** — not because it is unsound, but because *whether the run tier gates at all* is an
+unmade owner decision (§6 of the P1 design).
 Full contract: [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate).
 
 Tip: default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols (data#354). Cost is per request, so the cap is in **symbols**, not bytes. Set `symbols: [AAPL, …]` (E-H already does) or `allow_truncation: true`. A request may only *lower* `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS`. `experiment_stack.bash` sets the cache dir, not the cap. Full contract: [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
@@ -642,12 +657,17 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 Tip: P4 `include` cells do not inherit `matrix`. Oversize cascor stall is pool ≥ 16 **or** cap ≥ 64 (`stall_seconds` > 120). `per_run_timeout_seconds` must sit **above** the driver wall (equal loses the manifest). `e-j-h2h-wide-cap128` is n=2 — the description still says 3. Recurrence P4 cells report; they do not gate. See [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites).
 
 Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 bytes. Run `python3 util/memory_index_check.py` on the host that writes `~/.claude` — CI never sees the real file. The 120 cap is the **hook** (`len` after the `)`), not the line. `--accept` grandfathers and always exits 0; it does not evict. See [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check).
+Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py <repos> --min-score 3 --json OUT`. The scored **total will rise** — relocation removes resident identifiers, so the gap predicate starts matching them. Health is the score ≥ 3 count (and whether anything *new* appears there), not the total. `2026-08-28_hazard_triage.py` alone cannot find what was never in `AGENTS.md`. Full contract: [REFERENCE — Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage).
 
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
+| Gap-triage total went up after a successful cut | Expected — cutting widens the gap. Read score ≥ 3 / new rows, not the total. |
+| `hazard_triage` missed a known-real source comment | It only ranks `AGENTS.md` on GitHub `main`. Use `2026-08-31_resident_gap_triage.py` for source gaps. |
+| `hazard_triage` ignores local `AGENTS.md` edits | It fetches via `gh api` `?ref=main`, not the checkout. |
+| Huge candidate counts on juniper-ml | Confirm `SKIP_DIRS` (`.claude` / `worktrees`) — pre-#1519 walked in-repo worktrees. |
 | `@claude` mention did nothing | Job `if:` needs the literal `@claude` in that event's body (or issue title); `issues: assigned` still needs it |
 | Copied `notes/templates/ci/claude.yml` onto live | Template snapshot lags Dependabot (checkout v6.0.2 / action v1.0.107); restore `.github/workflows/claude.yml` from `main` |
 | L2/L3 auditor green after permissions widen | Expected — bash is structure-only; `LiveClaudeWorkflowContractTests` pins the map |
@@ -755,9 +775,11 @@ Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 byt
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
 | Experiment `grafana bridge failed — tearing the run back down` | Expected `--grafana-bridge` teardown; install `socat`/`docker` or omit the flag. |
 | Experiment port range exhausted after a failed `--config` | Staging aborted between `allocate_port` and `ports.json` (open #979) — clear `*.lock` under `JUNIPER_EXP_LOCK_ROOT` with no live listener. |
-| `compare_baseline` FAIL, same YAML / seed / host | Do **not** treat as a code regression — termination may have moved. Do not add the tool to `ci.yml`. See [REFERENCE](REFERENCE.md#perf-lane-work-gate). |
-| `compare_baseline` PASS with empty series / `timed_out` cells | Expected today — unmeasured rows are dropped and `outcome` is not read. `make_baseline` would have refused. |
-| `compare_baseline` REFUSED after a real work miss | Another `--suite` on the same command was unreadable. Split the invocation; do not collapse exit 1 and 2. |
+| `compare_baseline` FAIL, same YAML / seed / host | Interpretable since #1733/#1743 — branch, `outcome`, measurement and coverage all checked out. Investigate the change; waive only once you know why. |
+| `compare_baseline` REFUSED "different branches" / "no completion_reason" | Not a regression. Candidate terminated differently, or the baseline predates the #1733 guard (`pf1-2026-09-04`). Use `pf1-2026-09-04b` or re-cut. |
+| `compare_baseline` PASS with empty series / `timed_out` cells | **No longer possible** — A1/A2 refuse both. If you see it, the reader drifted; stop. |
+| `compare_baseline` REFUSED after a real work miss | **No longer possible** — A3 gives FAIL precedence. A real miss exits 1 even with an unreadable sibling `--suite`. |
+| `compare_baseline` REFUSED "covered N of M" / "DUPLICATE fingerprint" | A6/A7 — partial scenario coverage, or two blessed scenarios sharing a workload. Run the rest, or re-cut from distinct workloads. |
 | `make_baseline: already exists` | No `--force`. Choose a new tag. |
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — see `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
@@ -782,6 +804,10 @@ Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 byt
 | Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
 | Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
 | `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
+| `main` BLOCKED, every check green | Required context never reports — run `2026-08-10_ruleset_context_audit.py --repo <repo>` before adding another. |
+| Context audit text exit 0 with `ERROR:` | Human mode ignores probe failures; use `--json` (exit 1) or re-run that `--repo`. |
+| Promoted check missing from Tier 1 | `advisory_predicate` must subtract the live required set (ml#1011 class). |
+| Quoted 23/200 blocking from the 2026-08-10 note | Historical. Re-run; do not strip a ruleset from a one-shot empty sample. |
 
 ## Quick Reference Tables
 
@@ -817,6 +843,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ## Cross-References
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
+- [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
@@ -824,13 +851,14 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [PF Scenario Suites](REFERENCE.md#pf-scenario-suites) -- Wave 7.3 instruments; PF-1 matched epoch pair + matrix-axis repeats; PF-4/PF-8 are not driver suites
 - [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; the W4/W1 blast-radius IDs are real matrix §4 steps (F-E2E-007 claimed otherwise and was withdrawn)
 - [P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) -- 19 YAML catalog; include ≠ matrix; cap-128 H2H is n=2; recurrence P4 cells do not gate
-- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; do not CI-wire the exact work gate (#1710)
+- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; sound since #1743; CI-wiring is an open owner decision, not a soundness bar
 - [Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) -- headroom is not a CI input; size slack from `measure-growth` `max`, floored at 2,000
 - [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default `equities` is 422 at 14 symbols; unit is symbols because cost is per request
 - [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert; read the whole series; `--target topology` refuses
 - [Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- exit **2** is P-5 free-threaded; exit **4** is May-7 wheel layout
 - [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local `MEMORY.md` gate; hook-not-line; CI cannot see `~/.claude`
 - [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` (restore `-xjf`); not the Duplicati `$HOME` lane
+- [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- required-context classifier; 2026-08-10 class; text-mode 0 can still carry `ERROR:`
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
