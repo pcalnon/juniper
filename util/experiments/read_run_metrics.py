@@ -271,17 +271,30 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     # failed, but because the question does not apply. Kept as a THIRD state so a caller never reads
     # "not countable" as "counted, and they matched".
     countable = all(r.get("work_countable", True) for r in rows) if rows else False
-    reasons = sorted({str(r["completion_reason"]) for r in rows if r.get("completion_reason")})
+    # DO NOT filter out null reasons before taking uniqueness. The first version of this line was
+    # `... for r in rows if r.get("completion_reason")`, which dropped unknown-branch cells and made
+    # `4x early_stopped + 1x None` read as a SINGLE branch -- fail-open on exactly the mixed case the
+    # guard exists for. Unknown is a distinct value, and `has_unknown_reason` below makes an all-
+    # unknown suite refuse too rather than look uniform.
+    reasons = sorted({str(r.get("completion_reason")) for r in rows}) if rows else []
+    has_unknown_reason = any(not r.get("completion_reason") for r in rows)
     out: Dict[str, Any] = {
         "cells": len(rows),
         "kinds": sorted({str(r.get("kind", "cascor")) for r in rows}),
         "work_countable": countable,
         # Cells that ended on DIFFERENT branches are not repeats of each other, even at one config.
         "completion_reasons": reasons,
-        "single_completion_reason": len(reasons) == 1,
+        "has_unknown_completion_reason": has_unknown_reason,
+        "single_completion_reason": len(reasons) == 1 and not has_unknown_reason,
         # These end the run before the workload does, so the histogram is truncated by construction
         # and its count is a fact about the budget rather than about the code.
-        "truncated_terminations": sorted({r for r in reasons if r in TRUNCATING_TERMINATIONS}),
+        # READ `outcome`, NOT `completion_reason`. The first version matched these against
+        # `completion_reason` and could therefore NEVER FIRE: across 370 manifests
+        # `completion_reason` is only {early_stopped, no_candidate, below_threshold, max_iterations,
+        # None}, while timed_out / torn_down_early / stalled are `outcome` values -- and all 15
+        # driver-stopped runs carry `completion_reason=None`. The accompanying test passed only
+        # because its fixture wrote the string into the reason field, which production never does.
+        "truncated_terminations": sorted({str(r.get("outcome")) for r in rows if r.get("outcome") in TRUNCATING_TERMINATIONS}),
         "step_counts": sorted(set(counts)),
         "work_invariant": countable and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its

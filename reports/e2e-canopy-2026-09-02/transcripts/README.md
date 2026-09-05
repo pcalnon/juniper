@@ -51,3 +51,51 @@ and -07, and `control={'present': False, ...}` with `plotly_click_events=0` on
 M-TOPOLOGY-12. The parent `topo` transcript is the grep-filtered stdout of that
 run rather than the full log — the pipeline was written that way before the value
 of the whole log was obvious; its result JSON beside it is complete.
+
+## 2026-09-04 (later) — the F-CANOPY-037 closure drive, and its one control
+
+`2026-09-04_f037_closure_main_94220f0.{txt,json}` is the full topology surface
+(`--step topo,topoevents,topostate,topoexport`) driven against **canopy main
+`94220f0`** — both of this arc's fixes plus another session's canopy#567. It is the
+live re-drive F-CANOPY-037's entry had been owed since 2026-08-28, and it closes the
+arc's last P0/P1: **16 PASS / 0 FAIL** across every scoreable M-TOPOLOGY row.
+
+`2026-09-04_f037_m18_isolated.{txt,json}` is the **control**, and the reason to keep
+it. In the combined run M-TOPOLOGY-18 scored **INDETERMINATE**, not PASS —
+`empty_in_node_graph=False`. That row's first half needs the raw-topology store still
+empty, and `topo` fills it permanently when M-TOPOLOGY-03 opens the Weight Matrix.
+Re-driven **alone against the same build minutes later**: **PASS**,
+`empty_in_node_graph=True`, filled in 6.6 s.
+
+So the INDETERMINATE is a harness ordering artifact, not a regression — and the row
+saying INDETERMINATE instead of FAIL is the scorer behaving correctly. Read the two
+files together or the first one alone will look like a defect. **The steps are not
+order-independent**; `topostate` must be driven first or alone.
+
+## 2026-09-04/05 — F-CANOPY-035, and why there are two passes
+
+`2026-09-04_f035_candidate_redrive.{txt,json}` is the first pass. It established that
+`metrics-panel-metrics-store` is *readable* (via the repaired `paths.strs` reader) and
+genuinely empty, which the 2026-08-26 attempt could not — that one used the client-side
+probe this arc later ruled inadmissible. It also counted "13 of 74 callback responses
+naming the store", and **that number is the reason for the second pass**: a `no_update`
+for an output can still name it in the response body, so the count established the
+callback was *speaking* and nothing about whether a value *landed*.
+
+`2026-09-05_f035_candidate_redrive.{txt,json}` parses the response bodies instead of
+counting mentions, and brackets the census with a store read on each side:
+
+```text
+metrics-panel-metrics-store: ok via 'paths.strs' type=list len=0     <- before
+WRITE census (30 s): wrote=[500 x 17] omitted=0 unparsed=0
+metrics-panel-metrics-store AFTER 18 writes: len=0                   <- after
+```
+
+**The server sends 500 rows seventeen times and the client's copy stays empty**, before
+and after. The bracketing reads are not decoration: a single read taken before the census
+cannot tell "never populates" from "had not populated yet" — the same ordering artifact
+M-TOPOLOGY-18 produces, one step out.
+
+Keep both files. The first one's weaker instrument is the contrast that motivated the
+second, and a mention-count presented as a write-count is the kind of number that reads
+authoritative and answers an adjacent question.
