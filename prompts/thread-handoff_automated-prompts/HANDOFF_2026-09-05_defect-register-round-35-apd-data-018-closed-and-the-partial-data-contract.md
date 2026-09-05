@@ -126,6 +126,11 @@ cross-check **79 / 79 / 79, AGREE**.
 
 ## 3. The four findings worth carrying
 
+> ## ⚠ READ §3.5 FIRST. Validation round 2 FALSIFIED finding 1 below and corrected three others.
+> The text of findings 1–4 is left standing **as written and as shipped**, because the same wrong
+> reasoning is in `notes/JUNIPER_2026-09-04_JUNIPER-DATA_EQUITIES-INGEST-SIZING-AND-FIELD-AVAILABILITY.md`
+> and `juniper-data/CHANGELOG.md` and has to be recognisable there. §3.5 is the correction.
+
 **1. The unit belongs to the cost, not to the register.** One row, two halves, two different units,
 both right. `csv_import` bounds **bytes** (its input is a file). `equities` bounds **symbols**,
 because measurement showed its cost is per *request*: **163× the payload costs 1.16× the time**. One
@@ -154,6 +159,81 @@ facts, and multi-class filers tag shares per share class. **The 37 "missing" tic
 missing data — it was the wrong endpoint.** 37 → 1 (`STZ` alone). `companyfacts` costs ~1.15 s and
 ~5 MB against ~0.20 s and ~600 B, so it is a **fallback rung**, not the primary path: paying it per
 symbol would cut the 14-symbol cap to ~9.
+
+### 3.5 What validation round 2 falsified — READ BEFORE QUOTING ANY OF §3
+
+**FALSIFIED — finding 1's evidence is inverted. The decision survives; the argument for it does not.**
+The sizing model (`juniper-data/util/ad-hoc/2026-09-04_equities_sizing_matrix.py:26`) is **purely
+proportional** — `WIRE_BYTES_PER_TRADING_DAY = 32.1` with **no per-request intercept**, and it never
+uses its own `SEC_BYTES_PER_SYMBOL`. Measured against the generator's real request shape, there is a
+**~1,298-byte fixed envelope** per call plus ~33 B/day. So:
+
+| request | as published | actually |
+|---|---:|---:|
+| Russell 3000 × 1 day | 92 KB | **~3.6 MB** Yahoo-only; **~46 MB** with SEC |
+| 1 symbol × 26 years | 210 KB | ~239 KB |
+
+**The expensive request is 15–195× LARGER in bytes, not smaller. A byte cap is POSITIVELY correlated
+with cost.** "It would admit the expensive request and reject the cheap one" is backwards, and it is
+derivable from the published table alone — fitting an intercept to its own two smallest rows already
+gives 2.07 MB for that row. The same script's closing prose says "2.9 MB" three lines below a table
+printing "91.6 KB" for the identical row, and nobody reconciled them.
+
+**A symbol cap is still right** — cost is per *request*, which round 2 confirms more strongly than
+the original claim did. Only the byte arithmetic was wrong. **Fix the inverted sentence in
+`notes/JUNIPER_2026-09-04_JUNIPER-DATA_EQUITIES-INGEST-SIZING-AND-FIELD-AVAILABILITY.md` §1 and
+`juniper-data/CHANGELOG.md` — it shipped into both.**
+
+**CORRECTED — "37 → 1" is "29 → 1".** The probe's `GAPS` list has **29** entries while its docstring
+says 37; 18 + 10 + 1 = 29. **Eight tickers were never probed.** The supported claim is **≥28 of 37
+rescued**. `STZ` genuinely unrescuable — confirmed against its full 3.8 MB `companyfacts`.
+
+**CORRECTED — the mechanism in finding 4 is wrong.** A **June-2026 `companyconcept` cache on this
+machine holds KO's same 71 dei facts**, and across the 29 probed the 18 "rescued at rung 1–2" are
+*exactly* the 18 with a June cache. So this is an **upstream regression in `companyconcept` between
+2026-06 and 2026-09**, not the permanent "dimensional facts are excluded" property claimed. KO is
+single-class and its rows carry no dimensional keys at all. If SEC restores the endpoint the framing
+is wrong; if it degrades further, the `companyfacts` rung is not guaranteed either.
+
+**CORRECTED — the worked example in finding 2 is false, in five files.** AAPL's dei series has **no
+2021-03-27 point**; `end` on the dei cover-page tag is an **as-of date, not a fiscal period end**.
+The real window for that filing is **13 days**, and the −19 comes from a **2015** filing. The −19
+itself, and 325 negative rows (14.3%) → 0 after the fix, are **confirmed exactly**.
+
+**NEW — the leak fix is INCOMPLETE, and its test is now a tautology.**
+`generator.py:620`'s `known[~known.index.duplicated(keep="last")]` collapses duplicate *filed* dates
+order-dependently and can install a **stale** value: on KO's real payload, `filed=2013-10-24` carries
+both an 8-K restating `end=2013-02-25` and the 10-Q for `end=2013-10-21`, and `keep="last"` retains
+the **February** figure — a 0.92% error in `total_shares`/`market_cap` from 2013-10-24 to 2014-02-27.
+Worse, `test_shares_are_not_visible_before_they_were_filed`'s `ages.min() >= 0` is now
+**unfalsifiable**: ffill on `filed` cannot produce a negative age, so the sentinel that caught the
+original leak audits nothing but a literal revert.
+
+**NEW — three look-ahead paths are still shipping**, all in feature columns:
+`adj_close` (Yahoo **retroactively restates** it for every future split/dividend — a 2013 row encodes
+the 2020 4:1 split, and a test pins that it is carried verbatim); `cost_basis` (a per-ticker constant
+written to *every* row including earlier ones — inert at the default `purchase_date`, a full
+future-price leak at any later one); and `_SHARES_OUTLIER_FACTOR`, which takes a **whole-history
+median including the future** to decide which points survive — the same global-statistic class as
+the juniper-data#314 leak this work cites.
+
+**NEW — the measurement path is not the code path.** `EQUITIES_DEFAULT_USE_CACHE = True`, and this
+machine holds **485 June-2026 shares payloads, all non-empty**. On a warm cache the generator
+**never executes the fixed guard and never reaches the rescue ladder**. "451 → 463" and "29 → 1"
+describe **cold-cache** behaviour only, and there is no cache version key or TTL, so cache and
+endpoint can disagree indefinitely.
+
+**NEW — instrument provenance.** `2026-09-04_equities_sizing_matrix.py` claims its constants come
+from `2026-09-04_measure_equities_payloads.py`, which measures **pandas in-memory bytes and yfinance
+wall time** — never wire bytes. The four wire-byte rows are reproducible (within 0.3–2%) but their
+source was an unpreserved one-liner. And "163× / 1.16×" is **one noisy sample pair**: the series is
+non-monotonic (1 year at 0.34 s is faster than 1 month at 0.50 s), and a re-run gave 156× payload →
+**0.83×** time. `NPZ_X_BYTES_PER_ROW = 10 * 4` is stale since the matrix went to 16 columns.
+
+**NEW — the census instrument conflates throttling with absence.** `_facts` maps a 403/timeout, a
+404, and an empty-units body all to `-1`, and the verdict cascade treats them identically. **A
+rate-limited census silently inflates the gap**, so "37" cannot be separated from "37 minus however
+many were throttled". Re-measure with an instrument that distinguishes them before quoting it again.
 
 ---
 
@@ -242,6 +322,14 @@ session's equities work mid-session, without conflict.
 - [x] Handoff document generated (this file)
 - [x] PR opened for this document — **ml#1757**
 - [x] Consensus validation round 1 — falsified §0.2's central claim; findings applied above
-- [ ] **Consensus validation round 2** — owed, because round 1's corrections are themselves unvalidated
+- [x] Consensus validation round 2 — **falsified §3's finding 1 outright** and corrected three more;
+      all recorded in §3.5. Round 3 is owed, on §3.5 itself.
+- [ ] **FIRST WORK: propagate §3.5's correction into the shipped record.** The inverted byte claim is
+      in `notes/JUNIPER_2026-09-04_JUNIPER-DATA_EQUITIES-INGEST-SIZING-AND-FIELD-AVAILABILITY.md` §1
+      and `juniper-data/CHANGELOG.md`; the false 2021-03-27 example is in five files; "37 → 1" is in
+      the register's §5.1 row, the generator's own comment, and data#366's commit body.
+- [ ] **Then the code defects §3.5 raises**: the `keep="last"` stale-value bug, the tautological
+      leak test, and the three still-shipping look-ahead paths (`adj_close`, `cost_basis`, the
+      whole-history median).
 - [ ] **The four juniper-cascor gaps** (§0.2 a–e); (a) blocks canopy
 - [ ] **juniper-canopy three-way prompt** — blocked on §0.2(a), §0.2(d), and the §0.4 ambiguity
