@@ -130,7 +130,7 @@ class BoundaryPrintPrecision(unittest.TestCase):
         self.assertGreater(hi - sl.DECISION_BOUNDARY, 2e-6)
         self.assertLess(hi - sl.DECISION_BOUNDARY, 4e-6)
         self.assertEqual(f"{hi:.4f}", "0.7500")
-        self.assertFalse(hi < sl.DECISION_BOUNDARY)
+        self.assertGreaterEqual(hi, sl.DECISION_BOUNDARY)
 
     def test_naive_twenty_seven_of_forty_nine_is_still_bet_failing(self) -> None:
         # Keying mutations on their own obs_id inflates n to 49 and follow to 27.
@@ -140,7 +140,7 @@ class BoundaryPrintPrecision(unittest.TestCase):
         # the harder failure to notice.
         _lo, hi = sl.wilson(27, 49)
         self.assertAlmostEqual(hi, 0.6815, places=4)
-        self.assertTrue(hi < sl.DECISION_BOUNDARY)
+        self.assertLess(hi, sl.DECISION_BOUNDARY)
 
 
 class BinomSfIsTheLedgersEstimator(unittest.TestCase):

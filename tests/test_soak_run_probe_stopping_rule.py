@@ -33,8 +33,8 @@ import io
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import unittest
+import unittest.mock as mock
 from pathlib import Path
-from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "util" / "soak_run_probe.py"
