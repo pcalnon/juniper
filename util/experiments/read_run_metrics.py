@@ -31,7 +31,10 @@
 #
 #   THE GATE IS SPLIT (owner decision, 2026-09-02), and these are its two halves:
 #     * WORK  -- step_count. Deterministic for a seed-fixed config, and CONTENTION-IMMUNE: measured
-#                identical across 21 cells spanning a 3x range of step duration. Gateable exactly.
+#                identical across 21 cells spanning a 3x range of step duration. Gateable exactly --
+#                but the determinism holds only WITHIN a termination branch (completion_reason).
+#                Corpus census 2026-09-04: 29 of 79 repeated configs diverge across branches, zero
+#                within one. Comparing across branches is what produced the ml#1710 false FAIL.
 #     * SPEED -- mean_step_seconds (= step_sum / step_count). Carries a 13-20.5% host drift floor
 #                and is NOT gated; it is reported.
 #####################################################################################################################################################################################################
