@@ -122,7 +122,12 @@ def _recurrence_fields(run_dir: Path, timings: Mapping[str, Any]) -> Dict[str, A
     quietly compare something that cannot regress.
     """
     train = _load_json(run_dir / "artifacts/results/train_response.json")
-    dataset = train.get("dataset") or {}
+    # `or {}` guards ABSENCE, not TYPE. A truthy non-mapping -- a list, a string -- sails
+    # through it and only fails at `.get`, killing `read_run` and with it the whole
+    # `read_suite`. `_load_json` already refuses a non-dict at the TOP level; it says
+    # nothing about what sits under a key.
+    dataset = train.get("dataset")
+    dataset = dataset if isinstance(dataset, dict) else {}
     return {
         "kind": "recurrence",
         "work_countable": False,
@@ -144,8 +149,14 @@ def read_run(run_dir: Path) -> Dict[str, Any]:
     """
     run_dir = Path(run_dir)
     manifest = _load_json(run_dir / MANIFEST_RELPATH)
-    timings = manifest.get("timings") or {}
-    drive_loop = manifest.get("drive_loop") or {}
+    # Same absence-vs-type distinction as `_recurrence_fields`: a manifest whose `timings`
+    # is a string (a hand-edited run, a partially-written file, a schema change) took down
+    # every consumer of `read_suite` -- `make_baseline`, `compare_baseline`, and
+    # `run_suite.aggregate`, which then destroys its own aggregate.csv and REPORT.md.
+    timings = manifest.get("timings")
+    timings = timings if isinstance(timings, dict) else {}
+    drive_loop = manifest.get("drive_loop")
+    drive_loop = drive_loop if isinstance(drive_loop, dict) else {}
     scraped = manifest.get("metrics_scraped")
     # Tri-state (ml#1550): True scraped, False did not, None == COULD NOT ASK (Prometheus
     # unreachable). Never collapse None into False -- that is the false-negative the tri-state

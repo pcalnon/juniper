@@ -1008,6 +1008,8 @@ jobs:
           python3 -m unittest -v tests/test_stats_summary_render.py
           # tests/test_stats_summary_git_and_confirmed.py: The `summary.md` scrape tri-state and git provenance the producer suite cannot see -- `confirmed` None-is-not-False, the N/A fallback, unavailable git, clean-head, and a decreasing count that must not mint a poll sample. Independent sibling of `test_stats_summary_render.py`; see its header for why both were kept.
           python3 -m unittest -v tests/test_stats_summary_git_and_confirmed.py
+          # tests/test_recurrence_kind_edges.py: Recurrence-kind edges in `util/experiments/read_run_metrics.py`: a manifest whose `timings`, `drive_loop` or `dataset` is a truthy NON-mapping. `or {}` guards absence, not type, so a list or string reached `.get` and took down `read_suite` -- and with it make_baseline, compare_baseline, and run_suite.aggregate, which then destroys its own aggregate.csv.
+          python3 -m unittest -v tests/test_recurrence_kind_edges.py
 
       - name: Run bash regression tests
         run: |
