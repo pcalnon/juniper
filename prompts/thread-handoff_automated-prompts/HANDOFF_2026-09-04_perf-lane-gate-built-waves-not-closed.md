@@ -365,12 +365,25 @@ should do:
 A1/A2 are one-line asymmetries — `compare_baseline` should adopt the refusals `make_baseline`
 already has.
 
-**C4, documentation over-reach**: "`drive` cannot serve as an upper bound on noise" is stated
+~~**C4, documentation over-reach**: "`drive` cannot serve as an upper bound on noise" is stated
 unconditionally in `util/experiments/read_run_metrics.py` and is **false above ~60 s**, where the
-`step_sum`/`drive` sd ratio is 0.86–1.25 across five suites out to 225.8 s. The quantization is
-**additive** (~4.3 s residual, near-constant), so its relative cost falls from 33% below 30 s to
-0.4% above 700 s. E-A/E-C cells at 120–670 s are in the faithful regime. No capability was lost —
-`drive` is still recorded — but the wording should be duration-conditional.
+`step_sum`/`drive` sd ratio is 0.86–1.25 across five suites out to 225.8 s.~~ — **REFUTED
+2026-09-05 by its own numbers; the unconditional wording is CORRECT and stands.** "Upper bound"
+means `drive` sd ≥ `step_sum` sd, i.e. ratio ≤ 1. The quoted range **0.86–1.25 straddles 1**, so
+above 60 s `drive` still runs in *both* directions — which is precisely the condition the source
+sentence gives for refusing to treat it as a bound. From §3 of this lane's own table:
+
+| run | condition | `drive` sd | `step_sum` sd | ratio | upper bound? |
+|---|---|---|---|---|---|
+| `20260901T101126Z` | **66 s**, quiet | 3.357% | 4.198% | **1.25** | **NO — understates** |
+| `20260901T103324Z` | 126 s, heavy 14/16 | 2.256% | 1.970% | 0.87 | yes — overstates |
+
+At 66 s — above the very threshold C4 names — `step_sum` sd **exceeds** `drive` sd, so `drive`
+understates real spread and cannot bound it. The finding conflates **faithful** (ratio ≈ 1) with
+**conservative** (ratio ≤ 1); only the latter licenses an upper bound. The rest of C4 is sound and
+unaffected: the quantization *is* additive (~4.3 s), its relative cost *does* fall with duration,
+and the 25×–182× figure *is* 20 s-specific — but "not a conservative approximation in either
+direction" is exactly what 0.86–1.25 demonstrates. **Do not make the wording duration-conditional.**
 
 **C3, recurrence uncountability: NOT refuted, but re-ground the reason.** The doc rejects `n_epochs`
 for being invariant to `d`/`n_steps`; the stronger and correct reason is that

@@ -97,6 +97,17 @@ The completed sweep reconfirms the positional pattern across seven more blocks: 
 by **34x–91x** in the five blocks whose cells shared a poll count, and by **~1x** in the two
 (`04-sweep8`, `05-sweep12`) whose cells straddled a boundary.
 
+> **The both-directions property holds ABOVE 60 s too, pinned 2026-09-05.** A later reading proposed
+> making the "cannot serve as an upper bound" wording duration-conditional, on the grounds that the
+> `step_sum`/`drive` sd ratio "collapses to 0.86–1.25" at ≥60 s. **That range is the argument
+> against it, not for it.** "Upper bound" requires `drive` sd ≥ `step_sum` sd, i.e. ratio ≤ 1, and
+> **0.86–1.25 straddles 1** — so the sign of the error is still not fixed. Read the ratio off §3's
+> own table: at **66 s** the ratio is **4.198 / 3.357 = 1.25**, so `drive` *understates* there and
+> cannot bound the noise; at 126 s it is **1.970 / 2.256 = 0.87** and overstates. A metric that is
+> faithful **on average** but of unknown sign **per run** is exactly what cannot serve as a bound.
+> The magnitude claim is separate and does hold: 25x–182x is specific to 20 s cells, the
+> quantization is additive (~4.3 s), and its relative cost falls with duration.
+
 ---
 
 ## 4. Three published findings that do not survive
