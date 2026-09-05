@@ -27,6 +27,7 @@
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
 - [F-039 Store Probe](#f-039-store-probe)
 - [Canopy E2E Matrix Writes](#canopy-e2e-matrix-writes)
+- [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Resident-Hazard Gap Triage](#resident-hazard-gap-triage)
 - [Ruleset Context Audit](#ruleset-context-audit)
@@ -1240,6 +1241,7 @@ Troubleshooting:
 | Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. |
 | Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
 | Canopy looks "up," but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
+| Isolated canopy is live but Candidate Metrics / Decision Boundary / Topology stay at mount defaults | 12-slot starvation, not missing wiring. Do **not** add a new Interval. Run [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes). |
 | Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
 | Topology / metrics store looks empty while the wire is correct | Do not trust a browser `_store()` read or the first TOPOPROBE lines. Run the apply / soak / report / revert loop in [F-039 Store Probe](#f-039-store-probe). |
 
@@ -1266,7 +1268,6 @@ LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
   util/ad-hoc/e2e_f039_topoprobe_instrument.py apply --checkout /path/to/juniper-canopy --target metrics
 
 # Restart THAT canopy leg (instrumentation is a source edit). Then hold a live tab:
-LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
   util/ad-hoc/e2e_f039_metrics_store_soak.py --seconds 120
 
 python3 util/ad-hoc/e2e_f039_topoprobe_instrument.py report --log /tmp/juniper-e2e/logs/juniper-canopy.log --target metrics
@@ -1330,7 +1331,6 @@ Shared browser helpers come from `e2e_w3_params_driver.py`. Default canopy URL i
 
 These scripts are **not CI**. They edit a sibling checkout. Revert is part of the contract, not optional cleanup.
 
----
 
 ## Canopy E2E Matrix Writes
 
@@ -1353,7 +1353,6 @@ Do **not** use `e2e_matrix_fill.py --overwrite` to re-score a named subset. `--o
 
 ### How to run
 
-```bash
 # Ledger: what is still a placeholder? (plan from this, not from e2e_row_coverage.py)
 python3 util/ad-hoc/e2e_unfilled_rows.py
 
@@ -1371,7 +1370,6 @@ python3 util/ad-hoc/2026-09-02_matrix_set_verdicts.py \
 # After a fix: touch only the re-opened rows (dry-run first)
 python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --row M-DATASET-02 --status PASS
 python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --write
-```
 
 ### Contracts verified against source
 
@@ -1403,10 +1401,7 @@ python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --wri
 - Refuses a status that starts with `pending` (exit `2`).
 - Missing `--row` ids: stderr WARNING, **still writes the found rows**, exit `0`. Confirm the printed list before `--write`.
 
-### Operator pitfalls
 
-| Symptom | Cause / fix |
-|---------|-------------|
 | Neighbouring row now says PASS | Hand-edit, or `set_verdicts` on a row with an escaped pipe (naive split). Use the tools; dry-run fill/rescore first |
 | `set_verdicts` wrote immediately | It has no dry-run. Review `--from` / `--set` before invoking |
 | `rescore --write` landed 1 of 3 rows | Missing ids warn and still write. Check the WARNING list |
@@ -1418,6 +1413,60 @@ python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --wri
 | `pending demo lane` in a status cell | Non-terminal. Fill drops it; rescore refuses `pending*` |
 
 Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § Canopy E2E matrix writes.
+
+Starvation / tab-gated poller forensics for a live isolated canopy: [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes).
+
+
+## F-CANOPY-027 Poller Starvation Probes
+
+F-CANOPY-027 was "a panel's data store is written repeatedly and nothing downstream of it ever runs" (Candidate Metrics / Decision Boundary / Topology frozen at mount defaults). It is **FIXED** in juniper-canopy (#507 / #509 / #511 — tab-gated intervals + Stage 2 suppressed chained store rewrites). Ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md) entry F-CANOPY-027.
+
+The root cause is **callback starvation under dash-renderer's hard-coded 12-slot pool**, not missing wiring. Twenty wiring mechanisms were refuted in situ; retain that record. Recurrence looks identical (store fills on the wire, consumers never paint), so the probes stay in `util/ad-hoc/` as provenance.
+
+### The pool, not the graph
+
+dash-renderer 4.2.0 (`dash_renderer.dev.js` ~2846) promotes `callbacks.prioritized` with:
+
+```text
+available = Math.max(0, 12 - executing.length - watched.length)
+
+If `executing + watched >= 12`, **nothing** leaves `prioritized` on that pass. Ordering is `sortPriority` / `getPriority` (base-36 downstream depth×breadth, **DESCENDING**). A terminal render callback — outputs feed no further callback — scores the minimum and loses every arbitration while the pool is contended. The callback is registered, resolvable, and queued; it is simply never picked.
+
+`getReadyCallbacks` only promotes `requested` → `prioritized` when none of the callback's INPUTS is an OUTPUT of a still-pending callback. One never-leaving pending writer pins every consumer of its outputs in `requested` forever (`blocked` / `executing` / `executed` all 0). That is "never READY", not "never wired".
+
+### Which probe
+
+Run against a **live isolated** canopy (`JuniperCanopy1`, `DEMO_MODE=0`). Empty `LD_LIBRARY_PATH` as for cascor/canopy launch. `e2e_f027_queues.py` / `e2e_f027_ready.py` / `e2e_f027_slots.py` have **no** `--base-url` — they inherit `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`) from `e2e_w3_params_driver.open_dashboard`.
+
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+  util/ad-hoc/e2e_f027_queues.py --tab 'Candidate Metrics'
+# control arm (a winner, not a starvation loser):
+  util/ad-hoc/e2e_f027_queues.py --tab 'Training Metrics' \
+  --store metrics-panel-training-state-store
+
+  util/ad-hoc/e2e_f027_ready.py --tab 'Candidate Metrics'
+
+  util/ad-hoc/e2e_f027_slots.py --tab 'Candidate Metrics' --seconds 60
+
+| Probe | Question it answers |
+|-------|---------------------|
+| `e2e_f027_queues.py` | When the dead store's prop changes: consumer **queued-and-stuck**, or never queued? Hooks `store.dispatch` before injecting via `setProps`. |
+| `e2e_f027_ready.py` | Which pending callback is pinning each `requested` consumer, and which queue is that blocker in? |
+| `e2e_f027_slots.py` | How often is `available == 0`? Who occupies `watched`/`executing`, who sits in `prioritized` unpicked? |
+| `e2e_f027_deps_endpoint.py` | Does `/dashboard/_dash-dependencies` (client graph) list the consumer with the store as an Input? (`callback_map` is the **server** registry.) Run from `juniper-canopy/src`. |
+| `e2e_f027_cleanroom.py` | Smallest app with canopy's `visualization-tabs` shape. Default **includes** the once-only children rewrite (`suppress_cascade_tabs`); `--no-rebuild` omits it. Self-hosted on port `8399` (`--port`). |
+
+
+| Symptom | Cause |
+|---------|-------|
+| "Must be unwired — consumers never fire" | Check queues first. F-027 consumers **were** in `requested`. |
+| New Interval to "fix" a frozen panel | **Forbidden.** The F-027 rule: feed an existing store (canopy#524 used `metrics-panel-metrics-store`). A new poller re-saturates the 12-slot pool. |
+| Topology graph dead after a "correct" server render | Same family: 12-Input rebuild on the 1 s `fast-update-interval`. #509 gated it to `tabpoll-topology`. |
+| Probe against host `plant_all` canopy | Ports / DEMO_MODE collide. Isolated stack only ([Isolated Stack E2E](#isolated-stack-e2e-utilities)). |
+| `F-CANOPY-034` "store written by nothing" | Orthogonal: a poller with **no consumer**. Do not treat as 027. |
+| `F-CANOPY-035` empty candidate-loss figure | Not starvation — `/api/state` never carried `epochs`/`losses`/`phases`. Fixed canopy#524 by reading the shared metrics store. |
+
+These scripts are **not** CI. They need a live Dash page and Playwright/`e2e_w3_params_driver.py` helpers.
 
 ---
 
@@ -2493,6 +2542,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Six invariants: `rules` verbatim, every *other* context keeps its own `integration_id`, `bypass_actors` verbatim, disk snapshot before the PUT, live re-read immediately before it, post-write verify (drift check stays live except the one intended amend pair).
   - Do not hand-roll a ruleset PUT. Operator surface: [Required-Context Ruleset Writer](#required-context-ruleset-writer). Tests: `tests/test_require_context_safely.py`.
 - `util/ad-hoc/` -- Home for single-use / temporary / unfinished scripts. See `util/ad-hoc/README.md` for file-header conventions and graduation lifecycle. `/tmp/` is prohibited for script source files per the [Script placement](../AGENTS.md#script-placement-mandatory) rule.
+- `util/ad-hoc/e2e_f027_{queues,ready,slots,deps_endpoint,cleanroom}.py` -- F-CANOPY-027 starvation forensics (FIXED canopy#507/#509/#511). 12-slot pool, not wiring. Operator surface: [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes).
 - Dependency-documentation generator now lives in [`juniper-ci-tools/`](juniper-ci-tools/) and is published to PyPI as `juniper-ci-tools` (Wave 4 of the dep-docs migration plan; install with `pip install juniper-ci-tools` and invoke via `juniper-generate-dep-docs`). The legacy `util/generate_dep_docs.sh` was deleted in juniper-ml#298.
 - `util/juniper_plant_all.bash` -- Starts all Juniper ecosystem services. `JUNIPER_CASCOR_HOST` defaults to `localhost` and `JUNIPER_CASCOR_PORT` defaults to `8201`; both can be overridden via the environment (e.g. `JUNIPER_CASCOR_HOST=remote.example.com JUNIPER_CASCOR_PORT=8201 util/juniper_plant_all.bash`).
   - `safe_conda_activate` nounset (juniper-ml#795 coverage): `set +u` → `conda activate` → `set -u` (ADDR2LINE class). A `+u`/`+u` restore silently disables nounset for the rest of host bring-up — isolated-stack `activate_conda` must match. Operator surface: `docs/REFERENCE.md` Host Orchestration + cheatsheet tip. Tests: `tests/test_juniper_plant_all.py` (`TestSafeCondaActivate`).
@@ -5015,6 +5065,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.19  | 2026-09-04 | Perf-lane split comparator (`compare_baseline.py`, #1622): identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask a refusal, host block vs advisory |
 | 0.6.21  | 2026-09-04 | Ruleset Scope Guard operator surface: `~ALL` re-arms deleted dependabot/Copilot bypass rows; token-free GET-only (bypass rows NOT checked); exit 0/1/2 fail-closed; Quality Gate hard need |
 | 0.6.23  | 2026-09-04 | Canopy E2E matrix writes: fill is dry-run / header-located; set-verdicts has no dry-run and is atomic `--from`; rescore writes found rows even when some `--row` ids are missing. Do not plan from `e2e_row_coverage.py`. Skipped 0.6.16–0.6.22 (in-flight docs PRs) |
+| 0.6.27  | 2026-09-04 | F-CANOPY-027 poller starvation probes: 12-slot dash-renderer cap, queued-vs-unwired, no-new-poller rule; finding FIXED canopy#507/#509/#511 |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
