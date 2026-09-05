@@ -205,6 +205,14 @@ def parse_events(path: Path) -> dict:
             ev = json.loads(line)
         except json.JSONDecodeError:
             continue
+        # The event ITSELF is not always an object. A bare array / string / number is
+        # valid JSON, so JSONDecodeError does not skip it -- and `ev.get` then raises
+        # AttributeError, losing the rest of an already-spent session. This is the same
+        # failure class as the string `message` guarded below; guarding only the inner
+        # one left the outer live, because the sweep pattern came from the instance
+        # already found.
+        if not isinstance(ev, dict):
+            continue
         etype = ev.get("type")
         if etype == "result":
             result_meta = {

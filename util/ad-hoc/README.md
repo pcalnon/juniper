@@ -69,6 +69,22 @@ set -euo pipefail
 
 ---
 
+## Resident-hazard gap triage (operational)
+
+Three complementary scanners — keep all three; the first alone cannot find a directive that was never in `AGENTS.md`:
+
+| Script | Question |
+|--------|----------|
+| `2026-08-28_hazard_triage.py` | Which *already-resident* `AGENTS.md` blocks look like hazards? (`gh api` on GitHub `main`; default `--min-score 2`) |
+| `2026-08-28_resident_gap_scan.py` | Which source comments are hazard-shaped and resident nowhere? (local, read-only; ranks by identifier count) |
+| `2026-08-31_resident_gap_triage.py` | Gap finding scored with four severity signals on the **block** (default `--min-score 3`; `--json` writes every scored row; `--self-check` pins cascor `cascade_correlation.py:1927`) |
+
+The scored **total is not a health metric**. Relocation removes resident identifiers, so the gap predicate starts matching them — cutting widens the gap by construction. Read the score ≥ 3 count (and whether anything *new* appears there). `SKIP_DIRS` excludes in-repo worktrees (#1519).
+
+Operator contract: [`docs/REFERENCE.md` § Resident-Hazard Gap Triage](../../docs/REFERENCE.md#resident-hazard-gap-triage). Fleet record: [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md`](../../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md).
+
+---
+
 ## Snapshot sidecar chain (operational)
 
 `2026-08-24_regenerate_sidecar_chain.bash` (lands with juniper-ml#1333) regenerates index → classify → attribute → backfill in order. It is ad-hoc until a supported `util/` entry point exists.
@@ -132,10 +148,30 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 - **Backup lives in the git dir** (`f039-topoprobe.f039bak`), never beside `dashboard_manager.py`. A work-tree bak is swept by `git add -A`.
 - **`curl` cannot tick a Dash interval.** Hold a live browser session with the soak script.
 - **`e2e_f039_duplicate_store_probe.py` exit 1 is not a verdict** — the probe could not run. `dcc.Store` has no DOM; `paths.strs` hides duplicates.
+- **That `paths.strs` blindness now has a lift: `2026-09-05_dash_layout_id_census.py`.** Dash serves the layout tree as JSON from the *server* at `/<prefix>_dash-layout`, before dash-renderer indexes
+  anything, so a duplicate id appears there as two nodes carrying one id — which `paths.strs`, a one-id-to-one-path map, cannot represent at all. Use it before reaching for the duplicate probe. It
+  settled the question for `metrics-panel-metrics-store` on 2026-09-05 (465 id-bearing nodes, 465 distinct, zero duplicates anywhere) and a clean census is a **refutation**, not an absence of evidence.
+  It reads the layout **as served**, so a component a callback adds later would not appear; every canopy panel declares its stores statically, but that bound is real.
+- **A response census must detach its listener.** `2026-09-04_f035_candidate_loss_redrive.py` attached `page.on("response", …)`, never removed it, and returned the dict the handler keeps mutating —
+  so its log printed an honest 30 s window while the JSON, dumped 48 s later at end of run, reported the whole listening lifetime. One run, two archived artifacts, 17 writes vs 46. Both censuses now
+  `remove_listener`, return a copy, and record `window_s` in the artifact. If a census does not stop counting when its window closes, it is not a census — and the two artifacts will disagree silently.
+- **`2026-09-05_f035_store_write_latency_probe.py`** times each store-writing round trip against the interval that re-requests it, because dash-renderer retires an in-flight call on re-request. Read its
+  `overlap_fraction` as the retirement **precondition**, never as retirement: on 2026-09-05 it read 0.69 while the store was constant-empty across 130 server-side comparisons, so nine unopposed
+  responses also failed to land. A number that explains most of a result is not the cause of it.
 
 Always `revert` before committing anything from the instrumented checkout.
 
 Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFERENCE.md#f-039-store-probe).
+
+## Ruleset context audit (operational)
+
+`2026-08-10_ruleset_context_audit.py` classifies each publishing repo's `required_status_checks` as BLOCKING / MATCHED / Tier 1 / path-gated / advisory. Read-only (`gh api` + `gh pr list`). It does **not** add or remove contexts — that is `2026-08-20_require_context_safely.py`.
+
+A required name that never reports leaves `main` unmergeable with every visible check green (the 2026-08-10 fleet-union class). Re-run the auditor; do not quote the incident note's §1 counts. Human-mode exit 0 can still print `ERROR:` rows; `--json` fails closed on probe errors.
+
+Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
+
+---
 
 ## What does NOT belong here
 
