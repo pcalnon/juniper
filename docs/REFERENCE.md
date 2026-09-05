@@ -47,6 +47,7 @@
 - [Snapshot Sidecar Chain](#snapshot-sidecar-chain)
 - [Suite Driver](#suite-driver)
 - [Recurrence Work Is Not Countable](#recurrence-work-is-not-countable)
+- [Experiment Stats Summary (SS8.3)](#experiment-stats-summary-ss83)
 - [Run lister / pruner (`list_runs.py`)](#run-lister--pruner-list_runspy)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [P4 Campaign Suites](#p4-campaign-suites)
@@ -2806,6 +2807,7 @@ Review catch on [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/161
 - `tests/test_make_baseline.py` -- Hermetic tests for `util/experiments/make_baseline.py` (P2 item 1.1): no `--force`; refuses broken work invariant / unmeasured / failed / mixed-workload / not-countable; `--accept-warnings` is recorded. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
 - `tests/test_compare_baseline.py` -- Hermetic tests for `util/experiments/compare_baseline.py` (P2 item 1.2): exact work, ungated speed, identity-first REFUSE, host blocking vs advisory, WAIVED ≠ PASS, 0/1/2 stay distinct, and the A1-A7 refusal ladder (unmeasured / not-succeeded / zero-work / FAIL-over-REFUSED precedence / partial coverage / duplicate fingerprints) closed by ml#1741 + ml#1743. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
+  Operator facts for those units (per-poll `p50`, sequence `n_windows`, data-driven `theta`): [Experiment Stats Summary](#experiment-stats-summary-ss83).
   plot arms cover all-rendered PNGs for both kinds (sequence-NPZ stub artifact for §8.2), per-kind plot-name validation, skip-vs-acceptance semantics (eval-disabled / degraded-sampling / disabled-phase skips, matplotlib-unavailable failure), and the `plots_cascor.py` / `plots_recurrence.py` renderer units incl. the `y_reg_` target-key preference;
   `util/` is not pre-commit-lint-gated, so this unittest is the gate. A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the
   §5.6 YAML validation arms (unknown block/key, `schema_version`, mandatory `experiment.seed`, the rule-6 infra-key rejection, kind resolution, the §5.5 recurrence blocks
@@ -3129,6 +3131,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     Without it, `--status` reports the run as UNSCRAPED.
 - `util/experiments/run_experiment.py` -- Single-run experiment driver (plan §6.3; Wave 2.2 = the cascor **service** path, Wave 2.3 = the recurrence **service** path, Waves 2.4/2.5 = the §8.1/§8.2 plot sets via `plots_cascor.py` / `plots_recurrence.py` (2.5 closes G-5), Wave 2.6 = the §8.3 stats/summary via `stats_summary.py`).
   - Stats (§8.3): every run also writes `artifacts/results/stats.json` + human-readable `summary.md` (stdlib-only renderer, every outcome incl. stalled/failed): identity / dataset-shape (tabular vs sequence from meta) / outcome-timing blocks from the manifest, cascor candidate-correlation-per-round + step-duration p50/p95 from the driver's own `metrics_series.csv` (honestly labeled per-poll means -- true per-step quantiles are not recoverable from a sum/count exposition), the recurrence train/CV/θ/readout block.
+    Operator read-path: [Experiment Stats Summary (SS8.3)](#experiment-stats-summary-ss83).
   - Stats degraded-mode notes surface G-3 sampling errors, collect errors, plot skips, eval-disabled, and G-6 failures; a stats failure is recorded on the manifest (`stats_error`), never fatal.
   - Recurrence plots (§8.2): `dataset_overview` (sampled 3-D windows, target starred), `dt_histogram` (per-step Δt + `target_dt` -- the irregularity signature; skips non-Δt artifacts), `forecast_vs_truth` + `residuals` (predict response vs the predict split's target, `y_reg_{split}` preferred over `y_{split}` -- the equities regression target; residual-vs-`target_dt` panel when available), `crossval_folds` (per-fold eval bars + aggregate line), `metrics_table` (train + CV ± std).
   - A disabled/failed predict or crossval phase is a per-plot SKIP. Deliberately NO recurrence training-history plot (TrainResponse carries no per-epoch series -- §8.2 note).
@@ -3165,6 +3168,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - **Do not wire to CI** — sound since ml#1743, but whether the run tier gates at all is an open OWNER decision (P1 design §6).
   - Writer refusals the comparator still lacks: unmeasured cells, `timed_out` cells, zero-work, `--suite` collapse, duplicate-fingerprint last-wins, unchecked scenario coverage.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_compare_baseline.py`.
+- `util/experiments/stats_summary.py` -- Wave 2.6 SS8.3 renderer (not a CLI; no `__main__`). `build_stats` / `render_summary_md` write `juniper-experiment-stats/1`. Recurrence duration lives under `outcome.timings`, not `recurrence.*`. `scrape_confirmed` is tri-state. Operator surface: [Experiment Stats Summary (SS8.3)](#experiment-stats-summary-ss83). Tests: `tests/test_run_experiment.py` (`StatsSummaryUnitTest`).
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   Wave 7.3 instruments: [§ PF Scenario Suites](#pf-scenario-suites). `include` cells carry only their own overrides and do **not** inherit `matrix` (`expand_cells`) — PF-1's repeats are a matrix axis for that reason.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
@@ -4982,6 +4986,90 @@ In-flight [#1689](https://github.com/pcalnon/juniper-ml/pull/1689) adds `tests/t
 
 ---
 
+## Experiment Stats Summary (SS8.3)
+
+`util/experiments/stats_summary.py` is **not a CLI**. The driver loads it as a sibling module and writes `artifacts/results/stats.json` + `artifacts/results/summary.md` on every outcome (succeeded, stalled, timed_out, failed). A render exception is recorded on the manifest as `stats_error` and **never** costs the manifest write (`run_experiment.py` `_emit_stats`). Schema: `juniper-experiment-stats/1`. Stdlib only — stats render on any host the driver runs on.
+
+This page is how to **read** those files. The WORK/SPEED gate reader is `read_run_metrics.py` (cascor histogram; recurrence work is not countable — in-flight [#1691](https://github.com/pcalnon/juniper-ml/pull/1691) / feature [#1683](https://github.com/pcalnon/juniper-ml/pull/1683)). Do not treat `stats.json` as that gate.
+
+```bash
+# After a run
+jq '{schema, outcome, provenance}' "$RUN_DIR/artifacts/results/stats.json"
+jq '.cascor.training_step_duration // .recurrence' "$RUN_DIR/artifacts/results/stats.json"
+less "$RUN_DIR/artifacts/results/summary.md"
+# Render failed? The manifest still exists.
+jq '.stats_error' "$RUN_DIR/manifest.json"
+```
+
+### What each block is
+
+| Block | Source | Operator meaning |
+|-------|--------|------------------|
+| `identity` | manifest | `run_id`, experiment name/description, `config_sha256`, seeds, git SHAs + dirty flags, package versions |
+| `dataset.shapes` | dataset `meta` | `kind: tabular` **or** `kind: sequence`. Sequence `n_windows` is `meta.n_samples` (input size, not work done) |
+| `outcome.wall_seconds` | `timings.total` | **De-ratified.** Absorbs plot render + stack bring-up. Not the SPEED half |
+| `outcome.timings` | driver `_phase` | The honest duration map. Cascor keys include `health_wait` / `dataset_create` / `stage` / `start` / `drive`. Recurrence keys include `train` / `crossval` (driver-measured; `/v1/train` is synchronous) |
+| `cascor.training_step_duration` | last-row histogram + per-poll deltas from `metrics_series.csv` | Gateable **work** is `total_steps`. `p50_seconds` / `p95_seconds` are **per-poll means** (`delta-sum / delta-count`); true per-step quantiles are not recoverable from a sum/count exposition — `basis` says so |
+| `cascor.candidate_correlation` | same CSV | Best sampled correlation **per growth round** (round = a `current_hidden_units` increment). Sole source — `/v1/metrics/history` does not carry it |
+| `recurrence.*` | train / crossval payloads + YAML `train` | `n_epochs`, `stopped_reason`, `theta` (explicit vs data-driven), readout rung, CV folds. **No duration field in this block** — train/crossval seconds live under `outcome.timings` |
+| `provenance.metrics_scraped` | driver `_metrics_scraped` | Two facts, never collapsed — see below |
+| `provenance.degraded_notes` | manifest | G-3 sampling errors, collect failures, plot skips, eval-disabled, G-6 mismatch |
+
+### Step-duration honesty (cascor)
+
+`step_duration_stats` walks the driver's sampled `_sum` / `_count` pair. A per-poll mean exists only when the count **advanced**. A constant series (same sum/count on every row) yields `p50_seconds: null` and still reports `total_steps` / `overall_mean_seconds`.
+
+Pinned by `StatsSummaryUnitTest.test_step_duration_stats_from_deltas`: rows `(sum=1,count=2) → (2,4) → (5,5)` → `total_steps=5`, two poll samples (0.5 s and 3.0 s), `p50_seconds=1.75`, `overall_mean_seconds=1.0`. Non-numeric scraped cells soft-None (Prometheus label noise) rather than aborting the render.
+
+### Recurrence: timings are not in the recurrence block
+
+P2 item 3.1 surveyed this. `stats["recurrence"]` (lines 246–253 of `stats_summary.py`) emits `final_metrics` / `n_epochs` / `stopped_reason` / `dataset_descriptor` / `theta` / `readout` / `crossval` — **no duration**. The driver already recorded `timings.train` / `timings.crossval` on the manifest, and `build_stats` copies the whole `timings` dict to `outcome.timings`.
+
+```bash
+# Recurrence duration — not under .recurrence
+jq '.outcome.timings' "$RUN_DIR/artifacts/results/stats.json"
+# n_epochs is iterations-to-stop (1 vs 200 by readout type), not a work count
+jq '.recurrence.n_epochs, .dataset.shapes.n_windows' "$RUN_DIR/artifacts/results/stats.json"
+```
+
+`theta.note` is `"data-driven (resolved from per-window elapsed time)"` when the YAML left `theta` unset, else `"explicit"`. Sequence `n_windows` is input size (pinned: `test_build_stats_sequence_shapes_and_summary`).
+
+### `scrape_confirmed` is tri-state
+
+`present: prometheus_target.json.is_file()` used to stand in for "metrics were scraped". Writing the target file is the same act that set the flag, so it could not fail. On **2026-09-01** five bridged PF-1 runs all reported `present: true` while Prometheus held **zero** series for any of them (file_sd refresh 15 s + scrape 15 s outran a ~20 s service).
+
+The driver now reports two named facts (`JUNIPER_EXP_PROMETHEUS_URL`, default `http://127.0.0.1:9090`):
+
+| Field | Meaning |
+|-------|---------|
+| `target_file_written` | Local act. Useful when the bridge did nothing |
+| `scrape_confirmed` | Query `count({__name__=~"juniper_.+", run_id="<id>"})`. **True** / **False** / **None** |
+
+| `scrape_confirmed` | When |
+|--------------------|------|
+| `true` | Prometheus returned at least one series for this `run_id` |
+| `false` | Bridge was **off** (`reason` says so) **or** the query succeeded and found zero series |
+| `null` | Prometheus was unreachable or returned a non-success — the question could not be asked. `reason` names why. **Not** the same as "nothing was scraped" |
+
+`summary.md` prints both facts and falls back to the pre-2026-09-01 key `present` when `target_file_written` is absent. Never let the local file stand in for the remote scrape.
+
+### Operator pitfalls
+
+| Pitfall | What actually happens |
+|---------|------------------------|
+| Gate or compare on `outcome.wall_seconds` | De-ratified `timings.total`. Use `read_run_metrics` (`step_count` / `mean_step_seconds`) |
+| Treat cascor `p50` / `p95` as per-step quantiles | Per-poll means. Read `basis`. A no-advance series has `p50: null` |
+| Look under `stats.recurrence` for train seconds | Not there. `outcome.timings.train` / `.crossval` |
+| Treat `n_epochs` or `n_windows` as cascor `step_count` | Iterations-to-stop / input size. Recurrence work is not countable |
+| `target_file_written: true` ⇒ scraped | Five PF-1 runs disproved this. Read `scrape_confirmed` |
+| Collapse `scrape_confirmed: null` into false | Unreachable Prometheus ≠ zero series |
+| Missing `stats.json` means the run did not finish | Check `manifest.stats_error`. The manifest is still the source of truth |
+| Invoke `python util/experiments/stats_summary.py` | No `__main__`. The driver calls `build_stats` / `render_summary_md` |
+
+Coverage: `tests/test_run_experiment.py` (`StatsSummaryUnitTest` + e2e stats assertions for both kinds). `util/` is not pre-commit-lint-gated; that unittest is the gate.
+
+---
+
 ## Generator Availability Matrix (On-Host)
 
 Which juniper-data generators are usable in which on-host environment, and what each availability gate needs (CLI experimentation plan §11 items W-4/W-10). juniper-data's registry (`juniper_data/api/routes/generators.py::GENERATOR_REGISTRY`, 16 generators) reports per-generator availability through `generator_available()`: a generator MAY declare an `is_available()` hook probing its optional dependencies; generators without the hook are always available (the numpy-only synthetics), and `arc_agi` — whose Hugging Face source has a local-file fallback — relies on the request-time `ImportError → 501` backstop instead.
@@ -6481,6 +6569,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.43  | 2026-09-04 | Canopy E2E dataset drivers: W6 (`--steps`, no ranges, stops before restart-confirm wipe) vs §3.6 (`--step`); `JUNIPER_E2E_CANOPY_URL` is the target, not `JUNIPER_E2E_CANOPY_PORT` |
 | 0.6.45  | 2026-09-04 | Recurrence work is not countable (#1683): kind detection from `timings.train`, `work_countable` third state, `make_baseline` / `compare_baseline` refuse rather than mis-gate PF-5/6/7 |
 | 0.6.44  | 2026-09-04 | Cascor Primary Freeze Tell: `cascor_freeze_tell.py` exact-prefix hold test (not substring); sibling client/worker and both worktree roots excluded; exit 0 is "no user-owned importer", never "no importer" |
+| 0.6.46  | 2026-09-04 | Experiment stats summary (SS8.3): how to read `stats.json` / `summary.md` — de-ratified `wall_seconds`, per-poll step-duration honesty, `scrape_confirmed` tri-state, recurrence timings under `outcome.timings` |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
