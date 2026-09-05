@@ -281,7 +281,7 @@ rejected on the RESIDENCY test, not on severity** — the same ground as cascor'
 | Repo | Source | Why not |
 |---|---|---|
 | juniper-canopy | `src/main.py:243` | An empty/placeholder `CANOPY_API_KEY` **silently disables `APIKeyAuth`** (`security.py` computes `[api_key] if api_key else None`) and canopy serves its control surface OPEN behind a healthy health check. Real — but already enforced at boot by `enforce_auth_posture` (SEC-F01 / HO-2), with the rationale in the comment **adjacent to the call**. Reading the code recovers the fact |
-| juniper-data | `core/limits.py:17` | "Truncation must be loud": a silently-partial dataset is indistinguishable from a complete one downstream, and there is no partial-data check in the API or core layers (the gap that let `arc_agi` persist a zero-sample dataset, data#318). The two obligations — caller opt-in, and a **permanent** `DatasetMeta` annotation — are non-optional. Rejected because it is **2026-09-04 work by a concurrent session** (APD-DATA-018) with its rationale written at the site; promoting it mid-flight risks contradicting that session. **Re-evaluate once APD-DATA-018 settles** |
+| juniper-data | `core/limits.py:17` | "Truncation must be loud": a silently-partial dataset is indistinguishable from a complete one downstream, and there is no partial-data check in the API or core layers (the gap that let `arc_agi` persist a zero-sample dataset, data#318). The two obligations — caller opt-in, and a **permanent** `DatasetMeta` annotation — are non-optional. Rejected because it is **2026-09-04 work by a concurrent session** (APD-DATA-018) with its rationale written at the site; promoting it mid-flight risks contradicting that session. **Re-evaluated 2026-09-05: APD-DATA-018 settled (both halves); rejection UPHELD on the residency ground, which never depended on the trigger — see §7d** |
 
 ### Score 1 — 229 rows, sampled not read
 
@@ -314,6 +314,88 @@ and the gap predicate ("NONE of its identifiers appears in `AGENTS.md`") starts 
 So a later reader re-running the triage will see a bigger number than this document records
 and may conclude the fleet regressed. It did not. The health signals are the **score ≥ 3
 count** (7, all adjudicated) and whether anything new appears there — not the total.
+
+## 7d. Re-evaluation of `juniper-data core/limits.py:17` — REJECTION UPHELD (2026-09-05)
+
+§7b rejected this candidate and set a trigger: *"Re-evaluate once APD-DATA-018 settles."* It has
+settled — the equities half landed in [juniper-data#354](https://github.com/pcalnon/juniper-data/pull/354)
+(`ed099920`) and the register row closed in
+[juniper-ml#1714](https://github.com/pcalnon/juniper-ml/pull/1714) (`1d40829a`), both halves shipped.
+This is that re-evaluation.
+
+**Verdict: rejection upheld — on residency, which never depended on the trigger.**
+
+### The §7b rejection bundled two grounds; only one has dissolved
+
+Its wording was: *"Rejected because it is 2026-09-04 work by a concurrent session (APD-DATA-018)
+**with its rationale written at the site**; promoting it mid-flight risks contradicting that
+session."* That is a temporary ground (mid-flight) and a permanent one (residency) in a single
+clause. Only the first expired. The re-evaluation trigger was therefore unnecessary when written —
+the residency ground already disposed of the candidate.
+
+**Process finding, recorded so the next pass does not repeat it: do not bundle a temporary ground
+with a permanent one in a rejection.** A reader cannot tell which ground is load-bearing, so the
+trigger fires a re-litigation that the permanent ground had already settled. State the permanent
+ground as the rejection and the temporary one as context, or the record manufactures work.
+
+### Why residency holds — the channel has exactly three writers, and all three carry it
+
+Enumerated (`grep` over `juniper_data/`, tests excluded), the reserved truncation channel is written
+in exactly three places:
+
+| Writer | Builds via | Rationale at its own site |
+|---|---|---|
+| `generators/csv_import/generator.py:113` | `build_truncation_meta` (`:254`) | imports it directly (`:17`) |
+| `generators/equities/generator.py:348` | `build_truncation_meta` (`:503`) | imports it directly (`:52`) |
+| `generators/equities_seq/generator.py:202` | inherits, see below | explicit APD-DATA-018 comment (`:189-198`) |
+
+`equities_seq` is the case that decides it, and it **passes**. It imports only
+`TRUNCATION_META_KEY`, which looks at first like a generator writing the channel without going
+through the one builder that carries the shape contract. It is not: it receives the descriptor
+already built, from `EquitiesGenerator._resolve_symbols` (`:114`), and patches exactly one field —
+`records_imported` (`:201`) — which legitimately differs, because its rows are windows rather than
+raw rows. And it states the obligation in its own file:
+
+> *"this generator reuses the flat one's universe resolution, so it inherits the symbol cap — and
+> must therefore also carry the annotation. Inheriting the bound while dropping the record of it is
+> the worse of the two halves to skip: the dataset would be silently partial with nothing anywhere
+> saying so."*
+
+A third generator author, working in a different package, reached the obligation and re-stated it
+locally. That is the residency test passing under the hardest available case, not by assumption.
+
+Two supporting facts:
+
+- **A new generator needing a cap is routed through the file.** `core/limits.py:82-89` states the
+  per-generator caps live there rather than in each generator's `defaults.py` because
+  `api/settings.py` needs them as deployment defaults and cannot import a generator package without
+  a cycle. Each generator's `defaults.py` re-exports its own. The file is on the path, not off it.
+- **Precedent symmetry.** §7a rejected cascor's `api/models/training.py:53` (`extra="forbid"`) with
+  *"The real risk is a new request model omitting it, which is a lint's job, not a resident
+  bullet's."* The shape here is identical.
+
+### The genuine residual, and where it belongs
+
+`core/meta.py:184` is `arrays.pop(TRUNCATION_META_KEY, None) or None` — purely permissive. **Absence
+of the descriptor is indistinguishable from "nothing was truncated"**, and nothing forces a
+generator that truncated to annotate. That is a real gap and it is the one thing a future reader
+should act on. Per §7a's own precedent it is **a check's job, not a resident bullet's**: a resident
+directive would be believed by construction while enforcing nothing, which is the failure class this
+pass exists to avoid.
+
+Not filed as a defect here — it is a latent gap with no current violator, and all three present
+writers annotate correctly.
+
+### Cost note
+
+Promotion would not have been free. juniper-data's headroom is **2346 against a measured requirement
+of 2000** — margin 346 — so a hazard entry would have required a paired relocation in the same PR
+per the Hazards preamble. That cost was not spent, and on this verdict should not be.
+
+**Rejections stand at 16 — unchanged by this pass.** (§7a records 14; §7b added canopy `main.py:243` and data
+`core/limits.py:17` without updating the running total, making 16 as of the 2026-09-04 handoff. This
+re-evaluation confirms the data row rather than adding one, so the figure is unchanged at 16 —
+stated here explicitly because two prior passes left it to be inferred.)
 
 ## 8. What this pass establishes
 
