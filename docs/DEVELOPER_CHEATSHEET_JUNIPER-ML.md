@@ -96,6 +96,7 @@
 | `python3 util/ad-hoc/e2e_finding_triage.py --open-only`    | Same, hide FIXED/ACCEPTED rows (totals still include them) |
 | `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 11-session topology-paint census (isolated stack; does not judge the rate) |
 | `./claudey`                                            | Launch default interactive Claude session       |
+| `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 topology-graph paint census (default 11 sessions; exit 0 is not a paint PASS) |
 
 ---
 
@@ -642,6 +643,8 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: F-CANOPY-037 measured paint in 2 of 11 sessions — `python3 util/ad-hoc/e2e_f037_render_census.py` (default 11). Exit 0 means every session produced PASS or FAIL, even if painted==0; all-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `:8051`). Full contract: [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census).
+
 Tip: `util/install_duplicati_timer.bash` **copies** the Duplicati runner/units (a worktree symlink dies with `git worktree remove`) and does **not** `enable --now`.
 Linger must be `yes`; `~/.config/duplicati-backup/env` must be mode `600` with `PASSPHRASE=`. `--no-auto-compact=true` is load-bearing.
 A skip overwrites `result=OK`, so the next skip always escalates. Distinct from `util/juniper-backup.bash`.
@@ -779,6 +782,8 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `compare_baseline` exit `1` / `FAIL` | Same workload, `step_count` moved — the gate firing. A one-step difference is enough. |
 | `--accept-work-change` printed but exit is `2` | Waiver had no effect (cannot mask a refusal). Prefer a new baseline tag. |
 | Speed "regression" with matching `step_count` | Expected PASS — speed is never gated (13–20.5% host drift floor). |
+| F-037 census exit 0, painted 0 | Measured, not a paint PASS. Read `scope`/`populated`. Train a network if `hidden_units` was 0. See [REFERENCE](REFERENCE.md#f-canopy-037-render-census). |
+| F-037 `sha=None` / one session "green" | Walk-up root needs both sibling repos; sample size 11 is the finding (`1/1` is not a claim). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -953,6 +958,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore; do not plan from `e2e_row_coverage.py`
 - [F-CANOPY-027 Poller Starvation Probes](REFERENCE.md#f-canopy-027-poller-starvation-probes) -- 12-slot dash-renderer starvation (FIXED canopy#507/#509/#511); do not add a new Interval
+- [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session `topodiag` tally; exit 0 is not a paint PASS
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
