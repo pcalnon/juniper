@@ -124,8 +124,35 @@ def compare(
                 f"(or their identity is unknown) -- cannot compare"
             )
             continue
+        if not summary.get("work_countable", True):
+            reasons.append(
+                f"{Path(suite_dir).name}: candidate runs of kind {summary.get('kinds')} expose no countable work, so the "
+                f"WORK half of the gate does not apply. Speed alone cannot be compared here -- the host's drift floor is "
+                f"13-20.5%. Report the run rather than gating it."
+            )
+            continue
         if not summary["work_invariant"]:
             reasons.append(f"{Path(suite_dir).name}: candidate step_count is not invariant across cells ({[int(c) for c in summary['step_counts']]}) -- not a set of repeats")
+            continue
+
+        # TERMINATION BRANCH IS PART OF THE PRECONDITION (settled 2026-09-04).
+        #
+        # `step_count` is deterministic for a seed-fixed config only GIVEN the branch that ended
+        # training. Corpus census: 29 of 79 repeated configs diverge, and ALL 29 are explained by
+        # `completion_reason` -- zero remain divergent within a branch. So comparing across branches
+        # is what produced the false FAIL (6496 early_stopped vs 6095 below_threshold at one config),
+        # and the correct verdict there is REFUSE.
+        if summary["truncated_terminations"]:
+            reasons.append(
+                f"{Path(suite_dir).name}: cells ended on {summary['truncated_terminations']} -- the driver stopped "
+                f"before the workload did, so step_count measures the BUDGET, not the code. Not comparable."
+            )
+            continue
+        if not summary["single_completion_reason"]:
+            reasons.append(
+                f"{Path(suite_dir).name}: cells ended on different branches {summary['completion_reasons']} -- "
+                f"not repeats of each other"
+            )
             continue
 
         fingerprint = summary["workload_fingerprints"][0]
@@ -135,6 +162,28 @@ def compare(
                 f"{Path(suite_dir).name}: workload {fingerprint[:12]}... is not in baseline "
                 f"{baseline_payload.get('tag')!r} (which holds {[str(f)[:12] + '...' for f in by_fingerprint]}) -- "
                 f"different workload, so this is an INVALID comparison rather than a regression"
+            )
+            continue
+
+        base_reason = (matched.get("work") or {}).get("completion_reason")
+        cand_reason = summary["completion_reasons"][0]
+        if not base_reason:
+            # FAIL CLOSED, symmetrically with the candidate side. A baseline cut before this guard
+            # existed records no branch, so the precondition CANNOT be checked -- and skipping the
+            # check for exactly those baselines would make the guard vacuous where it is most
+            # needed. Re-cut under a new tag; baselines supersede by name and are cheap.
+            reasons.append(
+                f"{Path(suite_dir).name}: baseline {baseline_payload.get('tag')!r} records no completion_reason "
+                f"(cut before the termination-branch guard). step_count is only meaningful within a branch, so this "
+                f"comparison cannot be validated. Re-cut the baseline under a new tag."
+            )
+            continue
+        if base_reason != cand_reason:
+            reasons.append(
+                f"{Path(suite_dir).name}: baseline ended on {base_reason!r} but the candidate ended on "
+                f"{cand_reason!r}. step_count is deterministic only WITHIN a termination branch (29 of 79 "
+                f"repeated configs diverge across branches; none within one), so this is an INVALID "
+                f"comparison rather than a work regression."
             )
             continue
 

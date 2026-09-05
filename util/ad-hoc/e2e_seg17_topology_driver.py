@@ -465,6 +465,30 @@ def click_empty_space(page, container_id: str = None, settle_ms: int = 2500) -> 
     return {"ok": True, "x": x, "y": y}
 
 
+def clear_selection_control(page) -> dict:
+    """Click the "Clear selection" button, if this build has one.
+
+    Returns ``{"present", "visible", "clicked"}`` -- three states, not a bool.
+    A build without the control and a build whose control did not clear are
+    different findings and must not collapse into one FAIL: the first is a
+    product that never shipped the affordance, the second is one that shipped it
+    broken. Same discipline as the ``{ok, value, via}`` readers elsewhere in this
+    driver.
+    """
+    el_id = f"{NV}-clear-selection"
+    state = page.evaluate(
+        """(id) => { const el = document.getElementById(id);
+             if (!el) return {present:false, visible:false};
+             return {present:true, visible: getComputedStyle(el).display !== 'none'}; }""",
+        el_id,
+    )
+    if not state.get("visible"):
+        return {**state, "clicked": False}
+    page.evaluate("""(id) => { const el = document.getElementById(id); if (el) el.click(); }""", el_id)
+    page.wait_for_timeout(800)
+    return {**state, "clicked": True}
+
+
 def set_dropdown(page, el_id: str, label: str) -> bool:
     """Dash 3 native dropdown: the control is a <button>; options render in a portal.
 
@@ -1280,11 +1304,17 @@ def step_topo(page, capture):
     page.wait_for_timeout(3000)
 
     # M-TOPOLOGY-07 / W4-08 -- depth container visible, label reads "all".
+    #
+    # The label half of that contract was READ but never ASSERTED: the verdict
+    # turned on ``display`` alone while ``label`` went into the record as
+    # decoration. It read "0 of 40" on every run of this arc and the row still
+    # scored PASS -- F-CANOPY-042's defect B, sitting in plain sight inside this
+    # scorer's own output. Assert what the row says.
     dv = vis(page, f"{NV}-depth-slider-container")
     dlabel = text_of(page, f"{NV}-depth-label")
-    m07 = dv.get("display") not in (None, "none")
-    res["M-TOPOLOGY-07"] = {"verdict": "PASS" if m07 else "FAIL", "display": dv.get("display"), "label": dlabel}
-    log(f"  M-TOPOLOGY-07 depth container: display={dv.get('display')!r} label={dlabel!r}")
+    m07 = dv.get("display") not in (None, "none") and dlabel == "all"
+    res["M-TOPOLOGY-07"] = {"verdict": "PASS" if m07 else "FAIL", "display": dv.get("display"), "label": dlabel, "want_label": "all"}
+    log(f"  M-TOPOLOGY-07 depth container: display={dv.get('display')!r} label={dlabel!r} want='all'")
 
     # M-TOPOLOGY-06 / W4-09 -- filter to k < N.
     n_hidden = int(server["hidden"]) if server["hidden"].isdigit() else 0
@@ -1323,12 +1353,19 @@ def step_topo(page, capture):
     settle_figure(page)
     k_label = text_of(page, f"{NV}-depth-label")
     k_counts = counts(page)
-    m06 = sl.get("idiom") is not None and (k_label == want or k_counts["hidden"] == want)
+    # BOTH, not either. The predicate used to be ``label == want OR
+    # counts["hidden"] == want``, and it passed on the counts branch: the stats
+    # bar tracked the filter while the label beside the slider stayed at
+    # "0 of 40". So this row went green on a run where half of what it names was
+    # broken -- and F-CANOPY-042 had to be found by eye instead of by this
+    # scorer. An OR over two independent claims scores the easier one.
+    m06 = sl.get("idiom") is not None and k_label == want and k_counts["hidden"] == want
     res["M-TOPOLOGY-06"] = {
         "verdict": "PASS" if m06 else "FAIL",
         "slider": sl, "label": k_label, "hidden_count": k_counts["hidden"], "want": want,
+        "label_ok": k_label == want, "counts_ok": k_counts["hidden"] == want,
     }
-    log(f"  M-TOPOLOGY-06 depth={k}: idiom={sl.get('idiom')} label={k_label!r} hidden={k_counts['hidden']!r} want={want!r}")
+    log(f"  M-TOPOLOGY-06 depth={k}: idiom={sl.get('idiom')} label={k_label!r} hidden={k_counts['hidden']!r} want={want!r} (label_ok={k_label == want} counts_ok={k_counts['hidden'] == want})")
 
     # RESET THE FILTER, AND VERIFY IT LANDED. This reset already existed but was
     # called without an ``effect``, so it used the synthetic idioms that cannot
@@ -1627,19 +1664,30 @@ def step_topoevents(page, capture):
     if shown and names_node and not layer_ok:
         log("  !! selected the right node but the Layer label is wrong -- F-CANOPY-045")
 
-    # ---- M-TOPOLOGY-12 / W4-13 -- click empty space, selection clears -----
+    # ---- M-TOPOLOGY-12 / W4-13 -- a selection can be cleared --------------
+    #
+    # THE ROW WAS RESTATED (F-CANOPY-046). It used to read "click empty space,
+    # selection clears", and it scored FAIL with plotly_click_events=0 -- because
+    # plotly emits ``plotly_click`` ONLY on a POINT hit, so a click on empty
+    # canvas produces no event, ``clickData`` never changes, and the callback
+    # (prevent_initial_call=True) is never asked. The gesture was never
+    # implemented; it was only described, in the panel's own hint text.
+    #
+    # canopy's fix withdraws that claim (the hint is gone) and ships a "Clear
+    # selection" button instead, so the old contract now names a gesture the
+    # product deliberately does not offer. Scoring a withdrawn promise as a
+    # product FAIL forever would be measuring the matrix, not the app.
+    #
+    # The empty-space click is KEPT and still counted, because it is the evidence
+    # for WHY the contract changed -- and because a future build that does wire a
+    # container-level listener should show up here as a behaviour change rather
+    # than as silence. It is now recorded, not scored.
+    #
     # PRECONDITION-GATED. If -10 left nothing selected, "it cleared" says nothing.
     if not shown:
         res["M-TOPOLOGY-12"] = {"verdict": "BLOCKED", "reason": "nothing was selected, so 'cleared' is vacuous", "precondition_selected": False}
         log("  M-TOPOLOGY-12 -> BLOCKED (no selection to clear; the row would pass vacuously)")
     else:
-        # Count plotly_click events across the gesture. "It did not clear" has two
-        # very different causes and the fix differs: the handler ran and failed to
-        # clear, or NO EVENT FIRED AT ALL because plotly only emits plotly_click
-        # when a POINT is hit -- in which case ``clickData`` never changes, the
-        # callback (prevent_initial_call=True) never runs, and the clear path at the
-        # end of handle_node_selection is unreachable by this gesture. Recording
-        # which one it is keeps the row from being filed against the wrong thing.
         page.evaluate(
             """(id) => { const root = document.getElementById(id);
                  const gd = root.classList.contains('js-plotly-plot') ? root : root.querySelector('.js-plotly-plot');
@@ -1649,22 +1697,41 @@ def step_topoevents(page, capture):
         )
         settle_figure(page, budget_s=25)
         spot = click_empty_space(page, settle_ms=800)
-        # Give the clear the same effect budget the select got, so a slow-but-working
-        # clear is not scored as a broken one.
-        wait_for(lambda: selection_info(page).get("display") in (None, "none"), budget_s=20, every_s=0.5, label="-selection-info to clear")
         n_click_ev = page.evaluate("() => window.__jn_empty_clicks || 0")
+        after_empty = selection_info(page)
+        empty_cleared = after_empty.get("display") in (None, "none") or not (after_empty.get("text") or "").strip()
+
+        # Now the control the app actually offers.
+        ctl = clear_selection_control(page)
+        # Same effect budget the select got, so a slow-but-working clear is not
+        # scored as a broken one.
+        wait_for(lambda: selection_info(page).get("display") in (None, "none"), budget_s=20, every_s=0.5, label="-selection-info to clear")
         after = selection_info(page)
         cleared = after.get("display") in (None, "none") or not (after.get("text") or "").strip()
+
+        # BLOCKED, not FAIL, when the control is absent: a build without the
+        # affordance cannot be asked whether its affordance works.
+        if not ctl.get("present"):
+            verdict = "BLOCKED"
+        elif not ctl.get("visible"):
+            verdict = "FAIL"
+        else:
+            verdict = "PASS" if cleared else "FAIL"
+
         res["M-TOPOLOGY-12"] = {
-            "verdict": "PASS" if cleared else "FAIL",
-            "precondition_selected": True, "clicked": spot, "before": sel, "after": after,
-            "plotly_click_events": n_click_ev,
+            "verdict": verdict,
+            "precondition_selected": True, "before": sel, "after": after,
+            "control": ctl,
+            "empty_space_click": {"clicked": spot, "plotly_click_events": n_click_ev, "cleared": empty_cleared},
             "unchanged_text": (after.get("text") == sel.get("text")),
         }
-        log(f"  M-TOPOLOGY-12 click empty space: cleared={cleared} plotly_click_events={n_click_ev} -> {res['M-TOPOLOGY-12']['verdict']}")
-        if not cleared and n_click_ev == 0:
-            log("  !! no plotly_click fired -- plotly emits it only for POINT hits, so clickData never changed and the")
-            log("     clear path at the end of handle_node_selection is UNREACHABLE by an empty-space click (product, not driver)")
+        log(f"  M-TOPOLOGY-12 clear: control={ctl} cleared={cleared} -> {verdict}")
+        log(f"     (empty-space click, recorded not scored: plotly_click_events={n_click_ev} cleared={empty_cleared})")
+        if not ctl.get("present"):
+            log("  !! no -clear-selection control in this build -- the row is BLOCKED, not FAILED:")
+            log("     the empty-space gesture emits no plotly_click at all, so there is nothing for the product to have got wrong")
+        if ctl.get("visible") and not cleared:
+            log("  !! the clear control is present and visible but the selection survived it -- F-CANOPY-046 regression")
 
     # ---- M-TOPOLOGY-15 / W4-16 -- hover is INERT (DEAD-EXPECTED) ----------
     # The matrix marks this dead by design: the graph's only Inputs are

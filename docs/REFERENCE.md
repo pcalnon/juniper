@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.22
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -26,6 +26,7 @@
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
+- [X7 Off-Loop Census](#x7-off-loop-census)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1479,6 +1480,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Observed live 2026-08-16 on campaign `e-j-h2h-wide-cap6`: a dry run called the orchestrator, the experiment cascor service, and the watchdog all `WOULD REAP` while healthy. Over-protection is the deliberate safe direction — a stale pidfile still protects.
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
+- X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
@@ -2591,6 +2593,109 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 
 ---
 
+## X7 Off-Loop Census
+
+X7 is event-loop blocking in juniper-canopy: synchronous retrying `requests` I/O inside `async def` route handlers on a **single-worker** uvicorn. While juniper-cascor is unreachable, canopy stops answering HTTP — `/v1/health` included. Measured end-to-end (design §2): **5.7 ms** healthy, **3.0 s** cascor stopped, **123.12 s** cascor hung (`SIGSTOP`), **5.1 ms** recovery with no restart.
+
+Design of record (revision 4): [`notes/JUNIPER_2026-09-03_JUNIPER-CANOPY_X7-EVENT-LOOP-BLOCKING-REMEDIATION-DESIGN.md`](../notes/JUNIPER_2026-09-03_JUNIPER-CANOPY_X7-EVENT-LOOP-BLOCKING-REMEDIATION-DESIGN.md). First labelled in [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](../notes/JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md) §6.1. Read design §§3, 5.2, 6, 7 before writing canopy code.
+
+Slice **1a** (off-loop discipline) closes X7 **alone**. Slices 1c/1d are load reduction and honesty. Acceptance is mechanical: an AST scan of un-offloaded blocking calls in async handlers returns **0**. Splitting by mechanism is exhaustive; "core now, remaining paths later" is how SEC-F20 recurred as X7.
+
+### Authority vs exploratory sibling
+
+| Surface | Role | Pre-fix count |
+|---------|------|--------------------|
+| Canopy gate `src/tests/regression/test_x7_off_loop_discipline.py` | **Authority for `main.py` — and only for `main.py`.** | **52** blocking, `UNRESOLVED 0` |
+| Canopy `util/ad-hoc/2026-09-04_async_blocking_callgraph.py` | **Authority everywhere else.** Transitive taint over canopy + both client libraries; sees calls that block *through a helper*. | the **6** the gate cannot |
+| `util/ad-hoc/2026-09-04_x7_offload_census_v2.py` (juniper-ml; v0.3.0) | Exploratory sibling. Same classification as the gate; does **not** carry its `VERIFIED_NO_IO_CALLS` exclusions. | **54** |
+| `util/ad-hoc/2026-09-04_x7_offload_census.py` (v1) | **Negative example. Do not quote its counts.** | unsound (name-matching) |
+
+**The count is 58, and slice 1a shipped it** (juniper-canopy#567, squashed at `e6c27e92`). The history is 40 → 39 → 37 → **52** → **58**; design §5.2 carries it in full, so "36" and "52" are both superseded.
+
+The 54-vs-52 delta is exactly two `backend._demo` accessors (`get_network`, `get_current_state`), read and confirmed in-process. **The 52-vs-58 delta is the one that matters**: six sites the gate is *structurally* unable to see, not six it happened to miss. `_extract_meta_params()` and `_seed_training_state()` are bare module functions in `main.py` whose **bodies** hold `backend.get_status()` — at their call sites there is no receiver to resolve, so a receiver-resolving scan reports a clean 0 over calls that block identically; `create_snapshot` called the first one twice. Four more live outside `main.py`, which the gate does not read at all: adapter `connect()` and `_relay_loop()`, and `service_backend.initialize()`'s two calls — the latter on a **request** path, since `_swap_backend` awaits `initialize()` for a runtime model change.
+
+The gate has since been extended to resolve module-level sync helpers transitively (`HELPER` bucket) and now reads 0 legitimately for `main.py`; the four sites outside it are guarded by the call-graph instrument instead. **Run that instrument when touching the adapter** — a green gate is not by itself proof that 1a is intact.
+
+### Why `ruff --select ASYNC` is green on the bug
+
+Canopy's pre-commit hook runs `ruff --select ASYNC` ("Async-route audit (BUG-JD-10 class)"). Verified against 35–40 live sites: **"All checks passed!"**. Ruff's `ASYNC2xx` rules match a hardcoded callee list; `backend.get_status()` is an opaque method call. **No ruff configuration can see this defect.** A second name-matching census would license the same complacency — that is why v1 is retained unfixed.
+
+### v1 vs v2
+
+**v1 matches receiver names.** The set is `backend`, `_adapter`, `adapter`, `_client`, `client`. In `main.py` the bare name `client` is bound to the cascor client, the redis client, the cassandra client, **and** an `httpx.AsyncClient`. It therefore reports `client.stream` at `main.py:1646` as blocking when that receiver is an awaited async client.
+
+v1 is **closure-aware** (bare-attribute `to_thread(backend.get_status)` and named closures) — that part is correct. A naive lexical scan is not (50 unguarded / 0 guarded on this codebase).
+
+**v2 resolves assignment provenance** inside the enclosing handler, then classifies:
+
+| Bucket | Meaning | Counted as blocking? |
+|--------|---------|----------------------|
+| `ASYNC` | Bound from `httpx.AsyncClient`; calls are awaited | no |
+| `CASCOR` | Module-level `backend` or a chain rooted at it | yes |
+| `OTHER` | Other sync factories (`get_redis_client`, `get_cassandra_client`) — same mechanism, different upstream | yes (in scope) |
+| `LOCAL` | `DataAdapter` — no network I/O (CPU only) | no |
+| `UNRESOLVED` | Provenance not determined. Reported separately; never silently included or excluded | yes, if the receiver name is `client` / `adapter` / `_adapter` / `_client` |
+
+`UNRESOLVED` fails the canopy gate on purpose. Adjudicate new receivers into the tables at the top of the test; never widen a blanket rule.
+
+### The unsound exemption — do not reintroduce
+
+The slice-1a gate (and v2 before v0.3.0) used an **expression-based, module-global** offload exemption: any call whose expression appeared handed to `to_thread` / `run_in_executor` *anywhere* in `main.py` was skipped *everywhere*.
+
+Because `main.py:3574` offloads `backend.get_status`, every **other** `backend.get_status()` was invisible — including `health_check()`, `health_check_deprecated()`, and `readiness_probe()`, the three endpoints X7 is **defined by**. It degraded as work progressed: offloading one site drove the count 37 → 35 because its cassandra twin shares the expression and vanished un-fixed.
+
+| | reported (unsound) | reality |
+|---|--------------------|---------|
+| distinct expressions among the 37 | 31 | — |
+| edits to reach a green gate | **31** | ~21 sites still blocking |
+
+A gate that certifies a partial fix as complete is the failure slice 1a exists to prevent. Fixed in canopy `d33ab0a` and v2 v0.3.0: exemption is **site-local only** (calls inside a nested def that is itself offloaded). Do not match by expression across sites.
+
+v1 still has `if call in offloaded` against a **module-global** name set — another reason not to trust it.
+
+### Scope limit (both gate and v2)
+
+Both read `main.py` only. Design §5.2 also puts the metrics relay's inline `extract_network_topology()` in slice 1a (`cascor_service_adapter.py:755-763`; measured **123 s blocked per 183 s** with no user present). It is a `self`-method with internal I/O and is invisible to a receiver-based scan. A green gate is not proof of completeness.
+
+### How to run
+
+The census scripts hardcode `CANOPY_MAIN = Path("/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py")`. On any other host, edit that path (or symlink) before running. They are read-only static AST walks; v2 exits `1` while blocking findings remain.
+
+```bash
+# Authority — from a juniper-canopy worktree, inside src/
+conda run -n JuniperCanopy1 python -m pytest tests/regression/test_x7_off_loop_discipline.py -q
+
+# Exploratory sibling (after juniper-ml#1631 lands; do not use v1 for a count)
+python util/ad-hoc/2026-09-04_x7_offload_census_v2.py
+```
+
+Offload pattern already used correctly ~30 times in `main.py`; exemplar at `:1239`:
+
+```python
+# X.method(a, b=c)  →  await asyncio.to_thread(X.method, a, b=c)
+await asyncio.to_thread(backend.get_status)
+```
+
+Bare `to_thread` is intentional for slice 1a (slice 1b already bounds per-call cost). Constraint C4 (bounded concurrency) is **deferred to 1d**, not satisfied by 1a. Do not imply otherwise in a PR body. Design §4.2 refutes unbounded offload partly on a measured 3 → 42 upstream amplification with the executor at 20/20.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Census / gate count dropped after offloading one site, twin still blocking | Module-global expression exemption — exemption must be site-local |
+| `ruff --select ASYNC` is green | Expected. Opaque `backend.*` calls are invisible. Trust the gate. |
+| v1 reports an awaited `httpx` call as blocking | Name-matching: `client` is overloaded. Use v2 or the gate. |
+| v2 is 54, gate is 52 | Pre-fix figures. Two `backend._demo` accessors excluded by exact expression in the gate only |
+| Gate is 0 — is 1a intact? | Not on its own. The gate reads `main.py`. Run `juniper-canopy/util/ad-hoc/2026-09-04_async_blocking_callgraph.py` for the adapter and `service_backend` |
+| A doc says 36, or 52 | Both superseded. The count is **58** (juniper-canopy#567); design §5.2 carries the history |
+| `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded host path. Point it at your juniper-canopy `src/main.py` |
+| Health still hangs after offloading "the hot handlers" | One un-offloaded handler reinstates the full outage. Exhaustive over the mechanism. |
+| Passing `timeout=30, retries=3` "to bound it" | Those **are** the library defaults — a literal no-op. Slice 1b is `retries=0`. |
+
+Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § X7 off-loop census.
+
+---
+
 ## Shared-Package CI Workflows
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest/coverage/wheel smoke.
@@ -3000,6 +3105,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3347,6 +3453,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.22
 **Maintainer:** Paul Calnon
