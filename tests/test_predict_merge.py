@@ -1076,5 +1076,117 @@ class CliExitCodeTest(_RepoCase):
         self.assertIn("error:", cp.stderr)
 
 
+class MissingHookIsSkipNotFailTest(unittest.TestCase):
+    """A hook the TARGET repo does not define must degrade to ``skip``, never ``fail``.
+
+    Regression for the 2026-09-05 finding: ``PRECOMMIT_HOOKS`` was hardcoded to
+    juniper-ml's black/isort/flake8 battery, but juniper-data lints with ``ruff`` and
+    defines none of them. pre-commit answers ``No hook with id `black` in stage
+    `pre-commit``` and exits non-zero, which the runner scored as a gate FAILURE --
+    making all 6 evaluated juniper-data PRs ``DAMAGED-FIX-FIRST`` for a property of the
+    instrument, not of the PR. The mirror risk was worse: ``ruff`` was in no repo's
+    battery, so a juniper-data PR could be reported MERGE-CLEAN while CI failed it on
+    the only linter that repo actually runs.
+    """
+
+    def test_missing_hook_message_maps_to_skip(self):
+        calls: list = []
+
+        def fake_run(cmd, cwd=None):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 1, stdout="No hook with id `black` in stage `pre-commit`\n", stderr="")
+
+        with mock.patch.object(pm, "_run", fake_run):
+            status, detail = pm._default_gate_runner(Path("/nonexistent"), "black", ["a.py"])
+        self.assertEqual(status, "skip")
+        self.assertIn("not configured", detail)
+        self.assertTrue(calls, "the runner must actually invoke pre-commit")
+
+    def test_a_real_hook_failure_is_still_fail(self):
+        # Negative control. If this ever returns "skip", the screen has been disarmed and
+        # every genuinely unformatted PR would read clean.
+        def fake_run(cmd, cwd=None):
+            return subprocess.CompletedProcess(cmd, 1, stdout="reformatted x.py\n", stderr="")
+
+        with mock.patch.object(pm, "_run", fake_run):
+            status, detail = pm._default_gate_runner(Path("/nonexistent"), "black", ["a.py"])
+        self.assertEqual(status, "fail")
+        self.assertIn("reformatted", detail)
+
+    def test_ruff_is_in_the_battery(self):
+        # The blind spot itself: before this fix `ruff` was never run against any repo.
+        self.assertIn("ruff", pm.PRECOMMIT_HOOKS)
+        self.assertIn("ruff-format", pm.PRECOMMIT_HOOKS)
+
+
+class ScreenCoverageTest(unittest.TestCase):
+    """``screen_coverage`` must make a SKIP legible as "nothing examined this PR".
+
+    Regression for the reporting defect that produced a false all-clear on 2026-09-05:
+    both loss screens hard-code ``skip`` on a merge conflict, so a reader who counts only
+    ``fail`` concludes "0 docs deletions across all N" when the honest statement is "0
+    across the subset that was screened". On juniper-ml that was 43 of 99 PRs unscreened,
+    and the unscreened set is exactly the CONFLICT set.
+    """
+
+    @staticmethod
+    def _verdicts():
+        def _v(pr, verdict, sym, docs):
+            return {
+                "pr": pr,
+                "verdict": verdict,
+                "mergeable": verdict != "CONFLICT",
+                "behind_main": False,
+                "true_delta": [],
+                "conflicted_files": [],
+                "gates": {
+                    "ast_symbol_screen": {"status": sym},
+                    "docs_additions_only": {"status": docs},
+                },
+            }
+
+        return [
+            _v(1, "MERGE-CLEAN", "pass", "pass"),
+            _v(2, "CONFLICT", "skip", "skip"),
+            _v(3, "DAMAGED-FIX-FIRST", "fail", "pass"),
+        ]
+
+    def test_skips_are_excluded_from_the_denominator(self):
+        cov = pm.screen_coverage(self._verdicts())
+        docs = cov["per_gate"]["docs_additions_only"]
+        self.assertEqual(docs["pass"], 2)
+        self.assertEqual(docs["fail"], 0)
+        self.assertEqual(docs["skip"], 1)
+        # The load-bearing assertion: 2 of 3, NOT 3 of 3. A rate over the full set is the
+        # vacuous one this test exists to forbid.
+        self.assertEqual(docs["evaluated"], 2)
+        self.assertAlmostEqual(docs["screened_fraction"], 0.667, places=3)
+
+    def test_unscreened_prs_are_named(self):
+        cov = pm.screen_coverage(self._verdicts())
+        self.assertEqual(cov["unscreened"], [2])
+        self.assertEqual(cov["unscreened_count"], 1)
+
+    def test_all_screened_reports_empty_unscreened(self):
+        # Negative control: the field must be able to be empty, or it proves nothing.
+        cov = pm.screen_coverage([self._verdicts()[0]])
+        self.assertEqual(cov["unscreened"], [])
+        self.assertEqual(cov["per_gate"]["docs_additions_only"]["screened_fraction"], 1.0)
+
+    def test_batch_render_surfaces_the_unscreened_set(self):
+        report = {
+            "open_pr_count": 3,
+            "base_ref": "origin/main",
+            "base_sha": "deadbeefcafe",
+            "prs": self._verdicts(),
+            "clusters": {},
+            "merge_order": [1, 3],
+            "screen_coverage": pm.screen_coverage(self._verdicts()),
+        }
+        text = pm._render_batch(report)
+        self.assertIn("UNSCREENED", text)
+        self.assertIn("read by hand", text)
+
+
 if __name__ == "__main__":
     unittest.main()
