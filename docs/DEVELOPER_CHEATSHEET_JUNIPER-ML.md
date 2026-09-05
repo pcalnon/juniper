@@ -47,6 +47,8 @@
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR --dry-run` | Validate a Q-8 baseline; writes nothing. No `--force`. |
 | `python3 -m unittest -v tests/test_read_run_metrics.py` | Perf-lane reader regressions (last-row count, fingerprint) |
 | `python3 -m unittest -v tests/test_make_baseline.py` | Baseline refusals (work invariant, mixed workload, no `--force`) |
+| `python util/experiments/run_suite.py --suite PATH` | Drive a multi-cell suite; `aggregate.csv` + `REPORT.md` carry `step_count` / mean step beside de-ratified `wall_seconds` |
+| `python util/experiments/run_suite.py --suite PATH --compare-baseline TAG` | Same, plus a reporting-only comparator verdict in `REPORT.md` (FAIL still exits 0) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -744,6 +746,9 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
+| Suite report only useful number is `wall_seconds` | Pre-#1643 artifact — re-run on current `run_suite`; `wall_seconds` is de-ratified (~5% Grafana-bridge move). |
+| `--compare-baseline` FAIL / missing tag but suite exits 0 | Expected (reporting only). Read `REPORT.md`; run `compare_baseline.py` for its 0/1/2 exits. |
+| Mean-step column 1000× the CSV | Report table is ms; `aggregate.csv` is seconds. |
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | In-use probe reports every tree `IN USE` | That was the first-run failure mode — the probe's own argv. WEAK cmdline must not set the exit code; only cwd/open-fd is STRONG. |
 | In-use probe `CAUTION` / `review` | A process names the path in argv but is not sitting in the tree. Glance; do not treat as `REFUSE`. |
@@ -917,6 +922,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
 - [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
+- [Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs) -- `run_suite` P2 1.4: both gate inputs in `aggregate.csv` / `REPORT.md`; `--compare-baseline` reporting only
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example

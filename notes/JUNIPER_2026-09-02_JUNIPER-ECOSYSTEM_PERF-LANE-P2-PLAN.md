@@ -29,7 +29,9 @@ Wave 1 below wrong. A P2 authored before P3 would have been a plan to build the 
 
 **Scope.** This document enumerates and sequences. It ratifies no thresholds (P3's job, and §7 of
 the instrument-resolution results records the decisions already taken) and writes no operator docs
-(P4's job).
+(P4's job). Item 1.4's operator surface now lives in
+[`docs/REFERENCE.md` § Suite Report Gate Inputs](../docs/REFERENCE.md#suite-report-gate-inputs)
+(juniper-ml#1643).
 
 ---
 
