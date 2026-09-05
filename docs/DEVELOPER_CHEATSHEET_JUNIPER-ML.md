@@ -73,6 +73,9 @@
 | `python3 -m unittest -v tests/test_memory_index_check.py` | Hermetic index-gate suite (CI cannot see `~/.claude`) |
 | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` | Fleet required-context audit (BLOCKING / Tier 1 / path-gated; read-only) |
 | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json --repo juniper-ml` | Same, one repo, JSON (exit 1 on BLOCKING **or** probe error) |
+| `python3 util/ad-hoc/2026-08-20_require_context_safely.py --status` | Census required contexts on the 9-repo roster (never writes) |
+| `python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-ml --context 'Memory Budget' --amend-integration-id` | Dry-run re-pin of an already-required context (#1612) |
+| `python3 -m unittest -v tests/test_require_context_safely.py` | Hermetic ruleset-writer gate (find_ruleset, roster, amend pre-flight) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -742,6 +745,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Stub pinentry “No pinentry” / dead agent | Assuan greeting must be `OK …` (#914); check `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash`. Throwaway creds only. |
 | Ed448 keygen fails under gpg 2.4 | Ubuntu/Debian FreePG-patched build (not upstream) — add `--compliance=gnupg` (or `compliance gnupg` in ceremony `gpg.conf`). |
 | Every `push:main` Quality Gate red; advisory job "skipped" | An advisory job was added to `required-checks.needs` — remove it; promote via branch ruleset instead. |
+| `ALREADY REQUIRED` from require_context_safely | Add path no-op — use `--amend-integration-id` to change `integration_id` (#1612). Do not hand-roll a PUT. |
+| Amend `REFUSING: app N has not been observed publishing` | Wrong publisher — Actions is `15368`; never pin `Memory Budget` to Bandit `57789`. |
+| PR BLOCKED, checks all SUCCESS, nothing pending | Required context pinned to an app that never reports, or required before it published — re-pin/un-require via the writer, then `update-branch`. |
+| `--require-observed` unknown on require_context_safely | Not a flag; observed-only is the default. |
 | Security job skipped → Quality Gate red | The security arm must stay `== "failure"`, not `!= "success"`. |
 | Initial / force-push tip skipped the battery | The path detector must fail-open to `run=true` when no base resolves — read the `Detect relevant path changes` log. |
 | Weekly security scan green with a known CVE | Audit step must stay `pip-audit --strict --desc on`; dropping `--strict` softens findings. |
