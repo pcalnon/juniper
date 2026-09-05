@@ -123,6 +123,7 @@ python3 -m unittest -v tests/test_release_train_archive_guard.py
 python3 -m unittest -v tests/test_release_train_ceremony.py
 python3 -m unittest -v tests/test_experiment_stack_script.py
 python3 -m unittest -v tests/test_run_experiment.py
+python3 -m unittest -v tests/test_termination_branch_precondition.py
 python3 -m unittest -v tests/test_list_runs.py
 python3 -m unittest -v tests/test_snapshot_index.py
 python3 -m unittest -v tests/test_snapshot_classify.py

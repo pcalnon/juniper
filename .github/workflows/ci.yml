@@ -844,6 +844,13 @@ jobs:
           # override is recorded in baseline.json). Also pins HOST.json's fidelity caveat
           # when the tool's interpreter differs from the runs'.
           python3 -m unittest -v tests/test_make_baseline.py
+          # tests/test_termination_branch_precondition.py: complementary leftover of the
+          # termination-branch guard (ml#1733). The comparator suite pins the five-case
+          # counterexample; this suite pins the reader/summarise fields, make_baseline's
+          # truncated/mixed refusals, the baseline-side fail-closed, a same-count branch
+          # flip, and the partially-annotated suite that would otherwise collapse to a
+          # unanimous branch. util/ is not pre-commit-lint-gated, so this is the gate.
+          python3 -m unittest -v tests/test_termination_branch_precondition.py
           # tests/test_experiment_config_schemas.py: Wave 3.5 drift gate over the
           # sibling repos' conf/experiments/*.yaml (auto-skips here -- siblings are
           # not cloned in this job; the always-on AST-extractor self-check still

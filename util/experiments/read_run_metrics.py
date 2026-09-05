@@ -272,13 +272,18 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     # "not countable" as "counted, and they matched".
     countable = all(r.get("work_countable", True) for r in rows) if rows else False
     reasons = sorted({str(r["completion_reason"]) for r in rows if r.get("completion_reason")})
+    # A suite that only ANNOTATES some cells is not a single branch. Dropping the blank
+    # cells (the `if r.get(...)` filter above) would otherwise make one early_stopped
+    # neighbour plus one missing reason look like a unanimous early_stopped suite --
+    # exactly the fail-open the candidate-absent check cannot see.
+    all_annotated = bool(rows) and all(r.get("completion_reason") for r in rows)
     out: Dict[str, Any] = {
         "cells": len(rows),
         "kinds": sorted({str(r.get("kind", "cascor")) for r in rows}),
         "work_countable": countable,
         # Cells that ended on DIFFERENT branches are not repeats of each other, even at one config.
         "completion_reasons": reasons,
-        "single_completion_reason": len(reasons) == 1,
+        "single_completion_reason": all_annotated and len(reasons) == 1,
         # These end the run before the workload does, so the histogram is truncated by construction
         # and its count is a fact about the budget rather than about the code.
         "truncated_terminations": sorted({r for r in reasons if r in TRUNCATING_TERMINATIONS}),
