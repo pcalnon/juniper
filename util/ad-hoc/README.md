@@ -69,6 +69,22 @@ set -euo pipefail
 
 ---
 
+## Resident-hazard gap triage (operational)
+
+Three complementary scanners — keep all three; the first alone cannot find a directive that was never in `AGENTS.md`:
+
+| Script | Question |
+|--------|----------|
+| `2026-08-28_hazard_triage.py` | Which *already-resident* `AGENTS.md` blocks look like hazards? (`gh api` on GitHub `main`; default `--min-score 2`) |
+| `2026-08-28_resident_gap_scan.py` | Which source comments are hazard-shaped and resident nowhere? (local, read-only; ranks by identifier count) |
+| `2026-08-31_resident_gap_triage.py` | Gap finding scored with four severity signals on the **block** (default `--min-score 3`; `--json` writes every scored row; `--self-check` pins cascor `cascade_correlation.py:1927`) |
+
+The scored **total is not a health metric**. Relocation removes resident identifiers, so the gap predicate starts matching them — cutting widens the gap by construction. Read the score ≥ 3 count (and whether anything *new* appears there). `SKIP_DIRS` excludes in-repo worktrees (#1519).
+
+Operator contract: [`docs/REFERENCE.md` § Resident-Hazard Gap Triage](../../docs/REFERENCE.md#resident-hazard-gap-triage). Fleet record: [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md`](../../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md).
+
+---
+
 ## Snapshot sidecar chain (operational)
 
 `2026-08-24_regenerate_sidecar_chain.bash` (lands with juniper-ml#1333) regenerates index → classify → attribute → backfill in order. It is ad-hoc until a supported `util/` entry point exists.
@@ -136,6 +152,16 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 Always `revert` before committing anything from the instrumented checkout.
 
 Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFERENCE.md#f-039-store-probe).
+
+## Ruleset context audit (operational)
+
+`2026-08-10_ruleset_context_audit.py` classifies each publishing repo's `required_status_checks` as BLOCKING / MATCHED / Tier 1 / path-gated / advisory. Read-only (`gh api` + `gh pr list`). It does **not** add or remove contexts — that is `2026-08-20_require_context_safely.py`.
+
+A required name that never reports leaves `main` unmergeable with every visible check green (the 2026-08-10 fleet-union class). Re-run the auditor; do not quote the incident note's §1 counts. Human-mode exit 0 can still print `ERROR:` rows; `--json` fails closed on probe errors.
+
+Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
+
+---
 
 ## What does NOT belong here
 
