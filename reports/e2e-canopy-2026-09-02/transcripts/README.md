@@ -51,3 +51,23 @@ and -07, and `control={'present': False, ...}` with `plotly_click_events=0` on
 M-TOPOLOGY-12. The parent `topo` transcript is the grep-filtered stdout of that
 run rather than the full log — the pipeline was written that way before the value
 of the whole log was obvious; its result JSON beside it is complete.
+
+## 2026-09-04 (later) — the F-CANOPY-037 closure drive, and its one control
+
+`2026-09-04_f037_closure_main_94220f0.{txt,json}` is the full topology surface
+(`--step topo,topoevents,topostate,topoexport`) driven against **canopy main
+`94220f0`** — both of this arc's fixes plus another session's canopy#567. It is the
+live re-drive F-CANOPY-037's entry had been owed since 2026-08-28, and it closes the
+arc's last P0/P1: **16 PASS / 0 FAIL** across every scoreable M-TOPOLOGY row.
+
+`2026-09-04_f037_m18_isolated.{txt,json}` is the **control**, and the reason to keep
+it. In the combined run M-TOPOLOGY-18 scored **INDETERMINATE**, not PASS —
+`empty_in_node_graph=False`. That row's first half needs the raw-topology store still
+empty, and `topo` fills it permanently when M-TOPOLOGY-03 opens the Weight Matrix.
+Re-driven **alone against the same build minutes later**: **PASS**,
+`empty_in_node_graph=True`, filled in 6.6 s.
+
+So the INDETERMINATE is a harness ordering artifact, not a regression — and the row
+saying INDETERMINATE instead of FAIL is the scorer behaving correctly. Read the two
+files together or the first one alone will look like a defect. **The steps are not
+order-independent**; `topostate` must be driven first or alone.

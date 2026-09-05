@@ -98,6 +98,59 @@ Found by the #1044 executor while mutation-testing: the live-up stubs capture `e
 **F-E2E-006 — isolated_stack canopy leg lacked the browser-WS origin allowlist (stack harness; FIXED ml#1049).**
 Found at first live browser attach (prior session, 2026-08-09): with `JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS` unset, canopy's browser-facing sockets rejected the dashboard's own origin. Fix: `util/isolated_stack.bash` canopy leg now exports the canopy-origin allowlist pair (`isolated_stack.bash:363-364`); merged as ml#1049. Verified live this run: both sockets OPEN with the allowlist in the process env.
 
+**F-E2E-007 — WITHDRAWN 2026-09-04, the same day it was filed. It was wrong, and the way it was wrong is the durable part (LEDGER; withdrawn).**
+
+It claimed that the `W4-01..17` / `W1-12..14` identifiers in this arc's repeated "Blast radius"
+sentence "have never existed", 18 of 20 of them, and that F-CANOPY-037's closure condition was
+therefore unsatisfiable. **Both claims are false.**
+
+`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` §4 enumerates
+`### W4 — Topology exploration` as **exactly 17 numbered steps** (`:1005-1023`) and
+`### W1 — Cold-start cascor training` as 19, whose steps 12/13/14 are the topology-DOM steps
+(`:954-956`). Both were added 2026-08-09 in `e835e2b4` (juniper-ml#1036) and **never deleted** —
+`git log --all -S` on three distinctive step strings returns that one commit each. The coverage
+audit of the same day says it outright: *"W4 is a 17-step script"*
+(`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-PLAN-COVERAGE-AUDIT.md:353`).
+
+**The error**: a search for the id *token* (`W4-09`) over a definition written as an ordinal (`9.`)
+under a section heading. Absence of the token was read as absence of the definition.
+
+**Three things make it worse, and they are why this entry stays as a record rather than vanishing.**
+
+1. **The answer was in the file being edited.** `util/ad-hoc/e2e_seg17_topology_driver.py:64-72`
+   already said these ids *"live in the MATRIX … NOT in the plan"*. That comment was read during the
+   same session and did not register.
+2. **The finding manufactured one of the ids it denied.** The literal token `W1-13` had never
+   appeared anywhere in this repository's history; it entered for the first time **inside the
+   sentence asserting it had never existed**. When a claim of non-existence has to spell the thing
+   to deny it, that is the tell.
+3. **It was convenient.** It removed the one obstacle to a closure the author was already trying to
+   make — an explicit escalator in
+   `JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` §3 that was not
+   heeded.
+
+**The replacement root cause was also wrong, and was withdrawn before it shipped.** A second draft
+blamed the plan's §9 row-id scheme for having no `W<n>-NN` form, making workflow steps
+"structurally untrackable per-step". Refuted three ways: `reports/e2e/20260811T010700Z/statuses.tsv`
+carries **71 individually-verdicted W-rows** including `W5-01`…`W5-29` and `W6-01`…`W6-21` with
+per-step FAILs, so the tooling tracks them fine; the plan at `:151` explicitly delegates workflow
+ids to the matrix (*"its §4 scripts are canonical"*) and §9 is a screenshot-filename convention that
+never mentions `statuses.tsv`; and the token form appears in the 2026-08-10 run, sixteen days before
+the date the draft blamed. **W4 is not structurally different from W5 — it was driven once instead
+of thirty times.**
+
+Caught by the consensus procedure: three Lane A agents on independent entry points (run artifacts,
+git history, plan-plus-product) and two Lane B agents on opposing briefs. Lane A found the
+enumeration; Lane B2 refuted the replacement; Lane B1 independently found that the closure it
+enabled also needed amendment (see F-CANOPY-037). **No round agreed with the author.**
+
+> **A real trap, salvaged from the withdrawn entry because it is independently true.**
+> `util/ad-hoc/e2e_finding_triage.py` reads a finding's severity as the **first**
+> `P0|P0/P1|P1|P2|CRITICAL|LEDGER` token anywhere in the bolded header, not just the one in the
+> parenthetical. This entry's first draft said *"holding the arc's only P0/P1 open"* in its prose and
+> was duly triaged **P0/P1**, inventing a top-severity defect out of a bookkeeping note. **Do not
+> name another severity in a header's prose**, or the count silently misreports.
+
 **F-CANOPY-001 — dark-mode toggle glyph not synced from the persisted store on mount (P2, OPEN).**
 Reproducer: toggle dark (glyph 🌙→☀️, `<html>` gains `dark-mode`) → reload → theme restores dark but the button renders the layout-default 🌙; the next click still behaves correctly (store true→false → light), so only the glyph is stale.
 Evidence: `toggle_dark_mode` (`juniper-canopy/src/frontend/dashboard_manager.py:2905-2916`) is the **sole writer** of `dark-mode-toggle.children` and is `prevent_initial_call=True`; the PERF-CN-01 mount-time propagation (`:2921-2928`, `prevent_initial_call=False`) exists only for `theme-state` — the glyph Output is omitted from any mount path. Screenshots: `C2.1-01__dark.png` (correct ☀️ pre-reload), `C2.1-02__reload-glyph-desync.png` (dark theme + 🌙). Matrix rows C2.1-01/02 — both PASS on their stated expectations; this is a ledger finding, not a row FAIL.
@@ -587,7 +640,7 @@ fails if anyone wires a consumer without restoring a writer.
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
-**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1, OPEN; found during the 2026-08-26 §6.3 topology re-drive).**
+**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1; found during the 2026-08-26 §6.3 topology re-drive; mechanism FIXED canopy#531 2026-08-27, verified 2026-08-28; OPEN — the 2026-09-04 re-drive covers the static branch only; the `ws-cascade-add-buffer` growth trigger the fix created is undriven).**
 Measured live on a fresh isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `c6cd2f0`,
 canopy `9f6fac9`) against a completed 10-unit network, with `util/ad-hoc/e2e_seg17_topology_driver.py`.
 
@@ -680,6 +733,80 @@ so the claimed-Input starvation would survive exactly when the cascade is growin
 — and this finding measured the graph *equally absent during an active run and post-run*. Only decoupling
 fixes both regimes. (a) remains worth doing on its own merits (the ~80 KB/s waste, 4+ consumers re-fired);
 that is now **F-CANOPY-038**, not part of this fix.
+
+---
+
+### 2026-09-04 — the owed live re-drive, against merged main (and what it does not reach)
+
+This entry has said since 2026-08-28 that its **own mechanism is closed** and that it stays OPEN only
+until the topology block is re-driven. That re-drive is now done for the M-TOPOLOGY rows, **against canopy main `94220f0`** —
+which contains both of this arc's latest fixes (canopy#570 F-CANOPY-042, canopy#573 F-CANOPY-046) *and*
+another session's canopy#567, which moved every synchronous network call off the event loop and could
+plausibly have disturbed rendering.
+
+Driven with `util/ad-hoc/e2e_seg17_topology_driver.py` on the live 2/40/2/944 fixture, via a second
+canopy on `:8052` launched from the primary checkout
+(`util/ad-hoc/2026-09-04_canopy_verify_instance.bash`) so the arc's `:8051` instance was left untouched:
+
+| step | rows | result |
+|---|---|---|
+| `topo` | M-TOPOLOGY-01..08, -17 | **9 PASS / 0 FAIL** |
+| `topoevents` | -09, -10, -12, -15 | **4 PASS / 0 FAIL** |
+| `topostate` | -13, -18 | **2 PASS** (see the ordering note below) |
+| `topoexport` | -14 | **1 PASS** (`canopy_network_20260904_173346.png`, 2204×1200 = scale 2.0 from the IHDR) |
+
+**16 PASS / 0 FAIL across every scoreable M-TOPOLOGY row.** The two that remain BLOCKED — **-11**
+(select-mode drag emits nothing) and **-16** (cascade-add glow, which a saturated 40/40 fixture cannot
+exercise) — are blocked on their own causes, neither of which is this finding.
+
+**One row needed a control, and got one.** In the combined four-step run M-TOPOLOGY-18 scored
+**INDETERMINATE** (`empty_in_node_graph=False`) rather than PASS. That is an **ordering artifact, not a
+regression**: the row's first half needs the raw-topology store still empty, and `topo` fills it
+permanently when M-TOPOLOGY-03 opens the Weight Matrix. Re-driven **alone against the same build minutes
+later** it scored **PASS** (`empty_in_node_graph=True`, filled in 6.6 s). The scorer reporting
+INDETERMINATE instead of FAIL is the behaviour working as intended; the hazard is now pinned in three
+places in the driver so the next reader does not mistake it for a defect.
+
+**WHAT THIS DRIVE DOES NOT ESTABLISH — and why this entry is NOT closed on it.**
+
+An adversarial review of this very closure (Lane B, 2026-09-04) found the gap, and it is the one
+that matters: **this finding's fix was an `Input` → `State` demotion, so after it, cascade growth
+reaches the rebuild through exactly one Input — `ws-cascade-add-buffer`
+(`network_visualizer.py:369-379`). The drive above produced ZERO cascade adds**: the fixture is
+`COMPLETED`, 40/40, `early_stopped`. Seven of ten Inputs were driven, all of them user controls, on
+a static network where nothing contends. **The trigger the fix created, and the live-growth
+contention regime this finding is actually about, are both undriven.**
+
+Two further observations from the same review, each checkable in the transcripts:
+
+- **Both runs needed `wake_topology` to reach a painted graph.** That helper exists *because of this
+  defect* — its docstring records "0 rebuild POSTs in 180 s in one session, 12 in 60 s in another".
+  The runs report `already: False` and then `woke: True` after **23.2 s** (1 attempt) and **62.0 s**
+  (2 attempts — the first burned a full 30 s budget producing no paint). 23.2 s is this finding's own
+  lucky-session number. Neither run observed the tab-poll lane painting unaided.
+- **The step→row coverage is 9 of 20, not "most".** Uncovered: W4-01 (tab entry asserts a NET call;
+  M-17 asserts DOM on *re*-entry), W4-05, W4-10, W4-12 (the re-click gesture is driven nowhere),
+  W4-13, W1-12 (its precondition is a cold-start run), W1-13, W1-14. Partial: W4-03, W4-14, W4-17.
+  Two driver aliases are also wrong — `M-TOPOLOGY-12 / W4-13` should be W4-12, and
+  `M-TOPOLOGY-18 / W4-15` is unsound since W4-15 is the camera export (M-TOPOLOGY-14). And
+  `M-TOPOLOGY-08 / W1-14` is **structurally false**: W1-14 compares the *top status bar* to the
+  topology counts, and `counts()` never reads the top bar — the two surfaces are *designed* to
+  diverge under the depth filter.
+
+**The fixture blocker is a reversible arc decision, not an independent cause.**
+`nn_max_hidden_units` is a settable product parameter (`dashboard_manager.py:498`, `main.py:3791`),
+this arc gathered F-CANOPY-037's own evidence on a 10-unit fixture on 2026-08-26/28, and the matrix
+says plainly that the network *"was deliberately left [saturated] on 2026-09-02 to preserve the
+2/40/2/944 baseline"*. So W4-10, W1-13 and M-TOPOLOGY-16 are blocked on a choice this arc made and
+can unmake — pending owner sign-off, since the fixture is held by an explicit hold.
+
+**Disposition: F-CANOPY-037 stays OPEN.** Its stated mechanism (claimed-Input starvation on a
+completed run) is credibly closed on merged main and the M-TOPOLOGY rows are re-driven; what remains
+undriven is the growth-trigger path the fix itself introduced. Closing on the static branch alone
+would be closing the symptom on the easy branch.
+
+Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-04_f037_closure_main_94220f0.{txt,json}`
+and `…_f037_m18_isolated.{txt,json}` (the control).
 
 Pinned by `src/tests/unit/frontend/test_f037_topology_rebuild_decoupling.py` (6 tests): the store absent from
 Inputs / present in State; the real triggers still Inputs (a forward guard against an over-correction that
