@@ -1316,6 +1316,122 @@ Coverage: `tests/test_soak_ledger.py`, `tests/test_soak_next_probe.py`, `tests/t
 
 ---
 
+## Pointer-Follow Soak
+
+The pointer-follow soak measures whether a **fresh, unprimed** Claude session retrieves a **relocated** fact from its pointer (usually a `docs/REFERENCE.md` heading) rather than from source. Owner decision 2026-09-03: the soak exists **to inform relocation decisions**, not to print a pooled pass/fail about "relocation in general."
+
+Protocol: [`notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`](../notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md). Trigger and characterisation: [`notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md`](../notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md).
+
+### Pieces
+
+| Piece | Role |
+|-------|------|
+| `conf/soak_probes.json` | Frozen seeded-arm registry. Never edit a probe that already has runs; add a new id. |
+| `reports/soak/pointer_follow_soak.jsonl` | Append-only ledger (observations, rescores, resolves, invalidates). |
+| `util/soak_next_probe.py` | Prints the **task only** (probe id on stderr). `--reveal` is scoring-only. |
+| `util/soak_run_probe.py` | Headless `claude -p` wrapper: dispatch, capture, retrieval channel, scoring packet. |
+| `util/soak_ledger.py` | `probe-run` / `report` / `status` / `verify-probes` / `resolve` / `rescore`. |
+| `util/systemd/juniper-soak-probe.{service,timer,path}` | Unattended **user** units (same wrapper). |
+
+`verify-probes` is the residency gate: every probe's `must_be_absent_from_source` phrases must be absent from `AGENTS.md`, and every `pointer` anchor must resolve. The 2026-08-21 pilot ran nine probes whose facts had never left `AGENTS.md`; those tested nothing. CI runs `python3 util/soak_ledger.py verify-probes`.
+
+### Operator loop
+
+```bash
+python3 util/soak_run_probe.py --dry-run                    # no claude binary required
+python3 util/soak_run_probe.py                              # least-covered probe
+python3 util/soak_run_probe.py --probe-id P23-reaper-over-protection-bias
+python3 util/soak_next_probe.py --reveal --probe-id <id>    # AFTER the run, for scoring
+python3 util/soak_ledger.py probe-run --probe-id <id> \
+    --outcome follow|source-recovered|miss --session <uuid> --scored-by <who>
+python3 util/soak_ledger.py report
+python3 util/soak_ledger.py status                          # exit 1 is often by design
+```
+
+`--dry-run` must not print the task, fact, or discriminator: this wrapper's stdout is read by the operator who later **scores** the run, and echoing the task there re-primes at the far end of the pipeline.
+
+Wrapper exit codes: `0` usable answer + scoring packet; `1` timeout / empty / error result; `2` misuse, or the harness failed before the probe started (including terminal-verdict refuse). Ledger: `probe-run` / `record` / `resolve` → `0` written / `2` rejected; `report` always `0`; `status` → `0` in-progress or holds, **`1` action due**, `2` no data; `verify-probes` → `0` sound / `1` defective.
+
+### Automated vs judgement
+
+Automated (mechanical): probe selection, unprimed dispatch, transcript capture, the **retrieval channel** — did tool inputs or the answer contain the pointer *document path* (anchor stripped)?
+
+Not automated: correctness against the frozen `discriminator`. The wrapper writes `reports/soak/runs/<stamp>-<probe>/scoring_packet.md` and stops. `soak_ledger.py probe-run` still needs a scorer to supply `--outcome`.
+
+Outcomes (`OUTCOMES` in `util/soak_ledger.py`):
+
+| Outcome | Meaning | Follow-rate |
+|---------|---------|-------------|
+| `follow` | Correct **and** retrieved via the pointer | numerator |
+| `source-recovered` | Correct, reached from source (helper / test / grep), not the pointer | stays in **denominator** |
+| `miss` | Acted without the fact | denominator |
+
+`rate` = follows / (follow + miss + source-recovered). `retention` = (follow + source-recovered) / n answers a different question — *did relocation lose the fact?* — and is printed beside the rate, never instead of it. Dropping source-recovered from the denominator was considered and rejected: it would convert `INCONCLUSIVE` into a pass by redefinition.
+
+### Least-covered vs characterisation
+
+Default `soak_next_probe.py` / `soak_run_probe.py` pick **least-covered, then registry order**. That evens the **pooled** estimate.
+
+For a relocation decision the pooled rate is a **mixture**. Characterisation runs (juniper-ml#1616, 2026-09-04; design-conversation §9) selected probes to test membership, not coverage:
+
+- Permutation test (15 probes, 40 runs, 26 follows, 20,000 draws): heterogeneity statistic 30.84, **p = 0.0017**. The probes do not share one rate. Use the stratum, not ~65%, for a specific section.
+- **Per-probe membership is not resolved at n=2–4.** P23 left the "never-follow" group on its third run (0/2 → follow → 1/3). No probe's 95% CI excludes 50% or the pooled rate. Do not treat "P14 never follows" as a property from 0/3.
+- Next cheapest design: drive ambiguous probes (P21 / P23 at 1/3; the 0/3 set) to **n≈8–10**, not even coverage. The timer still fires least-covered — pass `--probe-id` for characterisation.
+- Stopping rule: `soak_run_probe.py` refuses when `status` starts with `BET-FAILING` or `HOLDS-AT-` unless `--force`. Under decision support a terminal **pooled** verdict does not answer the next relocation; `--force` is the deliberate override, not a way to ignore a real stop.
+
+### Verdicts (seeded arm)
+
+Wilson 95% interval vs one reachable boundary (`DECISION_BOUNDARY = 0.75`). Named after what was proven. `BET-HOLDS` is **not** a printable verdict.
+
+| Verdict | Meaning |
+|---------|---------|
+| `IN-PROGRESS` | fewer than 35 seeded runs or 15 distinct probes |
+| `HOLDS-AT-0.75` | Wilson lower bound ≥ 0.75 |
+| `BET-FAILING` | Wilson upper bound < 0.75 |
+| `INCONCLUSIVE` | interval spans 0.75, or hazard stratum empty |
+| `DEGRADED` / `NO-DATA` / `NO-SEEDED-DATA` | instrument integrity; outranks a healthy-looking rate |
+
+Escalations (hazard rung 2, area-systematic rung 3, pointer-defect rung 0) print **alongside** the verdict, never instead of it. `status` exits `1` when they are open — that is the design. `resolve` appends to an append-only ledger; there is no un-resolve. Do not discharge to make the exit code 0.
+
+The **organic** arm is descriptive only (an upper bound). Never used for a verdict.
+
+### Unattended path
+
+These are **user** units, not system units: the probe must see `~/.claude/projects/.../memory/MEMORY.md`. A system unit runs as root with a different `HOME` and measures nothing (same class that ruled out cloud routines).
+
+```bash
+mkdir -p ~/.config/systemd/user
+cp util/systemd/juniper-soak-probe.* ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now juniper-soak-probe.timer   # or the .path unit
+systemctl --user start juniper-soak-probe                # one-off; no [Install] on the service
+```
+
+Enable the **timer** or **path** unit, not the service. An `[Install]` block on the service is deliberately absent: enabling it would fire an extra uncoordinated probe at every login.
+
+- `ExecStart=/usr/bin/python3 util/soak_run_probe.py --timeout 900` — the reaper candidate filter matches cmdline text `/JuniperC[a-z0-9]+/`; a conda interpreter is reapable from the same cwd. `/usr/bin/python3` is not a candidate.
+- `TimeoutStartSec=1500` must exceed dispatch (120s) + claude (900s) + `--reveal` (120s). If systemd wins the race it cgroup-kills the wrapper **before** `status.json` is written ("crash, not timeout").
+- Timer: `OnCalendar=*-*-* 03,09,15,21:23:00`, `Persistent=false` (a laptop resuming after two days must not stampede missed intervals).
+- Both the unit and the wrapper unset `ANTHROPIC_API_KEY` — a stale key fails with `Credit balance is too low` before the probe starts.
+- Reaper P1 pidfile: `$JUNIPER_EXP_RUN_ROOT/soak-probes/soak-probe-<pid>.pid` (default `~/.local/state/juniper-experiments`). A pidfile under `reports/soak/runs/` is **not scanned**.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Primed follow | `--reveal` or echoing the task **before** the run. Dry-run stdout is scored later; a leak cannot be un-primed. |
+| Registry leak | `conf/soak_probes.json` is inside the repo and carries every `fact` / `discriminator`. Scoring must run `util/ad-hoc/2026-08-21_soak_probe_evidence.py`; contaminated runs are discarded. |
+| Completed session, empty parse | `parse_events` does `ev.get("message") or {}`; a **string** `message` then raises `AttributeError` **after the session is spent**. Keep `stream.jsonl` and re-parse; do not re-run. Type guard: open juniper-ml#1616. |
+| Channel says follow, maybe not | Mechanical match is `pointer_doc in tool_inputs+answer`. If the task itself contains `--dest docs/REFERENCE.md` (P06), the path appears whether or not the doc was read. Verify by hand (`grep` headings, then a line-range read). |
+| Probe reaped mid-run | Interpreter was `JuniperC*`, or the pidfile was only in `reports/soak/runs/`. A lost run is **not** a miss. |
+| Timer keeps spending | Terminal verdict refuse needs `--force`. Characterisation also needs `--probe-id` — least-covered will not pick the ambiguous probes. |
+| Discriminator under-specifies | Enumerating acceptable answers (P06: "scope **or** refuse") mis-scores a better third path. Score the **property**; record tension in `--note`. Registry-author item. |
+| `status` exits 1 | Open escalation or `BET-FAILING`. Do not `resolve` to green it. |
+
+Coverage: `tests/test_soak_ledger.py`, `tests/test_soak_next_probe.py`, `tests/test_soak_run_probe.py` (hermetic — never launches `claude`). `util/` is outside every pre-commit Python hook, so those suites **are** the gate.
+
+---
+
 ## Environment Floor Drift Check
 
 `util/env_floor_drift_check.py` (gap I-2) compares each `juniper-*` floor declared in a target repo's `pyproject.toml` against the **installed** wheel version read from `*.dist-info/METADATA` — the below-floor plain-wheel case that pin-linters and the editable checker miss. It does **not** invoke the environment's interpreter (so a broken env still reports).
@@ -3398,6 +3514,9 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Writer refusals the comparator still lacks: unmeasured cells, `timed_out` cells, zero-work, `--suite` collapse, duplicate-fingerprint last-wins, unchecked scenario coverage.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_compare_baseline.py`.
 - `util/experiments/stats_summary.py` -- Wave 2.6 SS8.3 renderer (not a CLI; no `__main__`). `build_stats` / `render_summary_md` write `juniper-experiment-stats/1`. Recurrence duration lives under `outcome.timings`, not `recurrence.*`. `scrape_confirmed` is tri-state. Operator surface: [Experiment Stats Summary (SS8.3)](#experiment-stats-summary-ss83). Tests: `tests/test_run_experiment.py` (`StatsSummaryUnitTest`).
+- `util/experiments/compare_baseline.py` -- Split comparator (P2 item 1.2 / juniper-ml#1622). Identity first (`workload_fingerprint`), then work (`step_count` exact → PASS/FAIL), speed reported and never gated.
+  Exit `0` PASS or WAIVED / `1` FAIL / `2` REFUSED. `--accept-work-change REASON` blesses a work change only (never a refusal; whitespace-only is exit 2). Host `cpu_model` / `cpu_count` / `thread_budget` block; torch/numpy/`python_runs` are advisory.
+  Tests: `tests/test_compare_baseline.py`. Operator surface: [Perf-Lane Split Comparator](#perf-lane-split-comparator).
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
   Wave 7.3 instruments: [§ PF Scenario Suites](#pf-scenario-suites). `include` cells carry only their own overrides and do **not** inherit `matrix` (`expand_cells`) — PF-1's repeats are a matrix axis for that reason.
   - Do not confuse `execution.max_wall_seconds` with `execution.per_run_timeout_seconds`: the latter is only the **subprocess** timeout, which kills the driver from the OUTSIDE and records `timed_out` where the driver would otherwise write an honest `timed_out` manifest (§13.4). Size `per_run_timeout_seconds` ABOVE the wall budget so the driver is the one that stops.
@@ -4758,7 +4877,6 @@ open follow-ups; they are not a license to CI-wire the gate — that call is the
 
 Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py` (wired in `ci.yml`). Those suites pin last-row reads, writer refusals, identity-first compare, exact work, ungated speed, and the 0/1/2 exit split. Since ml#1741 + ml#1743 they also pin the A1-A7 refusals; #1713 adds further coverage.
 
----
 
 ## PF Scenario Suites
 
@@ -4854,6 +4972,11 @@ After a cascor suite finishes, compare it to a named Q-8 baseline with [`util/ex
 
 ## Perf-Lane Split Comparator
 
+> **This section is the `compare_baseline.py` CLI reference. The CURRENT contract -- the
+> termination-branch precondition, the settled determinism question, and the comparator's
+> remaining open defects -- is [Perf-Lane Work Gate](#perf-lane-work-gate).** Where the two
+> disagree, the Work Gate is newer.
+
 `util/experiments/compare_baseline.py` is the perf-lane **split comparator** (P2 item 1.2). It implements the rule decided in item 1.5 and written up in [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) §2.2: **identity is checked first**, then work is compared exactly, and speed is reported and never gated.
 
 The CLI ships in [juniper-ml#1622](https://github.com/pcalnon/juniper-ml/pull/1622). It reads a baseline cut by `util/experiments/make_baseline.py` that records `workload_fingerprint` per scenario ([juniper-ml#1613](https://github.com/pcalnon/juniper-ml/pull/1613), on `main`). Prefer merging this docs PR **after** #1622 so the path exists. Concurrent docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) described the comparator as unshipped — **this section supersedes that sentence**.
@@ -4932,12 +5055,12 @@ A waiver blesses a WORK change, never an invalid comparison. Passing it on a REF
 | `--accept-work-change` on a config-edit suite | No effect. Cut a new baseline; the waiver cannot "compare anything to anything". |
 | Renderer says `WAIVED by operator` but exit is `2` | Bug class pinned by `test_render_does_not_claim_a_waiver_that_had_no_effect`. Current source prints `had NO effect`. |
 | Using `config_sha256` as "same workload" | Hashes `experiment.description`. Use `workload_fingerprint`. |
-| Mixed known + missing cell YAML looks like one workload | On `main` (`#1613`) and #1622, `summarise` drops `None` before uniqueness, so one identified cell plus one unknown/unmeasured cell can **PASS**. [juniper-ml#1617](https://github.com/pcalnon/juniper-ml/pull/1617) / [#1626](https://github.com/pcalnon/juniper-ml/pull/1626) refuse on the rows. Until they land, do not compare a suite with a missing `cells/*/experiment.yaml`. |
-| Repeatable `--suite`: FAIL became exit `2` | #1622: leftover reasons win, so a sibling REFUSE hides a work FAIL. Compare one suite, or wait for #1626 (FAIL wins unless host-blocked). |
+| Mixed known + missing cell YAML looks like one workload | **Fixed.** `summarise` used to drop `None` before uniqueness, so one identified cell plus one unknown could **PASS**; [ml#1776](https://github.com/pcalnon/juniper-ml/pull/1776) removed the filter, and `completion_reasons` now keeps the unknown member so a mixed set is not one branch. |
+| Repeatable `--suite`: FAIL became exit `2` | **Fixed.** A leftover reason from a sibling suite used to win the whole verdict, hiding a real work FAIL behind exit `2`; [ml#1741](https://github.com/pcalnon/juniper-ml/pull/1741) / [#1743](https://github.com/pcalnon/juniper-ml/pull/1743) landed the precedence, and `VerdictPrecedenceTest` pins both directions. |
 | Adding a speed threshold | There is no threshold field **by design**. Item 1.5 closed that question. |
 | Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
 
-Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
+Coverage: `tests/test_compare_baseline.py` (54 tests on `main`; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
 
 ---
 
@@ -5307,6 +5430,95 @@ The driver now reports two named facts (`JUNIPER_EXP_PROMETHEUS_URL`, default `h
 | Invoke `python util/experiments/stats_summary.py` | No `__main__`. The driver calls `build_stats` / `render_summary_md` |
 
 Coverage: `tests/test_run_experiment.py` (`StatsSummaryUnitTest` + e2e stats assertions for both kinds). `util/` is not pre-commit-lint-gated; that unittest is the gate.
+
+After a cascor suite finishes, compare it to a named Q-8 baseline with [`util/experiments/compare_baseline.py`](#perf-lane-split-comparator) — identity first, work exact, speed reported.
+
+
+## Perf-Lane Split Comparator
+
+`util/experiments/compare_baseline.py` is the perf-lane **split comparator** (P2 item 1.2). It implements the rule decided in item 1.5 and written up in [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) §2.2: **identity is checked first**, then work is compared exactly, and speed is reported and never gated.
+
+The CLI ships in [juniper-ml#1622](https://github.com/pcalnon/juniper-ml/pull/1622). It reads a baseline cut by `util/experiments/make_baseline.py` that records `workload_fingerprint` per scenario ([juniper-ml#1613](https://github.com/pcalnon/juniper-ml/pull/1613), on `main`). Prefer merging this docs PR **after** #1622 so the path exists. Concurrent docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) described the comparator as unshipped — **this section supersedes that sentence**.
+
+Whether the run tier ever becomes a required CI check remains open (P1 design §6). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites.
+
+### Two halves
+
+| Half | Field | Contract |
+|------|-------|----------|
+| **WORK** | `step_count` (last sampled histogram count) | Compared **exactly**. Deterministic for a seed-fixed config and contention-immune (identical across 21 cells spanning a 3× step-duration range), so a change is a statement about the **code**. A one-step difference is enough; there is no tolerance to tune. |
+| **SPEED** | mean step duration (`step_sum` / `step_count`) | **Reported, never gated.** The host's own drift floor is 13–20.5%, larger than six competing CPU-bound processes. A speed threshold here would fire on an idle machine. A 10× slowdown with matching work still **PASS**es (`speed.gated` is always `false`). |
+
+Do not gate on `aggregate.csv`'s `wall_seconds` or `manifest.json`'s `timings.drive`. Both are de-ratified (plot/stack overhead, and 5 s poll quantization). The resolving instrument is the cascor step-duration histogram in `$RUN_DIR/artifacts/results/metrics_series.csv`. Recurrence has no equivalent timing surface yet (P2 item 3.1).
+
+### Identity first
+
+A `step_count` difference only means "the code moved" when both sides ran the **same workload**. Collapsing a config edit into a work FAIL is how a gate earns a reputation for lying and gets switched off while still green.
+
+| Condition | Verdict | Exit | What it is |
+|-----------|---------|------|------------|
+| Fingerprint missing from the baseline, candidate mixed/unknown, candidate `work_invariant` broken, or host identity differs | **REFUSED** | `2` | Invalid comparison, not a regression |
+| Same workload, `step_count` differs, no waiver | **FAIL** | `1` | Work regression — the gate firing correctly |
+| Same workload, `step_count` matches | **PASS** | `0` | Speed is printed; it cannot fail the gate |
+| Same workload, `step_count` differs, `--accept-work-change REASON` | **WAIVED** | `0` | Blesses a **work** change. Never PASS. Never overrides a refusal. |
+
+`registry.jsonl`'s `config_sha256` **cannot** serve as identity: it hashes `experiment.description`, so PF-1's five repeats are five hashes. `workload_fingerprint` strips `experiment.description` / `name` and keeps `seed` and `training.params.*`.
+
+Measured on the real artifacts (the case the design exists for):
+
+- Recalibrated PF-1 vs its own baseline → **PASS** (`1770 == 1770`, exit `0`).
+- Pre-cascor#618 PF-1 vs that baseline → **REFUSED** (workload `d09edcc1…` not in baseline `52184ba2…`, exit `2`). Without the precondition the gate would have reported a **127% WORK REGRESSION** (4012 vs 1770) for a different config.
+
+### CLI
+
+Path-invoked. `--suite` is repeatable. Default `--run-root` is `~/.local/state/juniper-experiments` (same as `make_baseline.DEFAULT_RUN_ROOT`). Baseline files are `<run-root>/baselines/<tag>/baseline.json` and `HOST.json`.
+
+```bash
+python util/experiments/compare_baseline.py --baseline t --suite S --json
+python util/experiments/compare_baseline.py --baseline t --suite S \
+  --accept-work-change "cascor#618 raised the epoch budget"
+```
+
+`--json` emits the typed verdict (parseable; `verdict` is `PASS` / `FAIL` / `WAIVED` / `REFUSED`). Missing tag, unreadable `baseline.json`, or a whitespace-only waiver reason → exit `2` on stderr, no comparison.
+
+`--suite` is repeatable. On #1622, **any** leftover refusal reason wins the whole verdict — a sibling identity miss collapses a real work FAIL to exit `2`, which callers treat as "not a code problem". [juniper-ml#1626](https://github.com/pcalnon/juniper-ml/pull/1626) changes that: FAIL wins over a sibling refusal unless the host is blocked (host mismatch still REFUSES even when work also moved). Until #1626 lands, compare one suite at a time if you need FAIL to stay visible.
+
+An empty candidate (no `registry.jsonl` / no cells) is REFUSED, not a vacuous PASS. A config edit that keeps `step_count` identical is still REFUSED (identity), not PASS — the silent-green complement of the 4012-vs-1770 case.
+
+Cut the baseline first with `python util/experiments/make_baseline.py --tag <tag> --suite SUITE_DIR` (operator-invoked; no `--force`; tags supersede **by name**). Full reader/baseline contract: docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) and [`notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) §4.
+
+### Host split
+
+`compare_host` splits `HOST.json` differences:
+
+| Class | Fields | Effect |
+|-------|--------|--------|
+| **Blocking** (P1 §2: "same hardware, same thread budget") | `cpu_model`, `cpu_count`, `thread_budget` | Any mismatch → **REFUSED** |
+| **Advisory** | `versions.torch`, `versions.numpy`, `versions.python_runs` | Reported; **PASS** still allowed. Refusing here would make a routine dependency bump un-comparable. |
+| **Not compared** | `total_ram_kb`, `gpu_present`, `platform`, `versions.python_tool` | Ignored by the comparator |
+
+Candidate host is rebuilt by `make_baseline.collect_host` from the candidate manifests **plus this interpreter** (torch/numpy come from the tool, not the run). Same fidelity caveat as cutting the baseline: a HOST.json whose torch was read under a different Python than the runs is worse than one that says it could not tell.
+
+### Waiver
+
+`--accept-work-change` requires a non-empty reason (whitespace-only is refused, exit `2`). It yields **WAIVED**, never PASS, and records the reason. Prefer cutting a **new baseline** — they supersede by name and are cheap.
+
+A waiver blesses a WORK change, never an invalid comparison. Passing it on a REFUSED run does **not** override the refusal (exit stays `2`). The renderer must not claim otherwise: under REFUSED it prints `had NO effect`, not `WAIVED by operator`. Found by running it — the first draft had the exit code right and the words wrong, and the words are what an operator acts on.
+
+### Pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Exit `2` treated as a work regression | REFUSED is identity/host/incoherent-candidate, not FAIL. Distinct on purpose — do not `set -e` them together. |
+| `--accept-work-change` on a config-edit suite | No effect. Cut a new baseline; the waiver cannot "compare anything to anything". |
+| Renderer says `WAIVED by operator` but exit is `2` | Bug class pinned by `test_render_does_not_claim_a_waiver_that_had_no_effect`. Current source prints `had NO effect`. |
+| Using `config_sha256` as "same workload" | Hashes `experiment.description`. Use `workload_fingerprint`. |
+| Mixed known + missing cell YAML looks like one workload | On `main` (`#1613`) and #1622, `summarise` drops `None` before uniqueness, so one identified cell plus one unknown/unmeasured cell can **PASS**. [juniper-ml#1617](https://github.com/pcalnon/juniper-ml/pull/1617) / [#1626](https://github.com/pcalnon/juniper-ml/pull/1626) refuse on the rows. Until they land, do not compare a suite with a missing `cells/*/experiment.yaml`. |
+| Repeatable `--suite`: FAIL became exit `2` | #1622: leftover reasons win, so a sibling REFUSE hides a work FAIL. Compare one suite, or wait for #1626 (FAIL wins unless host-blocked). |
+| Adding a speed threshold | There is no threshold field **by design**. Item 1.5 closed that question. |
+| Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
+
+Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
 
 ---
 
@@ -6903,6 +7115,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.45  | 2026-09-04 | Recurrence work is not countable (#1683): kind detection from `timings.train`, `work_countable` third state, `make_baseline` / `compare_baseline` refuse rather than mis-gate PF-5/6/7 |
 | 0.6.44  | 2026-09-04 | Cascor Primary Freeze Tell: `cascor_freeze_tell.py` exact-prefix hold test (not substring); sibling client/worker and both worktree roots excluded; exit 0 is "no user-owned importer", never "no importer" |
 | 0.6.46  | 2026-09-04 | Experiment stats summary (SS8.3): how to read `stats.json` / `summary.md` — de-ratified `wall_seconds`, per-poll step-duration honesty, `scrape_confirmed` tri-state, recurrence timings under `outcome.timings` |
+| 0.6.19  | 2026-09-04 | Perf-lane split comparator (`compare_baseline.py`, #1622): identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask a refusal, host block vs advisory |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |

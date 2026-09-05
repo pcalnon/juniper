@@ -54,6 +54,9 @@
 | `python util/experiments/read_run_metrics.py --run RUN_DIR --json` | Read ratified perf metrics; recurrence → `work_countable: false` (use JSON; the table is cascor-shaped) |
 | `jq '.outcome.timings' $RUN_DIR/artifacts/results/stats.json` | Read Wave 2.6 timings; recurrence train/crossval live here, not under `.recurrence` |
 | `jq '.cascor.training_step_duration.basis, .provenance.metrics_scraped.scrape_confirmed' $RUN_DIR/artifacts/results/stats.json` | Per-poll (not per-step) p50/p95; scrape_confirmed is tri-state |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified `step_count` / `mean_step_seconds` (not `wall_seconds` / `timings.drive`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
@@ -657,6 +660,18 @@ unmade owner decision (§6 of the P1 design).
 Full contract: [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate).
 
 Tip: default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols (data#354). Cost is per request, so the cap is in **symbols**, not bytes. Set `symbols: [AAPL, …]` (E-H already does) or `allow_truncation: true`. A request may only *lower* `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS`. `experiment_stack.bash` sets the cache dir, not the cap. Full contract: [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
+
+Tip: do **not** gate on `aggregate.csv` `wall_seconds` or `manifest.timings.drive` (poll-quantized).
+`python util/experiments/read_run_metrics.py SUITE_DIR` reads the last `metrics_series.csv` row.
+`step_count` is exact and fail-on-mismatch (#1613); speed is reported only.
+`config_sha256` is not workload identity (it sees `experiment.description`).
+`make_baseline` is operator-invoked, has no `--force`, and refuses mixed fingerprints.
+See [REFERENCE — Perf-lane metrics](REFERENCE.md#perf-lane-metrics-and-baselines).
+
+Tip: `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` is the split comparator (#1622).
+Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`), not a work FAIL (exit `1`). Speed cannot fail the gate.
+`--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
+Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
 
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
