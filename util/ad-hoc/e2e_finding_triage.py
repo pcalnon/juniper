@@ -33,6 +33,17 @@ from pathlib import Path
 DEFAULT_NOTE = "notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md"
 ORDER = {"P0": 0, "P0/P1": 1, "P1": 2, "P2": 3, "CRITICAL": 0, "LEDGER": 4, "?": 5}
 
+# First severity token ANYWHERE in the bolded header body — not only the
+# parenthetical. A header that names another severity in prose before
+# ``(LEDGER; …)`` is triaged as that severity (F-CANOPY-037 / F-E2E-007).
+_PRI_RE = re.compile(r"\b(P0/P1|P0|P1|P2|CRITICAL|LEDGER)\b")
+
+
+def pri_of(body: str) -> str:
+    """Return the first severity token in ``body``, or ``?`` if none."""
+    match = _PRI_RE.search(body)
+    return match.group(1) if match else "?"
+
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
@@ -47,10 +58,6 @@ def main() -> int:
         if fid in seen:
             continue
         seen.add(fid)
-
-        def pri_of(b: str) -> str:
-            pm = re.search(r"\b(P0/P1|P0|P1|P2|CRITICAL|LEDGER)\b", b)
-            return pm.group(1) if pm else "?"
 
         tail = body[-170:]
         fixed = bool(re.search(r"\bFIXED\b|\bHEALED\b", tail, re.I))
