@@ -131,6 +131,7 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore for the click-by-click ledger (fill is dry-run; set-verdicts is not)
 - [F-CANOPY-027 Poller Starvation Probes](REFERENCE.md#f-canopy-027-poller-starvation-probes) -- 12-slot dash-renderer starvation (FIXED); do not add a new Interval; isolated stack only
 - [Worktree Divergence / in-use probe](REFERENCE.md#worktree-divergence-is-a-memory-cost) -- cwd-only liveness is not enough; STRONG cwd/open-fd vs WEAK cmdline
+- [Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) -- header-only P0/P1 open-count; ACCEPTED is a third disposition; always exits 0
 - [Perf-lane metrics and baselines](REFERENCE.md#perf-lane-metrics-and-baselines) -- `read_run_metrics.py` / `make_baseline.py`; gate `step_count` exactly, never `wall_seconds` or `timings.drive`
 - [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- `compare_baseline.py`: identity first, work exact / speed reported, exit 0/1/2 (#1622)
 - [Shared-Package CI Workflows](REFERENCE.md#shared-package-ci-workflows) -- the six in-repo `ci-<pkg>.yml` contracts (paths, floors, coverage enforce)
