@@ -351,3 +351,81 @@ class TerminationBranchTest(unittest.TestCase):
             payload, host = _baseline(Path(tmp), "t", base)
             cand = _suite(Path(tmp), "cand", reason=None)
             self.assertEqual(cb.compare(payload, host, [cand])["verdict"], cb.REFUSED)
+
+
+class FailOpenRegressionTest(unittest.TestCase):
+    """The two fail-open holes `ml#1733` shipped, and the vacuous test that hid one.
+
+    Both were found by validating the FIX rather than re-validating the original claim.
+    """
+
+    def test_truncation_is_detected_from_OUTCOME_in_the_production_shape(self):
+        """The driver writes ``outcome=timed_out`` while the service is still TRAINING, so
+        ``completion_reason`` stays None. The original guard matched the truncating names against
+        ``completion_reason`` and could never fire: across 370 manifests those names appear ONLY in
+        ``outcome``, and all 15 driver-stopped runs carry ``completion_reason=None``.
+
+        The original test passed only because its fixture wrote "timed_out" into the reason field —
+        a shape production never produces. This asserts the real one.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _suite(Path(tmp), "s", reason="early_stopped")
+            row = rrm.read_suite(suite)[0]
+            mpath = Path(row["run_dir"]) / "manifest.json"
+            m = json.loads(mpath.read_text())
+            m["outcome"] = "timed_out"
+            m["completion_reason"] = None
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(summary["truncated_terminations"], ["timed_out"], "truncation must be read from outcome, not completion_reason")
+
+    def test_a_MIXED_null_reason_no_longer_reads_as_one_branch(self):
+        """`4x early_stopped + 1x None` used to read as a single branch, because the reason set was
+        built with `if r.get("completion_reason")` — dropping unknown cells BEFORE uniqueness. That
+        is fail-open on exactly the mixed case the guard exists for."""
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _suite(Path(tmp), "s", cells=2, reason="early_stopped")
+            row = rrm.read_suite(suite)[1]
+            mpath = Path(row["run_dir"]) / "manifest.json"
+            m = json.loads(mpath.read_text())
+            m["completion_reason"] = None
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertTrue(summary["has_unknown_completion_reason"])
+            self.assertFalse(summary["single_completion_reason"], "a mixed known/unknown set is not one branch")
+
+    def test_an_ALL_unknown_suite_also_refuses(self):
+        # All-None must not look uniform either: one distinct value, but the value is "unknown".
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _suite(Path(tmp), "s", cells=2, reason=None)
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertFalse(summary["single_completion_reason"])
+
+    def test_the_mixed_case_REFUSES_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", cells=2, reason="early_stopped")
+            row = rrm.read_suite(cand)[1]
+            mpath = Path(row["run_dir"]) / "manifest.json"
+            m = json.loads(mpath.read_text())
+            m["completion_reason"] = None
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+            self.assertEqual(cb.compare(payload, host, [cand])["verdict"], cb.REFUSED)
+
+    def test_a_driver_stopped_candidate_REFUSES_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", reason="early_stopped")
+            for row in rrm.read_suite(cand):
+                mpath = Path(row["run_dir"]) / "manifest.json"
+                m = json.loads(mpath.read_text())
+                m["outcome"] = "torn_down_early"
+                m["completion_reason"] = None
+                mpath.write_text(json.dumps(m), encoding="utf-8")
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("torn_down_early", " ".join(result["reasons"]))
