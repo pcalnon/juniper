@@ -50,6 +50,7 @@
 - [Claude Code Action](#claude-code-action)
 - [CodeQL Analysis](#codeql-analysis)
 - [Required-Context Ruleset Writer](#required-context-ruleset-writer)
+- [Ruleset Scope Guard](#ruleset-scope-guard)
 - [Sibling Packages](#sibling-packages)
 - [Version History](#version-history)
 - [Build and Release](#build-and-release)
@@ -2124,6 +2125,11 @@ Review catch on [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/161
 - `tests/test_agents_frontmatter.py` -- Suite-wide frontmatter gate over every `.claude/agents/*.md` (the `prompt-validator` plus the round-2 `planner` / `auditor` / `task-executor`): `name` equals the filename, the `description` is substantive, `tools` are declared, the body is non-trivial, and the owner-directed defaults `model: opus` + `effort: max` hold -- so a new agent cannot drift from the standing defaults. The shared invariant complementing `test_prompt_validator_contract.py`.
 - `tests/test_ci_tools_drift.py` -- Lint test (dep-docs plan §5.1) for `juniper-ci-tools` pins. Mirrors `test_doc_tools_drift.py`: walks juniper-ml's own workflows (`ci.yml`, `main-verify.yml`, `lockfile-update.yml`, `docs-full-check.yml`) plus each cloned consumer repo's `ci.yml`, extracts the `juniper-ci-tools>=X,<Y` pin, and asserts the range still admits current (read from `juniper-ci-tools/pyproject.toml`). Same skip semantics + `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1` override as the doc-tools sibling.
   - Also carries the **sequence-safety anti-resurrection gate** (rollout W3 / plan §W3 step 3.3): `SequenceSafetyPackageMigrationTest` asserts juniper-ml's tree has no resurrected inline `util/sequence_safety/` copy or the two moved screen tests (a synthetic-fixture negative proves it bites); `main-verify.yml` in the scanned workflows enforces the two new `>=0.8.0,<0.9.0` screen pins still admit current.
+- `tests/test_ruleset_scope_guard.py` -- Hermetic gate for `util/ruleset_scope_guard.py` (`util/` is outside every pre-commit Python hook).
+  - `~DEFAULT_BRANCH` passes; `~ALL` fails naming the ruleset and the `29110` rows it re-arms; one-wide-among-narrow still fails.
+  - Empty ruleset list exits 2 (not clean); a failed probe exits 2 not 0; `_get` retries then recovers; `getter` is call-time so tests can patch it.
+  - Source must not read `bypass_actors` (redacted unauthenticated). `FleetListDriftTest` pins `FLEET` to the release-train registry publishers plus `juniper-deploy`.
+  - Operator surface: [Ruleset Scope Guard](#ruleset-scope-guard).
 - `tests/test_coverage_gap_mapper_drift.py` -- Dogfood/drift gate (E-4 + C-0) for the `juniper-coverage-gap-map` console script in `juniper-ci-tools` (modeled on `test_ci_tools_drift.py`). STRUCTURAL: script registered, `_version.py` matches version, pins admit it, `--enforce`/`--fail-under-*`/`--omit` wired. END-TO-END (C-0): `--enforce` exits 1 on a gap / 0 clean over a synthetic `coverage.json`. Full matrix in `juniper-ci-tools/tests/`.
 - `tests/test_env_drift_check_drift.py` -- Structural drift gate for the `juniper-env-drift-check` console script (env floor-drift guard, test-suite audit §10.1).
   - Mirrors `test_coverage_gap_mapper_drift.py`: asserts the entry point is registered (`juniper_ci_tools.cli_env_drift_check:main`), both module halves ship, version/pin coherence, **plus a class guard** that *every* `juniper_ci_tools/cli*.py` has a `[project.scripts]` entry.
@@ -2260,6 +2266,11 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/soak_next_probe.py` -- Unprimed dispatcher for one pointer-follow soak probe. Default stdout is the **task only** (probe id on stderr). `--reveal` is scoring-only (fact / pointer / discriminator). Least-covered then registry order; pass `--probe-id` for characterisation. Tests: `tests/test_soak_next_probe.py`.
 - `util/soak_run_probe.py` -- Headless `claude -p` wrapper (dispatch, capture, mechanical retrieval channel, scoring packet). Correctness is **not** scored here. `--dry-run` must not require `claude`. Refuses terminal `BET-FAILING` / `HOLDS-AT-*` unless `--force`. Reaper P1 pidfile under `$JUNIPER_EXP_RUN_ROOT/soak-probes/` (not `reports/soak/runs/`). Tests: `tests/test_soak_run_probe.py`. Operator surface: [`docs/REFERENCE.md` § Pointer-Follow Soak](#pointer-follow-soak).
 - `util/soak_ledger.py` -- Append-only pointer-follow soak ledger (`probe-run` / `record` / `report` / `status` / `verify-probes` / `resolve` / `rescore`). Seeded arm decides; organic arm describes. Wilson interval vs 0.75; `source-recovered` stays in the follow-rate denominator. `status` exits 1 when action is due. Tests: `tests/test_soak_ledger.py`. Operator surface: [`docs/REFERENCE.md` § Pointer-Follow Soak](#pointer-follow-soak).
+- `util/ruleset_scope_guard.py` -- Token-free GET-only guard that fails if any Juniper ruleset is scoped `~ALL` instead of `~DEFAULT_BRANCH`.
+  - Removing the dependabot (`29110`) / Copilot (`1143301`) bypass rows on 2026-08-23 is safe only while that scope holds; `~ALL` re-evaluates `creation` on every branch and those rows become load-bearing again.
+  - Reports **scope only** (`bypass_actors` is redacted unauthenticated — row checks belong in `util/ad-hoc/2026-08-23_bypass_removal_verify.py`).
+  - Exit 0/1/2, fail-closed (empty list and probe failure are **not** clean). CI job `Ruleset Scope Guard` is a hard Quality Gate need.
+  - Operator surface: [Ruleset Scope Guard](#ruleset-scope-guard). Tests: `tests/test_ruleset_scope_guard.py`.
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
 - `util/ad-hoc/e2e_seg17_topology_driver.py` -- `--step` is order-preserving on one browser page; `topostate` must run first or alone or M-TOPOLOGY-18 reports `INDETERMINATE`. The module docstring's `W4-01..17` / `W1-12..14` list is **correct** (matrix §4 steps); three of its step→row aliases are not. Operator surface: [§ Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids). Scorer predicates remain in-flight docs #1675.
@@ -2711,6 +2722,7 @@ juniper-ml/
     ├── agent_suite_doctor.py             # Custom-agent suite: read-only health check (dogfood; OK/WARN/FAIL over every layer)
     ├── agent_suite_summary.py            # Custom-agent suite (P3): quick-reference listing of agents + templates
     ├── worktree_cleanup.bash             # V2 cleanup orchestrator (CWD-safe)
+    ├── ruleset_scope_guard.py            # Token-free GET-only ~ALL-scope guard (Quality Gate hard need; bypass rows NOT checked)
     ├── worktree_new.bash                 # Creates new git worktree
     ├── worktree_activate.bash            # Bash helper for worktree activation
     ├── worktree_close.bash               # Removes a worktree, branch, and prunes
@@ -2980,12 +2992,68 @@ A repo whose sampled rollups are all dropped (or that has no recent PRs) has `re
 
 Dedicated unittest arm is **not on main** (open juniper-ml#1670). Complementary gates that *are* on main: `tests/test_require_context_safely.py` (writer), `tests/test_ruleset_scope_guard.py` (`~ALL` scope), `tests/test_wait_for_checks.py` (required-context waiter).
 
+Related: both rulesets are `~DEFAULT_BRANCH`-scoped on purpose. The companion that fails a re-scope to `~ALL` (which would re-arm deleted bot bypass rows) is [Ruleset Scope Guard](#ruleset-scope-guard).
+
+## Ruleset Scope Guard
+
+`util/ruleset_scope_guard.py` fails if any Juniper ruleset is scoped `~ALL` instead of `~DEFAULT_BRANCH`. The CI job name is **`Ruleset Scope Guard`** (`ruleset-scope-guard`). It is a **hard Quality Gate need** (`tests/test_ci_quality_gate.py` `REQUIRED_NEEDS`): it runs on every event, including `push:main`, so folding it into `required-checks.needs` does not paint pushes red the way the PR-only soak jobs would.
+
+### Why `~ALL` is a hole
+
+On 2026-08-23 the `dependabot[bot]` (`29110`) and `Copilot SWE Agent` (`1143301`) bypass rows were removed from all 9 repos. That removal is safe **only while every ruleset stays `~DEFAULT_BRANCH`-scoped**:
+
+- Under `~DEFAULT_BRANCH`, the `creation` rule is evaluated only when creating the default branch — which no bot ever does — so those rows were inert and removing them changed nothing.
+- Under `~ALL`, `creation` is evaluated on **every** branch, including `dependabot/*`. The rows were genuinely load-bearing there: that is exactly what the 24 `creation: fail` bypass events between 2026-07-20 and 2026-08-10 were.
+
+Re-scoping any ruleset back to `~ALL` silently re-arms a dependency on rows that no longer exist. The symptom is dependency PRs stopping fleet-wide, with nothing pointing at the cause. Determination and evidence: [`notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md`](../notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md).
+
+### What it does **not** check
+
+**Bypass-row presence.** `bypass_actors` is redacted for unauthenticated callers. This guard is deliberately token-free so it can run on any PR without a secret. It reports scope only, and says so on stdout (`bypass rows are NOT checked`). For the row half use the authenticated `util/ad-hoc/2026-08-23_bypass_removal_verify.py`.
+
+That split is load-bearing: a token-free tool that appeared to verify rows would report a redacted field as empty — looking green while checking nothing. `ScopeContractTest` pins that the source does not `get("bypass_actors")`.
+
+The tool is **read-only** (GET only). It never PUTs a ruleset and never adds or amends required contexts.
+
+### Usage
+
+python3 util/ruleset_scope_guard.py                  # this repo only (per-PR / CI default)
+python3 util/ruleset_scope_guard.py --fleet          # all 9 repos (manual)
+python3 util/ruleset_scope_guard.py --repo juniper-data --json
+
+`--fleet` and `--repo` are mutually exclusive. Default repo is `juniper-ml`. `FLEET` is a stdlib-only list kept in lockstep with the release-train registry's publishing repos plus `juniper-deploy` (`FleetListDriftTest` — adding a sibling means updating this list too).
+
+No token is required: all 9 repos are public and `GET /repos/{o}/{r}/rulesets[/{id}]` answers 200 unauthenticated. `GITHUB_TOKEN` / `GH_TOKEN` is used when present purely for the higher rate limit (60/hr unauthenticated is per-IP and shared on hosted runners). CI passes `secrets.GITHUB_TOKEN`.
+
+
+| Code | Meaning |
+|------|---------|
+| 0 | every ruleset narrowly scoped |
+| 1 | at least one `~ALL` ruleset — the guard firing |
+| 2 | could not verify (probe failed after retries) **or** no rulesets found at all |
+
+Both non-zero codes fail the job on purpose (fail-closed). An empty ruleset list is **not** a pass — the repo is unprotected, or the probe degraded. A failed `_get` raises `ProbeError` rather than returning `[]` / `None` (a failed probe that reads as "nothing found" reports a broken check as clean). Transient flakiness is absorbed by 3 retries with backoff, not by treating an unverifiable result as a pass.
+
+`audit_repo`'s `getter` resolves at **call** time, not definition time — a `getter=_get` default would bind the original function object and make the module attribute unpatchable, so the hermetic tests would silently hit the network.
+
+### Repair
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Exit 1, `FAIL: N ruleset(s) scoped ~ALL` | Re-scope the named ruleset to `~DEFAULT_BRANCH`, **or** restore the dependabot (`29110`) / Copilot (`1143301`) bypass rows deliberately and update the determination note |
+| Exit 2, `COULD NOT VERIFY` | Not the same as clean. Re-run; if it persists, check `api.github.com` before assuming the rulesets are fine |
+| Exit 2, `no rulesets found at all` | Unprotected repo or a degraded empty list — never treat as a pass |
+| Quality Gate red, this job skipped | Membership in `required-checks.needs` is not decorative: the gate runs `if: always()` and tests each `needs.<job>.result` — a job listed with no `if` arm in the script gates nothing (`test_ci_quality_gate.py`) |
+
+CI wiring: `.github/workflows/ci.yml` job `ruleset-scope-guard` (`needs: [pre-commit]`). Gate: `python3 -m unittest -v tests/test_ruleset_scope_guard.py`. Hermetic: `_get` is monkeypatched; no network. Coverage includes narrow pass, `~ALL` fail naming the ruleset and the `29110` rows, one-wide-among-narrow, empty list → 2, probe failure → 2 not 0, retry-then-recover, and the `bypass_actors` source pin.
+
 ## CI/CD Workflow Inventory
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
 
-- `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the `Sequence Safety` and advisory `Fleet PR Lint` (`cursor/*`) standalone jobs, build, docs, security, dependency docs.
+- `.github/workflows/ci.yml` -- Main CI pipeline: pre-commit (G4 changed-files split — `pull_request` / `merge_group` use `--from-ref <BASE> --to-ref HEAD`; `push` keeps `--all-files`), unit tests, release-train archive-guard (PR-only), the `Sequence Safety` and advisory `Fleet PR Lint` (`cursor/*`) standalone jobs, build, docs, security, dependency docs, **Ruleset Scope Guard**, `sops-validation`.
   - **`Sequence Safety` is a REQUIRED status check**, despite reading as advisory. Its `allow-symbol-loss` / `docs-rewrite` labels are WARN-only and do **not** unblock a merge; only an `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite: <path>` **commit trailer** waives a finding.
+  - **`Ruleset Scope Guard`** (`ruleset-scope-guard`) is a **hard Quality Gate need** (runs on every event, including `push:main`). It asserts no ruleset is scoped `~ALL`. Operator surface: [Ruleset Scope Guard](#ruleset-scope-guard).
 - `.github/workflows/main-verify.yml` -- Post-merge main-verification (P2 gate G3): on `push:main` (per-SHA, no-cancel) it installs `juniper-ci-tools` (>=0.8.0) and runs the `juniper-symbol-loss-check` (explicit ml `--scope`) + `juniper-docs-additions-check` screens over `BASE..<merge>` (`sequence-safety-report`), a path-gated battery mirror + failure-only `notify`. G3.1 CATCH-UP BASE = last successful main-verify tip that is an ancestor of HEAD, else `github.event.before`, else `HEAD^1`.
 - `.github/workflows/publish.yml` -- Meta PyPI publish: TestPyPI **Gate 1** two-phase verify (TestPyPI-only download, then local-wheel bare -> `[clients]` -> `[tools]` against PyPI only; never `--no-deps` on the installs, never `--extra-index-url`, never the heavy extras; provenance fetch is a 10×6s poll, not `sleep 30`), then PyPI (`needs: testpypi`, OIDC).
   The `build` job is tag-guarded to `v*` Releases so a `juniper-<pkg>-v*` Release cannot fire the meta publisher.
@@ -4852,6 +4920,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.18  | 2026-09-04 | Pointer-follow soak operator surface: seeded vs organic, characterisation vs least-covered, `source-recovered` denominator, retrieval-channel / `parse_events` pitfalls (#1616) |
 | 0.6.19  | 2026-09-04 | Dual unittest entry-point trap (#1612 synchronize): `python3 tests/<file>.py` misses `TestCase` classes below `__main__`; CI's `-m unittest` does not. Keep `__main__` at EOF |
 | 0.6.19  | 2026-09-04 | Perf-lane split comparator (`compare_baseline.py`, #1622): identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask a refusal, host block vs advisory |
+| 0.6.21  | 2026-09-04 | Ruleset Scope Guard operator surface: `~ALL` re-arms deleted dependabot/Copilot bypass rows; token-free GET-only (bypass rows NOT checked); exit 0/1/2 fail-closed; Quality Gate hard need |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
