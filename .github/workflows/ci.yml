@@ -1020,6 +1020,12 @@ jobs:
           python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
           # tests/test_e2e_append_statuses.py: Hermetic gate for the E2E TSV verdict appender, which shipped with zero tests: which column a verdict lands in, and that an append does not rewrite a neighbouring row.
           python3 -m unittest -v tests/test_e2e_append_statuses.py
+          # tests/test_e2e_topology_row_predicates.py: The three M-TOPOLOGY row predicates, extracted from `util/ad-hoc/e2e_seg17_topology_driver.py` into `util/ad-hoc/e2e_topology_row_predicates.py` so they can be unit-tested at all: `util/` is outside every pre-commit Python hook. Pins that M-TOPOLOGY-06 requires the label AND the count (an OR over two independent claims scores the easier one), that M-TOPOLOGY-07 asserts the label it reads, and that M-TOPOLOGY-12's absent-control case is BLOCKED rather than FAIL.
+          python3 -m unittest -v tests/test_e2e_topology_row_predicates.py
+          # tests/test_e2e_topology_score_contracts.py: Heatmap / export / store-gate score contracts extracted into `util/ad-hoc/e2e_topology_score_contracts.py`: what each row's verdict actually turns on, and which inputs must make it FAIL rather than being recorded as decoration.
+          python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
+          # tests/test_e2e_topology_step_order.py: `--step` parsing extracted into `util/ad-hoc/e2e_topology_step_cli.py`: order is preserved, an unknown step is rejected loudly rather than silently skipped, and the driver walks the WANTED list rather than the registered one.
+          python3 -m unittest -v tests/test_e2e_topology_step_order.py
 
       - name: Run bash regression tests
         run: |
