@@ -487,8 +487,14 @@ no highlight animation is active (`:406-413`).
 > rows here. *Correction 2026-09-02: those walkthrough ids are NOT "tracked in the plan document" —
 > `W4-` and `W1-1` appear **zero** times in
 > `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`. They exist only in this matrix
-> and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`. A reader who went looking in
-> the plan would find nothing and could reasonably conclude the ids had been retired.*
+> and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`. They are DEFINED as the numbered steps of
+> §4's `### W4` (17 steps, `:1005-1023`) and `### W1` (19 steps) scripts; the `W<n>-NN` token form is
+> simply the section plus the ordinal, as used for 98 W-verdicts across `reports/e2e/*/statuses.tsv`.*
+>
+> *Correction 2026-09-04: the sentence above originally ended "…could reasonably conclude the ids had
+> been retired" — a speculation about a hypothetical reader, appended to a true fact. On 2026-09-04 a
+> reader did exactly that and filed F-E2E-007 on it. **A correction that is factually right can still
+> mis-steer when it appends a speculative consequence.** Clause removed.*
 >
 > ---
 >
@@ -589,6 +595,20 @@ no highlight animation is active (`:406-413`).
 > and -07 were *already* reading PASS — vacuously. **Both of them read PASS before this pass and FAIL
 > after it when driven against unchanged parent code**, which is the tightening rather than a
 > regression, and is the only reason their new PASS means anything.
+>
+> **CONFIRMED ON MERGED MAIN, 2026-09-04 — but this does NOT close F-CANOPY-037; see its entry.** The
+> four steps above were re-driven end to end against canopy main **`94220f0`**, which carries both fixes
+> *plus* another session's canopy#567 (every synchronous network call moved off the event loop — a
+> change that could plausibly have disturbed rendering):
+> `topo` **9 PASS**, `topoevents` **4 PASS**, `topostate` **2 PASS**, `topoexport` **1 PASS** —
+> **16 PASS / 0 FAIL across every scoreable row.** -11 and -16 stay BLOCKED on their own causes.
+>
+> **M-TOPOLOGY-18 needed a control and got one.** In the combined run it scored **INDETERMINATE**
+> (`empty_in_node_graph=False`), because its precondition — the raw-topology store still empty — is
+> destroyed by `topo`, which opens the Weight Matrix for M-TOPOLOGY-03. Re-driven **alone against the
+> same build** it scored **PASS** (`empty_in_node_graph=True`, filled in 6.6 s). The row reporting
+> INDETERMINATE rather than FAIL is the scorer working; the ordering hazard is now pinned in three
+> places in `util/ad-hoc/e2e_seg17_topology_driver.py`. **These steps are not order-independent.**
 >
 > **UPDATE, 2026-09-03 — M-TOPOLOGY-14 is scored, and it is a FAIL.** The `topoexport` step finds the
 > camera button (9 modebar buttons; they are `<BUTTON class="modebar-btn">`, **not** `<a>` — an earlier
