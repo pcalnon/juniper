@@ -394,10 +394,15 @@ class AmendPathTest(unittest.TestCase):
         gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
         self._install(gh)
         rc, out = self._run(
-            "--owner", "o", "--repo", "r",
-            "--context", "Memory Budget",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
             "--amend-integration-id",
-            "--integration-id", "57789",
+            "--integration-id",
+            "57789",
         )
         self.assertEqual(rc, 1)
         self.assertIn("REFUSING", out)
@@ -410,8 +415,12 @@ class AmendPathTest(unittest.TestCase):
         gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
         self._install(gh)
         rc, out = self._run(
-            "--owner", "o", "--repo", "r",
-            "--context", "Memory Budget",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
             "--amend-integration-id",
         )
         self.assertEqual(rc, 0)
@@ -429,8 +438,12 @@ class AmendPathTest(unittest.TestCase):
         gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
         self._install(gh)
         rc, out = self._run(
-            "--owner", "o", "--repo", "r",
-            "--context", "Memory Budget",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
             "--amend-integration-id",
             "--apply",
         )
@@ -459,8 +472,12 @@ class AmendPathTest(unittest.TestCase):
         gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published(), after_contexts=drifted)
         self._install(gh)
         rc, out = self._run(
-            "--owner", "o", "--repo", "r",
-            "--context", "Memory Budget",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
             "--amend-integration-id",
             "--apply",
         )
@@ -474,8 +491,12 @@ class AmendPathTest(unittest.TestCase):
         gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published(), after_contexts=still_none)
         self._install(gh)
         rc, out = self._run(
-            "--owner", "o", "--repo", "r",
-            "--context", "Memory Budget",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
             "--amend-integration-id",
             "--apply",
         )
@@ -489,8 +510,12 @@ class AmendPathTest(unittest.TestCase):
         gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published(), after_contexts=extra)
         self._install(gh)
         rc, out = self._run(
-            "--owner", "o", "--repo", "r",
-            "--context", "Memory Budget",
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
             "--amend-integration-id",
             "--apply",
         )

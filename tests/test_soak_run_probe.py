@@ -185,10 +185,7 @@ class EventParsing(unittest.TestCase):
         d = Path(tempfile.mkdtemp())
         p = d / "stream.jsonl"
         p.write_text(
-            '["not","an","object"]\n'
-            '"bare string"\n'
-            "42\n"
-            '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n',
+            '["not","an","object"]\n' '"bare string"\n' "42\n" '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}\n',
             encoding="utf-8",
         )
         self.assertIn("ok", mod.parse_events(p)["answer"])
