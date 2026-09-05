@@ -2099,7 +2099,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/read_run_metrics.py` -- Canonical reader for the perf-lane's two ratified inputs (P2 item 0.4). Last row of `metrics_series.csv` (`step_sum` / `step_count`); de-ratifies `wall_seconds` and `timings.drive`. `workload_fingerprint` strips cosmetic `experiment.description`/`name`. Recurrence returns `work_countable: False`. Path-invoked; `--sweep` is docstring-only. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_read_run_metrics.py`.
 - `util/experiments/make_baseline.py` -- Operator-only Q-8 writer (P2 item 1.1 / P1 §4). Writes `baselines/<tag>/{baseline.json,HOST.json,manifests/}` under `--run-root` (default `~/.local/state/juniper-experiments`).
   - No `--force`; refuses failed / unmeasured / not-invariant / mixed-workload / not-countable suites.
-  - `metric_contract` still claims `step_count` is deterministic — that claim is the thing juniper-ml#1710 refuted.
+  - `metric_contract`'s work string is **under-specified**: it still reads "deterministic for a seed-fixed config and contention-immune" without the termination-branch condition `ml#1733` established. The written `baseline.json` inherits that wording; the guard itself is correct. Known source gap.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_make_baseline.py`.
 - `util/experiments/compare_baseline.py` -- Split comparator (P2 item 1.2). WORK exact, SPEED reported never gated, identity first. Exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED.
   - **Do not wire to CI** — sound since ml#1743, but whether the run tier gates at all is an open OWNER decision (P1 design §6).
