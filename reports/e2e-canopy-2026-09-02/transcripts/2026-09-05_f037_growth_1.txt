@@ -1,0 +1,10 @@
+[t=    734ms] navigating to http://127.0.0.1:8052
+[t=   6212ms]   welcome modal not present/visible
+[t=  13812ms]   modal cleared after 1 attempt(s)
+[t=  35746ms]   start: server hidden=40 dom={'input': '0', 'hidden': '0', 'output': '0', 'conn': '0'}
+[t=  48177ms]   [t=12.4] rebuild wrote network-visualizer-graph.figure  (#1)
+[t=  49098ms]   [t=5.0] DOM hidden-count now '0'
+[t=  54102ms]   [t=18.4] *** SERVER GREW: hidden 40 -> 44 ***
+[t=  60440ms]   [t=18.4] DOM hidden-count now '40'
+[t=  74076ms]   [t=38.3] rebuild wrote network-visualizer-graph.figure  (#2)
+[t=  84355ms]   [t=44.4] DOM hidden-count now '44'
