@@ -156,6 +156,7 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local Claude Code index gate; 200/25k silent newest-first truncate; hook-not-line 120 on NEW slugs; CI cannot see `~/.claude`
 - [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; one green session is not a claim; exit 2 = failed to measure
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy event-loop blocking; slice-1a count is **58**; C5 remedy refuted
+- [Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) -- shipped NPZ still requires `*_full`; design drops it; recurrence `dataset.split: validation` is exit 2
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage

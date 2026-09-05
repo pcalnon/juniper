@@ -48,6 +48,7 @@
 - [Canopy E2E Topology Step Order and Blast-Radius IDs](#canopy-e2e-topology-step-order-and-blast-radius-ids)
 - [MEMORY.md Index Check](#memorymd-index-check)
 - [F-CANOPY-037 Render Census](#f-canopy-037-render-census)
+- [Train / Val / Test Partition Contract](#train--val--test-partition-contract)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [F-CANOPY-037 Render Census](#f-canopy-037-render-census)
 - [Docs Full Check](#docs-full-check)
@@ -3641,6 +3642,8 @@ Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-C
 
 This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
 
+Recurrence YAML still allow-lists `dataset.split` / `predict.from_dataset_split` as `{train, test, full}` — `"validation"` is exit 2. That is the shipped NPZ contract, not the closed design. Operator surface: [Train / Val / Test Partition Contract](#train--val--test-partition-contract).
+
 ### Launcher (`util/experiment_stack.bash`)
 
 | Utility | Purpose | Key overrides |
@@ -3963,6 +3966,7 @@ Coverage: `tests/test_list_runs.py` (hermetic `RUN_ROOT` fixtures; no live launc
 | `--status` says UNSCRAPED | Expected without `--grafana-bridge`; opt in only when `socat` + deploy `prometheus/targets/` are available. |
 | Driver exit `2` on YAML | Unknown block/key, missing `experiment.seed`, or rule-6 infra key — see stderr. |
 | Driver exit `2` `POST /v1/datasets rejected (422)` on csv_import | Source over the 128 MiB cap without opt-in — [CSV Import Byte Cap](#csv-import-byte-cap). |
+| Driver exit `2` `dataset.split` / `from_dataset_split` | Recurrence allow-list is `{train, test, full}`. `"validation"` is refused today; `X_val` is design-closed, not shipped. See [Partition Contract](#train--val--test-partition-contract). |
 | Driver exit `1` `stalled` / `timed_out` | Cascor: raise `--stall-seconds` / `--max-wall-seconds` only after confirming the run is still progressing; recurrence `timed_out` is the train socket budget. |
 | Missing correlation / empty plot | Correlation is only in the driver's `metrics_series.csv` (not `/v1/metrics/history`). A `/metrics` 404 degrades sampling (G-3), not the run. |
 | `--down` deleted results | `--down` must keep `artifacts/`. If results are gone, you either pointed at the wrong `RUN_ROOT` or ran `list_runs.py --prune --yes` (that path deletes the whole `RUN_DIR`). |
@@ -4426,7 +4430,7 @@ print(sorted(n for n, i in GENERATOR_REGISTRY.items() if not generator_available
 
 Against a **running** data service, the same facts come from the API: `GET /v1/generators/{name}/schema` includes `"available"`, and unavailable generators return `501` at dataset-creation time.
 
-The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`) are also the attribution roster in `util/snapshot_attribute.py`. Their `seed` fields are **not** interchangeable — five declare `None` and redraw every call unless pinned. Operator contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
+The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`) are also the attribution roster in `util/snapshot_attribute.py`. Their `seed` fields are **not** interchangeable — five declare `None` and redraw every call unless pinned. Operator contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin). `load_datasets` still reads `X_full` / `y_full` — see [Train / Val / Test Partition Contract](#train--val--test-partition-contract).
 
 `csv_import` stays in the "no optional-dep gate" row above: it is always *registered*. The I/O bound that shipped with juniper-data#326 is a **runtime** refusal, not an availability hook — [CSV Import Byte Cap](#csv-import-byte-cap).
 
@@ -4573,6 +4577,80 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 | `--write` exits 2 immediately | `--sample` or `--min-hidden` (or `--from-sidecar`) with `--write` is refused by design. |
 | Quoted counts do not match a rebuild | Pre-pin §2.1 figures are not properties of the archive. Quote the seeded table above. |
 | Chain driver errors on a missing backup file | Copy all four `snapshots_{index,classification,attribution,backfill}.jsonl` into `--backup` first. |
+| `KeyError: 'X_full'` from `load_datasets` | Expected until required-fix 0 lands a replacement. Do not add a new required-`X_full` caller; see [Partition Contract](#train--val--test-partition-contract). |
+
+---
+
+## Train / Val / Test Partition Contract
+
+The NPZ data contract still **emits and consumes** `X_full` / `y_full` (and sequence `dt_full` / `target_dt_full`). The design of record has **closed** the partitioning question and **drops** the `*_full` family from the contract — that removal is **not implemented**. Do not treat the six-key cheatsheet list as finished, and do not write new code that *requires* `X_full`.
+
+- Design of record: [`notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md`](../notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md) — read the header + §9.5 / §9.6; §§9.3–9.4 are HISTORY.
+- Implementation plan: [`notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_PARTITION-IMPLEMENTATION-PLAN.md`](../notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_PARTITION-IMPLEMENTATION-PLAN.md) (S-3 still unhomes `NPZ_SPLITS`).
+- Naming: contract keys are `X_val` / `y_val`, never `X_eval` (design §10 — Hugging Face maps `eval` → test).
+
+### Shipped today (this repo)
+
+| Surface | What it does |
+|---------|--------------|
+| `util/experiments/run_experiment.py` `RECURRENCE_SPLITS` | Allow-list `{"train", "test", "full"}`. `dataset.split` / `predict.from_dataset_split` of `"validation"` raises `ConfigError` (driver exit 2). Tests: `test_recurrence_bad_dataset_split_rejected`, `test_recurrence_bad_predict_split_rejected`. |
+| Fake NPZ in `tests/test_run_experiment.py` | Tabular and sequence fixtures still write `X_full` / `y_full` (sequence also `dt_full` / `target_dt_full`). No `X_val`. |
+| `util/snapshot_attribute.py` `load_datasets` | Reads `produced["X_full"]`, `produced["y_full"]` — "give me the whole dataset", not partition indices. |
+| `prompts/agent_templates/data/ecosystem.yaml` | Still lists `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full`. |
+
+Partitions on the producer side are cut by `shuffle_and_split` / `temporal_split_index` and are **index-disjoint by construction** (design decision 9 REVERSED). This repo does not re-implement that split; the experiment driver only *selects* a named split from an already-built NPZ.
+
+### Design — closed, not yet on the wire
+
+| Decision | Ruling | Shipped? |
+|----------|--------|----------|
+| 9 REVERSED | Keep the current carve. P-1a and P-1b abandoned. | Yes — existing generator behaviour. The arc's net effect on the split mechanism was **zero code change**. |
+| 10 COLLAPSED | No duplicate-row guard. | Yes — nothing to build. |
+| 11 | `X_full` / the whole `*_full` family leave the contract. Generators emit `train` / `val` / `test` plus metadata. | **No.** Required-fix 0. |
+| 12 | `partition_provenance` blob **inside the NPZ**, plus one ingestion gate. | **No.** Schema described, not specified. |
+| 7 | Normaliser fit on `train` only; apply those statistics unchanged to `val` and `test`. | Decision stands. The three-generator leak is **shipped** (juniper-data#314 / data#323). |
+
+**Closed companion tickets** (verified `CLOSED` on `pcalnon/juniper-data`, 2026-09-04): #314 (normaliser; data#323), #316 (circular import; data#333), #317 (`arc_agi` empty; data#318), #319 (seed defaults; data#322), #320 (Postgres schema; data#343).
+
+### Remaining work — required-fix 0 only
+
+Scoped in design §9.5.4; **none of these have started**:
+
+1. `DatasetMeta.n_samples` is `len(X_full)` today — redefine as the partition sum (`test_e2e_metadata_consistency`).
+2. Canopy's artifact validation ladder validates `X_full` (`demo_mode.py`). Re-point it or the guard is **silently lost**.
+3. The data-client preview serves the first *n* rows of `X_full` — needs a new source (`train` changes semantics slightly).
+4. `NPZ_SPLITS` (`juniper-data-client` `constants.py`) is `("train", "test", "full")` — drop `"full"`, add `"val"` (plan S-3; still unhomed).
+
+**Backward compatibility.** Stored artifacts carry `X_full`. Consumers must **tolerate** it after producers stop emitting it; only the *requirement* is dropped. The design census names cascor `data_provider.py` `required_keys` as the site that would reject absence. This repo's fixtures and `snapshot_attribute.py` still *require* the key.
+
+Items 2–4 live in sibling repos; they are listed here so a juniper-ml change that drops `X_full` from fixtures / `RECURRENCE_SPLITS` / attribution does not land first and silently break those consumers.
+
+### Operator pitfalls
+
+- **`dataset.split: validation` is refused today.** The design name for the third partition is `val` / `X_val`, but the experiment driver allow-list is still `{train, test, full}`. Adding `val` is implementation-plan Chunk 9, not a one-line YAML change.
+- **Do not index `X_full` with partition-derived indices.** Every fleet use in the design census is "the whole dataset". `util/ad-hoc/verify_*.py` masks by ticker and re-sorts by date — that pattern does not depend on `X_full` being the pre-split array.
+- **Do not treat `X_full` as uniformly normalised.** Decision 7 fits on `train` only. Until `*_full` is gone, a concatenated array can mix scales.
+- **`X_eval` is the wrong name.** Hugging Face maps `eval` → test. Contract keys are `X_val` / `y_val` (design §10).
+- **A new consumer that requires `X_full` extends the debt.** Tolerate the key on stored artifacts; read `train` / `test` (and `val` once it exists) for work.
+- **§§9.3 and 9.4 of the design are HISTORY.** Prefix-stability / P-1b / guard measurements will mislead a successor who starts there.
+
+### Example — recurrence split as shipped
+
+```yaml
+dataset:
+  generator: mackey_glass
+  split: test          # one of: train | test | full
+predict:
+  enabled: true
+  from_dataset_split: test
+```
+
+`split: validation` (or `val`) fails at YAML load with `dataset.split must be one of ['full', 'test', 'train']`. The allow-list is the shipped contract; do not "fix" a YAML by inventing `X_val` until Chunk 9 lands.
+
+### Related
+
+- Attribution still regenerates via `X_full`: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
+- Recurrence split allow-list: [Experiment Stack Utilities](#experiment-stack-utilities)
 
 ---
 
@@ -5699,6 +5777,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.32  | 2026-09-04 | Pointer-follow soak operator surface: least-covered vs characterisation, `--force` before `--dry-run` on terminal verdicts, `source-recovered` denominator, retrieval channel searches tool inputs **and** answer text, soak-probes reaper pidfile |
 | 0.6.33  | 2026-09-04 | X7 off-loop census: shipped count is **58** (52 direct + 2 `HELPER` + 4 outside `main.py`); C5 `threading.local()` remedy refuted (T-A4); callgraph guards the adapter; v1 remains the name-matching negative example |
 | 0.6.34  | 2026-09-04 | Experiment run lister / pruner (`list_runs.py`): directory-truth scan, `down`/`up?`/`stale`, `--prune` ≠ `--down`, `--run-root` ignores `JUNIPER_EXP_RUN_ROOT` |
+| 0.6.35  | 2026-09-04 | Train / val / test partition contract: shipped NPZ still requires `*_full`; design drops it (decision 11) but required-fix 0 has not started; `RECURRENCE_SPLITS` still refuses `validation` |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |

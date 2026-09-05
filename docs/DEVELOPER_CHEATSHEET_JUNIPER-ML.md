@@ -282,16 +282,21 @@ Full contract: [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-diverge
 
 ## Data Contract
 
-NPZ format: keys `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full` (all `float32`).
+**Shipped NPZ keys** (still required): `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full` (all `float32`). Sequence artifacts add `{dt,target_dt}_{train,test,full}`.
+
+**Design (closed, not on the wire):** `*_full` leaves the contract (decision 11); the third partition is `X_val` / `y_val`, never `X_eval`. Required-fix 0 has not started. Tolerate `X_full` on stored artifacts; do not write new code that requires it. Recurrence YAML `dataset.split` is still `{train, test, full}` — `"validation"` is exit 2.
 
 ```python
 from juniper_data_client import JuniperDataClient
 client = JuniperDataClient(base_url="http://localhost:8100")
 dataset_id = client.create_dataset("spiral", {"n_points": 200, "noise": 0.1})
 npz = client.download_artifact_npz(dataset_id)
+# npz.files includes X_full today; do not index it with partition-derived indices
 ```
 
 Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`, `equities`, `equities_seq`. Default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols unless `allow_truncation` is set — [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
+
+Full shipped-vs-design split: [REFERENCE — Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract).
 
 REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip, case-insensitive `http(s)://` default, require `hostname` (not `netloc`), drop trailing `/` and `/v1`. Hostless values raise `Juniper*ConfigurationError` at init. Cascor WS streams (`CascorTrainingStream` / `CascorControlStream`) and `FakeCascorClient` stay `rstrip("/")` only. Extras floors do not yet require the new wheels — see [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
 
@@ -703,6 +708,8 @@ Tip: on a failed `*_up` leg, isolated-stack `do_up` auto-calls `do_down` — exp
 
 Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disables `set -e` inside each body — critical steps need `|| return 1` or a health timeout with a live listener false-greens `--up` and skips teardown. A `--grafana-bridge` failure after healthy services tears the run down; a **staging** failure (missing `--config`) still exits between `allocate_port` and `ports.json`, so clear stale `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` by hand (open #979).
 
+Tip: NPZ still requires `X_full` / `y_full`. The partition design **drops** the `*_full` family (decision 11) but required-fix 0 has not started — tolerate the key, do not require it in new code, and do not index it with partition indices. Recurrence `dataset.split: validation` is exit 2 (`RECURRENCE_SPLITS` is `{train, test, full}`). Keys will be `X_val` / `y_val`, never `X_eval`. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract).
+
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
 
 Tip: PF-1 repeats are a **matrix axis**, not `include` entries (`include` does not inherit `matrix`). `max_epochs` and `output_epochs` must both be `4000`. `scrape_confirmed` is not `target_file_written` — five bridged PF-1 runs wrote the file while Prometheus held zero series. Thresholds are unratified; PF-4/PF-8 are not driver suites. See [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites).
@@ -797,6 +804,7 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | F-037 `sha=None` / one session "green" | Walk-up root needs both sibling repos; sample size 11 is the finding (`1/1` is not a claim). |
 | `register_open_set.py` `FileNotFoundError` | Cwd is not the repo root — the register path is relative. `cd` to juniper-ml, or run `register_status_crosscheck.py`. |
 | Register `AGREE` but a §4 cell is still OPEN | Whole-file `table_fixed` scan, or an ID-free count/rank sentence. Read the §4 row. [Close protocol](REFERENCE.md#defect-register-close-protocol). |
+| Driver exit `2` `dataset.split` / `from_dataset_split` | Recurrence allow-list is `{train, test, full}`. `"validation"` is refused; `X_val` is design-closed, not shipped. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -954,6 +962,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
 - [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap) -- 128 MiB, 422 until opt-in, experiment-stack `IMPORT_DIR` pitfall
 - [Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) -- `**FIXED` token, cwd pitfall, third reading vs the two §4 counters
+- [Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) -- shipped `*_full` vs design-closed `X_val`
 - [Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs) -- `run_suite` P2 1.4: both gate inputs in `aggregate.csv` / `REPORT.md`; `--compare-baseline` reporting only
 - [Run lister / pruner](REFERENCE.md#run-lister--pruner-list_runspy) -- `list_runs.py` directory-truth scan; `--prune` ≠ `--down`
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
