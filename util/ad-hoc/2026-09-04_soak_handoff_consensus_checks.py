@@ -56,7 +56,8 @@ def main() -> int:
         return 2
 
     wilson = load_wilson()
-    rows = [json.loads(line) for line in open(sys.argv[1], encoding="utf-8") if line.strip()]
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        rows = [json.loads(line) for line in fh if line.strip()]
 
     # A mutation record carries its OWN obs_id and names its TARGET in `invalidates` /
     # `rescores`. Keying on obs_id makes every mutation a silent no-op and inflates the
