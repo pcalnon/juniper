@@ -54,6 +54,7 @@
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
 | `python3 -m unittest -v tests/test_list_runs.py`       | Lister/pruner state + `--prune` safety pins |
 | `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step probe` | Score Topology-tab rows against isolated `:8051` (`STEPS` names only) |
+| `util/ad-hoc/2026-09-04_canopy_verify_instance.bash up SRC [PORT]` | Second canopy from a worktree (default `:8052`); does not restart `:8051` |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python3 util/ruleset_scope_guard.py` | Assert this repo's rulesets are not scoped `~ALL` (Quality Gate hard need) |
@@ -776,6 +777,8 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `WOULD PRUNE` / nothing deleted | Need `--prune --yes` without `--dry-run`. `up?` is never pruned (`SKIP (live recorded pid)`). |
 | `topo` PASS, depth label still `"0 of 40"` | Expected on `main` — M-06's `OR` can pass on the stats bar; M-07 never asserts the label. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
 | `topoevents` M-12 FAIL, `plotly_click_events=0` | Expected on `main` — empty-space click is unreachable. Do not `gd.emit`. |
+| `topo` FAIL, depth label still `"0 of 40"` | Expected until F-CANOPY-042 lands in the product — M-06 now requires **both** halves; M-07 requires `"all"`. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
+| `topoevents` M-12 BLOCKED / no Clear button | Build predates `-clear-selection`. Empty-space `plotly_click_events=0` is recorded, not a FAIL. Do not `gd.emit`. |
 | `unknown step(s)` from the topology driver | Name is not in `STEPS`. `topostate` / `topoexport` are valid; `w1grow` / `toposel` are not. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
