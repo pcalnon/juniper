@@ -93,6 +93,8 @@
 | `python3 util/ad-hoc/e2e_matrix_fill.py --verdicts TSV` | Dry-run fill of C2.*/M-* status cells (pass `--write` to apply) |
 | `LD_LIBRARY_PATH= python util/ad-hoc/e2e_f027_queues.py --tab 'Candidate Metrics'` | F-CANOPY-027 queued-vs-unwired probe (live isolated canopy; `JuniperCanopy1`; `JUNIPER_E2E_CANOPY_URL` default `http://127.0.0.1:8051`) |
 | `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT [WT ...]` | Wider in-use check: STRONG cwd/open-fd exit 1; WEAK cmdline is CAUTION only |
+| `python3 util/ad-hoc/e2e_finding_triage.py`                | Canopy E2E ledger triage (header-only; ACCEPTED ≠ FIXED ≠ OPEN) |
+| `python3 util/ad-hoc/e2e_finding_triage.py --open-only`    | Same, hide FIXED/ACCEPTED rows (totals still include them) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -716,6 +718,8 @@ Tip: the canopy E2E matrix is a 298-row ledger. `e2e_matrix_fill.py` is dry-run 
 
 Tip: before removing a worktree you did not just leave, run the cwd-only liveness probe **and** `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT`. An editor whose cwd is elsewhere while a file in the tree is open is invisible to cwd-only. STRONG (cwd/open-fd) exits 1; WEAK cmdline is CAUTION and must not fail the process (the probe's own argv used to report every tree in use). Empty argv exits 2. See [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-divergence-is-a-memory-cost).
 
+Tip: Phase 2 exit is "every P0 and P1 closed or explicitly deferred". Run `python3 util/ad-hoc/e2e_finding_triage.py` rather than a hand list. It reads only the finding **header**; ACCEPTED is a third disposition (not FIXED, not OPEN); `--open-only` still prints full totals; exit is always 0. See [REFERENCE — Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage).
+
 
 ### Host Stack Troubleshooting
 
@@ -754,6 +758,9 @@ Tip: before removing a worktree you did not just leave, run the cwd-only livenes
 | `set_verdicts` wrote with no prompt | No dry-run. Review `--from` / `--set` before invoking. |
 | Planned next segment from `e2e_row_coverage.py` | Estimator. Use `e2e_unfilled_rows.py` against the ledger. |
 | Isolated canopy live but Candidate Metrics / Decision Boundary / Topology frozen at mount defaults | 12-slot starvation, not unwired. `e2e_f027_queues.py` first (queued-and-stuck vs never queued). Do **not** add a new Interval. See [REFERENCE — F-CANOPY-027](REFERENCE.md#f-canopy-027-poller-starvation-probes). |
+| Finding triage still shows an OPEN P0 after the body says FIXED | Disposition is the last 170 chars of the **header**, not the body. Put `FIXED` / `HEALED` / `ACCEPTED` in `**F-… — …**`. |
+| Finding triage counts ACCEPTED as still blocking Phase 2 | ACCEPTED is owner-deferred, not OPEN. `--open-only` hides it; totals still list `accepted`. |
+| Finding triage exit 0 with open P0/P1 | Always exits 0. Read the totals block. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
@@ -944,6 +951,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local `MEMORY.md` gate; hook-not-line; CI cannot see `~/.claude`
 - [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` (restore `-xjf`); not the Duplicati `$HOME` lane
 - [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- required-context classifier; 2026-08-10 class; text-mode 0 can still carry `ERROR:`
+- [Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) -- header-only parser; ACCEPTED is a third disposition
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore; do not plan from `e2e_row_coverage.py`

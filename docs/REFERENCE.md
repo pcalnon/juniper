@@ -28,6 +28,7 @@
 - [F-039 Store Probe](#f-039-store-probe)
 - [Canopy E2E Matrix Writes](#canopy-e2e-matrix-writes)
 - [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes)
+- [Canopy E2E Finding Triage](#canopy-e2e-finding-triage)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Resident-Hazard Gap Triage](#resident-hazard-gap-triage)
 - [Ruleset Context Audit](#ruleset-context-audit)
@@ -1471,6 +1472,53 @@ These scripts are **not** CI. They need a live Dash page and Playwright/`e2e_w3_
 
 ---
 
+## Canopy E2E Finding Triage
+
+Phase 2's exit criterion ([the frontend validation plan](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md) §6.3) is "every P0 and P1 closed or explicitly deferred with owner sign-off". [`util/ad-hoc/e2e_finding_triage.py`](../util/ad-hoc/e2e_finding_triage.py) is the mechanical count of that ledger. Do not hand-maintain a parallel open list — it drifts.
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
+
+Default ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md). Override with `--note PATH`.
+
+### What it reads
+
+Only **line-starting** bold headers of the form `**F-<AREA>-<NNN> — …**` (optional trailing letter, e.g. `F-CANOPY-041b`). The body is non-greedy to the first closing `**`. Finding prose below the header, later mentions of the same id, and indented headings are invisible.
+
+The first heading for an id wins. A later restatement of the same id is skipped.
+
+### Dispositions
+
+Tokens are taken from the **last 170 characters** of the header body (the text between the em-dash and the closing `**`), case-insensitive whole words:
+
+| Token in that tail | Printed | Counts as |
+|--------------------|---------|-----------|
+| `FIXED` or `HEALED` | `FIXED` | closed, shipped |
+| `ACCEPTED` and not also FIXED | `ACCEPT` | owner-deferred — **not** open, **not** fixed |
+| neither | `OPEN` | still on the Phase 2 exit criterion |
+
+**ACCEPTED is a third disposition.** The defect is real and unrepaired, but the owner signed off (plan §6.3 "explicitly deferred"). Counting it as FIXED overstates what shipped; counting it as OPEN keeps an already-settled exit criterion red.
+
+`--open-only` hides FIXED and ACCEPTED rows from the table. The totals block underneath still counts every finding.
+
+### Priority
+
+First match of `P0/P1`, `P0`, `P1`, `P2`, `CRITICAL`, or `LEDGER` in the **full** header body (not only the tail). The alternation lists `P0/P1` before `P0`, so a `P0/P1` header is not classified as `P0`. Untagged → `?`.
+
+### Constraints
+
+- Always exits **0**. A green shell is not "no open P0/P1".
+- A `FIXED` token more than 170 characters before the end of the header body does **not** close an OPEN tail. Put the disposition in the header, near the end.
+- Putting `FIXED` / `HEALED` / `ACCEPTED` only in the finding's body paragraphs does nothing.
+- The printed summary is `header.split(":")[0]` truncated to 78 characters — a colon in the title cuts the line short; the id and disposition are unaffected.
+- A missing `--note` path is an uncaught `FileNotFoundError` (exit 1), not a triage table.
+
+Re-run; the counts drift. On 2026-09-04 against `origin/main` this printed **54** findings, **34** fixed, **1** accepted (`F-CANOPY-004`), **19** open (1 `P0/P1` + 3 `P1` + 15 `P2`).
+
+---
+
 ## Fleet Triage and Sequence Safety
 
 Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol/docs damage that ordinary lint cannot see. Two layers:
@@ -2433,6 +2481,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/worktree_cleanup.bash` -- Automated worktree cleanup with CWD-safe session continuity (V2 procedure). `MAIN_REPO` derives from `${BASH_SOURCE[0]}` (one dir up) with a `JUNIPER_ML_MAIN_REPO` override for test fixtures. Flags: `--old-worktree`, `--old-branch`, `--parent-branch`, `--new-worktree`, `--new-branch`, `--skip-pr`, `--skip-remote-delete`, `--dry-run`. Phase 7 always restores the primary checkout to an up-to-date `main` (skips on a dirty tree or a checkout refusal; F-6 stale-checkout class).
   - Phase 1: non-empty `status --porcelain` in the old worktree → `exit 1` (`Commit or stash…`) before any push; `--dry-run` skips the check. Clean tree then pushes when ahead/`-u` when no upstream/skips when synced. Phase 2 refuses an existing `NEW_WORKTREE` path (`exit 1`, never clobbers).
 - `util/ad-hoc/2026-09-02_worktree_inuse_probe.py` -- Independent second opinion for a worktree sweep. STRONG hits (cwd or an open fd inside the tree) exit 1 `REFUSE`; WEAK hits (cmdline substring) print `CAUTION` and do not set the exit code; this process and its parent are excluded from weak by pid so the probe's own argv cannot report every tree in use. Empty argv exits 2. Read-only. Operator surface: [Worktree Divergence Is a Memory Cost](#worktree-divergence-is-a-memory-cost).
+- `util/ad-hoc/e2e_finding_triage.py` -- Mechanical P0/P1 open-count for the canopy E2E Phase 2 exit criterion. Reads only line-starting `**F-… — …**` headers; FIXED/HEALED/ACCEPTED from the last 170 chars of that header; ACCEPTED is a third disposition (not FIXED, not OPEN); `--open-only` hides closed rows but still prints full totals; always exits 0. Operator surface: [Canopy E2E Finding Triage](#canopy-e2e-finding-triage).
 - `util/duplicati_scheduled_backup.bash` / `util/install_duplicati_timer.bash` / `util/duplicati_backup_failure.bash` -- Host `$HOME` Duplicati lane under `systemd --user` (#1292).
   - Installer **copies** (never symlinks) the runner, OnFailure reporter, and three user units; does **not** `enable --now` the timer.
   - Runner fail-closes on empty/short passphrase, unmounted dest, wrong-filesystem dest, and tmpfs `--tempdir`; `flock` / DB-open holders `skip_or_fail` (a skip overwrites `result=OK`, so the next skip always escalates).
@@ -5107,6 +5156,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.21  | 2026-09-04 | Ruleset Scope Guard operator surface: `~ALL` re-arms deleted dependabot/Copilot bypass rows; token-free GET-only (bypass rows NOT checked); exit 0/1/2 fail-closed; Quality Gate hard need |
 | 0.6.23  | 2026-09-04 | Canopy E2E matrix writes: fill is dry-run / header-located; set-verdicts has no dry-run and is atomic `--from`; rescore writes found rows even when some `--row` ids are missing. Do not plan from `e2e_row_coverage.py`. Skipped 0.6.16–0.6.22 (in-flight docs PRs) |
 | 0.6.27  | 2026-09-04 | F-CANOPY-027 poller starvation probes: 12-slot dash-renderer cap, queued-vs-unwired, no-new-poller rule; finding FIXED canopy#507/#509/#511 |
+| 0.6.27  | 2026-09-04 | Canopy E2E finding triage: header-only parser; ACCEPTED is a third disposition; FIXED/HEALED in the last 170 chars; `--open-only` still prints full totals; always exits 0 |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
