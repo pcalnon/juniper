@@ -1,4 +1,4 @@
-# HANDOFF 2026-09-04 — the perf-lane gate is BUILT, its core premise is NOT established
+# HANDOFF 2026-09-04 — the premise is SETTLED; the guard that settled it shipped TWO fail-open holes
 
 Successor to `HANDOFF_2026-09-01_perf-lane-p3-and-arc-tail.md`.
 
@@ -23,8 +23,8 @@ with a PROCESS check, not only ports:
 `pgrep -c -x sha256sum` and
 `ps -eo pid,cmd --no-headers | grep -E "run_suite|contention_load|headroom_sweep" | grep -v grep`.
 
-`origin/main` was `06e81d3a` when this was finalised (`63ca9306` when first drafted; it moved twice
-during validation) — **re-check it, do not branch from a recorded sha.**
+`origin/main` was `a0420375` when this was finalised (`63ca9306` at first draft; it moved repeatedly
+during validation and the determinism fix) — **re-check it, do not branch from a recorded sha.**
 
 ---
 
@@ -41,25 +41,27 @@ python3 util/experiments/compare_baseline.py --baseline <tag> --suite <suite_dir
 python3 util/experiments/run_suite.py --suite <yaml> --compare-baseline <tag>
 ```
 
-A baseline exists **on this host only**: `pf1-2026-09-04`, at
-`~/.local/state/juniper-experiments/baselines/pf1-2026-09-04` — **outside the repo, untracked by
-git**. If that state directory is cleaned, verification command 3 below fails for that reason and
+Two baselines are on disk; the usable one is **`pf1-2026-09-04b`**, at
+`~/.local/state/juniper-experiments/baselines/pf1-2026-09-04b` — **outside the repo, untracked by
+git**. (The earlier `pf1-2026-09-04` predates the termination-branch guard and is now correctly
+refused; that is the guard working, not a fault.) If that state directory is cleaned, verification command 3 below fails for that reason and
 not because anything drifted.
 
 **Immediate next actions, cheapest first. All item numbers refer to
 [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md)
 unless stated otherwise.**
 
-0. **FIRST — the work gate's premise is broken and the comparator has six known defects.** See §2
-   and §9 of this document. `step_count` is **not** deterministic under identical config+seed
-   (reproduced: 6496 / 6095 / 6496), so the gate can emit **false FAILs**; and
-   `compare_baseline.py` PASSes on unmeasured cells, on `timed_out` cells, and on zero-work runs,
-   while one unreadable suite on the command line silently converts a real FAIL into a REFUSE.
-   **Do not wire this gate to CI until these are settled.** Fixing A1/A2 is a one-line import of
-   refusals `make_baseline.py` already implements.
+0. **FIRST — land peer PR `ml#1735`** (it closes the two fail-open holes `ml#1733` introduced, §2
+   of this document), then the remaining comparator defects (§9). The determinism blocker
+   is **settled and merged** (`ml#1733`), but `compare_baseline.py` still PASSes on unmeasured
+   cells (A1) and on `timed_out` cells (A2) — both one-line imports of refusals
+   `make_baseline.py` already implements — PASSes on zero-work runs (A4), converts a real FAIL
+   into a REFUSE when any unreadable suite is on the command line (A3), and mishandles partial
+   scenario coverage (A6) and duplicate fingerprints (A7). **A3 must be settled before any CI
+   wiring**, since a caller treating exit 2 as "cannot compare" would lose a real regression.
 1. **Free — land the remaining open lane PRs** (peer-authored; enumerate them yourself, the set
    moves). Item 3.1 is already in via #1683 `06e81d3a`, so `main` can read a recurrence run and the
-   three gate suites now run **71 tests**.
+   three gate suites run **76 tests**.
 2. **Free — P4 (Documentation) is a whole PHASE that is missing and never started.** §1.1 of the
    phasing note
    ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](../../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md))
@@ -117,7 +119,7 @@ unless stated otherwise.**
   `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks. The
   underlying six values are correct; only the band was wrong. **The conclusion is unaffected and
   slightly strengthened**, since the true lower bound is higher.
-- **THE WORK GATE'S CORE PREMISE IS NOT ESTABLISHED — read this before trusting a FAIL.**
+- **THE WORK GATE'S PREMISE IS SETTLED (2026-09-04, `ml#1733` `a0420375`) — it was UNDER-specified, not wrong.**
   `step_count` was claimed deterministic and contention-immune. Consensus validation produced a
   counterexample from the existing corpus, which I then reproduced directly. Cell `c006-9c53874e`,
   **identical `config_sha256` `ab06aca2…`, identical seeds, same host, all `outcome: succeeded`**:
@@ -129,7 +131,7 @@ unless stated otherwise.**
   | `20260826T075813Z-4a15` | `early_stopped` | **6496** |
 
   Blessing the first and comparing the second yields **FAIL, exit 1** — a false regression. Lane B1
-  reports **29 of 148 distinct configs** in the corpus show divergent `step_count`; the mechanism is
+  reports **29 of the **79 repeated** configs (153 distinct overall)** in the corpus show divergent `step_count`; the mechanism is
   wall-clock-sensitive termination (the stopping *branch* moves, and `max_wall_seconds` can truncate
   the histogram).
 
@@ -139,11 +141,38 @@ unless stated otherwise.**
   empirical regularity with a **misattributed cause**, and the baseline `pf1-2026-09-04` is cut from
   an early-stopping workload, i.e. the same class as the counterexample.
 
-  **What survives**: `step_count` is exact *as a measurement*, and it was invariant across 26 PF-1
-  cells. **What does not**: "deterministic, therefore safe to gate at zero tolerance" is unproven,
-  and a false FAIL is precisely the failure that gets a gate switched off. **Do not wire this to CI
-  until the termination-determinism question is settled** — e.g. by making the gated workload
-  genuinely cap-bound, or by gating only where `completion_reason` matches too.
+  **Settled by census over the whole corpus** (`util/ad-hoc/2026-09-04_step_count_determinism_census.py`):
+  333 runs, 153 distinct configs, 79 repeated, **29 divergent in `step_count` — and all 29 fully
+  explained by `completion_reason`, with ZERO still divergent within a branch.** So `step_count` is
+  exact and deterministic *given how training ended*; the original claim simply omitted that
+  condition.
+
+  **`ml#1733` makes the branch part of the precondition**, so a flip REFUSES (exit 2) instead of
+  FAILing (exit 1). Use **`pf1-2026-09-04b`**; `pf1-2026-09-04` predates the guard and is correctly
+  refused.
+
+  **BUT `ml#1733` SHIPPED TWO FAIL-OPEN HOLES. Peer PR `ml#1735` fixes both — land it.** Found by
+  validating the fix rather than the original claim:
+
+  1. **The truncated-termination guard CANNOT FIRE on real data.** It matches
+     `{timed_out, torn_down_early, stalled}` against **`completion_reason`** — but those are
+     **`outcome`** values. Across 370 manifests, `completion_reason` is only
+     `{early_stopped 254, None 46, no_candidate 35, below_threshold 21, max_iterations 14}`; all 15
+     driver-stopped runs carry `completion_reason=None`. My test passed **only because the fixture
+     stuffed the string into the wrong field** — a vacuous pass, of exactly the class §5 of this
+     document catalogues.
+  2. **The candidate side fails OPEN on a mixed set.** `read_run_metrics` builds the reason set as
+     `{... for r in rows if r.get("completion_reason")}`, dropping null-reason cells *before*
+     uniqueness. So `4× early_stopped + 1× None` reads as a single branch and is compared. Only an
+     all-null candidate refuses. The baseline side is unconditional and does fail closed; the doc's
+     earlier "fails closed on both sides" was wrong.
+
+  **Do not CI-wire the gate until `ml#1735` lands.**
+
+  **One caveat on the census itself**: the 29 divergent configs partition into 74 branches, **54 of
+  them singletons**, where within-branch agreement is definitionally guaranteed. Only **20 branches
+  have n≥2** and genuinely corroborate. The finding holds — no counterexample exists — but it rests
+  on 20 real comparisons, not 29.
 
 - **The gate is SPLIT.** WORK = `step_count`, compared **exactly**. SPEED = mean step duration,
   reported and **structurally ungated** — there is deliberately no threshold field to set later.
@@ -169,7 +198,7 @@ unless stated otherwise.**
 git fetch origin && git rev-parse --short origin/main
 gh pr list --state open --limit 20          # enumerate; the count moves as peers ship
 python3 -m unittest -q tests/test_read_run_metrics.py tests/test_make_baseline.py tests/test_compare_baseline.py
-python3 util/experiments/compare_baseline.py --baseline pf1-2026-09-04 \
+python3 util/experiments/compare_baseline.py --baseline pf1-2026-09-04b \
   --suite ~/.local/state/juniper-experiments/suites/pf1-cascor-spiral-repeats-20260903T040803Z
 ```
 
@@ -177,12 +206,12 @@ python3 util/experiments/compare_baseline.py --baseline pf1-2026-09-04 \
 |---|---|
 | `rev-parse origin/main` | `63ca9306` **or later** |
 | `gh pr list` | several open lane PRs, peer-authored; the set moves — enumerate, do not trust a count |
-| three gate suites | **71 OK** (27 reader + 24 baseline + 20 comparator) now that #1683 is in; it was 65 before |
+| three gate suites | **76 OK** (27 + 24 + 25) after `ml#1733`; will change again with `ml#1735` |
 | `compare_baseline` | `verdict: PASS`, `step_count baseline=1770.0 candidate=1770.0`, exit 0 |
 
 **Stop conditions.** If the comparator does not say PASS on the suite its own baseline was cut from,
-either the baseline or the reader has drifted — do not proceed. If the test count is neither 65 nor
-71, something else changed.
+either the baseline or the reader has drifted — do not proceed. The count moves with every landed
+PR in this lane — treat a mismatch as a prompt to enumerate, not as a fault.
 
 ---
 
@@ -260,7 +289,7 @@ so `tests/test_app_smoke.py::test_docs_require_auth_when_enabled` fails locally 
 
 **juniper-ml** — #1570 `abf15824`, #1578 `ee48ec44`, #1587 `aa0a8653`, #1592 `24aef672`,
 #1600 `03d2bf12`, #1601 `8ff925db`, #1605 `fbe82c04`, #1613 `24e448e3`, #1622 `3116147e`,
-#1643 `255603ef`. **juniper-cascor** — #618 `2dec835`. **Open**: #1683 and eight peer PRs.
+#1643 `255603ef`, #1683 `06e81d3a`, #1710 `6d9725ef`, #1733 `a0420375`. **juniper-cascor** — #618 `2dec835`. **Open at hand-off**: `ml#1735` (fixes #1733's two holes) plus a large and moving set of peer PRs — enumerate with `gh pr list`, do not trust a count.
 
 **Files created**: `util/experiments/read_run_metrics.py`, `make_baseline.py`, `compare_baseline.py`;
 `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py`;
@@ -297,16 +326,17 @@ branch merged and deleted" (false — would have destroyed #1683), "Waves 0, 1 a
 and Wave 4 entirely, dropped the whole arc tail and retained-state section, and never named the P2
 plan its nine item references pointed at.
 
-**Refuted numerically**: the "13–20.5%" drift band, a mixed-normalization artifact — corrected to
+**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
 **15.0–20.5%** above. **Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
 
 **Refuted structurally — the most consequential result.** Lane B1 broke the gate's core premise
-(§2 of this document) and found six ways `compare_baseline.py` reaches a wrong verdict. These are
-**open defects, not fixed**, and are the first code work a successor should do:
+(§2 of this document) and found six ways `compare_baseline.py` reaches a wrong verdict. **C2 is now
+settled and fixed (`ml#1733`); the other five remain OPEN** and are the first code work a successor
+should do:
 
 | # | defect | why it matters |
 |---|---|---|
-| **C2** | `step_count` is **not** deterministic under identical config+seed; 29/148 configs diverge | produces **false FAILs** — the failure that gets a gate switched off |
+| ~~C2~~ | ~~`step_count` not deterministic~~ — **SETTLED and FIXED in `ml#1733`**: all 29 divergences are explained by `completion_reason`, which is now part of the precondition | was producing **false FAILs**; now REFUSES |
 | **A1** | `compare_baseline` does not refuse runs with **missing** step data; `make_baseline` does | 4 of 5 cells unmeasured still PASSes |
 | **A2** | `compare_baseline` never reads `outcome`; `make_baseline` refuses non-`succeeded` | every cell `timed_out` still PASSes |
 | **A3** | `if reasons: verdict = REFUSED` is evaluated **before** the work-mismatch branch | adding one unreadable suite converts a true **FAIL(1)** into **REFUSED(2)** — settle before any CI wiring |
