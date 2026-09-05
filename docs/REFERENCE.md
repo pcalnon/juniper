@@ -31,6 +31,7 @@
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Resident-Hazard Gap Triage](#resident-hazard-gap-triage)
 - [Ruleset Context Audit](#ruleset-context-audit)
+- [Worktree Divergence Is a Memory Cost](#worktree-divergence-is-a-memory-cost)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [PF Scenario Suites](#pf-scenario-suites)
@@ -1630,8 +1631,47 @@ inside.
 
 A hit is a hard stop for that worktree. **No hits is corroboration, not proof:** a
 session idling elsewhere in the filesystem while holding the worktree open would not
-be seen. Remove worktrees individually and **never with `--force`**, so git's own
-dirty-check stays live as a time-of-check/time-of-use guard.
+be seen. cwd-only also misses an editor or a long `pytest` whose cwd is elsewhere
+while a file inside the tree is still open. The P5 cleaner
+[`util/ad-hoc/2026-08-28_p5_worktree_cleanup.py`](../util/ad-hoc/2026-08-28_p5_worktree_cleanup.py)
+uses the same cwd-only `occupied()` gate (never argv).
+
+### Wider second opinion: open files and argv
+
+[`util/ad-hoc/2026-09-02_worktree_inuse_probe.py`](../util/ad-hoc/2026-09-02_worktree_inuse_probe.py)
+is an independent second opinion with a wider net, for sweeping another session's
+possible workspace. It does not remove anything. Read-only: opens `/proc` entries
+and nothing else.
+
+```bash
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree-dir> ...]
+```
+
+| Signal | Predicate | Strength | Effect |
+|--------|-----------|----------|--------|
+| cwd | exact match, or cwd starts with `tree/` (`os.sep`) | STRONG | `IN USE`, exit 1 `REFUSE` |
+| open fd | any fd target inside the tree | STRONG | same |
+| cmdline | path substring in argv | WEAK | `review` / `CAUTION`; exit stays 0 |
+
+**Why WEAK does not fail the process.** The first run reported every tree `IN USE`
+because the probe itself and the launching shell named the paths as arguments. A
+checker whose own invocation trips it is useless: a real hit is indistinguishable
+from the noise floor, and the natural next move is to ignore it. Self and parent
+pids are excluded from WEAK by pid, not by pattern. Any *other* process naming the
+path is still printed — glance before removing.
+
+**Sibling prefix.** `foo-extra` is not inside `foo`. cwd/fd use `== t or startswith(t + os.sep)`, never bare `startswith(t)`.
+
+**Other users.** Unreadable `/proc` entries (other uids) are counted and reported
+(`NOT checked`), never treated as in-use.
+
+**Empty argv.** Prints the docstring and exits **2**. The cwd-only liveness probe
+exits 0 on the same misuse — do not copy that.
+
+Status per tree: `IN USE` (any STRONG), `review` (WEAK only), `free` (neither).
+Run this after the cwd-only probe, then remove worktrees individually and
+**never with `--force`**, so git's own dirty-check stays live as a
+time-of-check/time-of-use guard.
 
 ---
 
@@ -2392,6 +2432,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 
 - `util/worktree_cleanup.bash` -- Automated worktree cleanup with CWD-safe session continuity (V2 procedure). `MAIN_REPO` derives from `${BASH_SOURCE[0]}` (one dir up) with a `JUNIPER_ML_MAIN_REPO` override for test fixtures. Flags: `--old-worktree`, `--old-branch`, `--parent-branch`, `--new-worktree`, `--new-branch`, `--skip-pr`, `--skip-remote-delete`, `--dry-run`. Phase 7 always restores the primary checkout to an up-to-date `main` (skips on a dirty tree or a checkout refusal; F-6 stale-checkout class).
   - Phase 1: non-empty `status --porcelain` in the old worktree → `exit 1` (`Commit or stash…`) before any push; `--dry-run` skips the check. Clean tree then pushes when ahead/`-u` when no upstream/skips when synced. Phase 2 refuses an existing `NEW_WORKTREE` path (`exit 1`, never clobbers).
+- `util/ad-hoc/2026-09-02_worktree_inuse_probe.py` -- Independent second opinion for a worktree sweep. STRONG hits (cwd or an open fd inside the tree) exit 1 `REFUSE`; WEAK hits (cmdline substring) print `CAUTION` and do not set the exit code; this process and its parent are excluded from weak by pid so the probe's own argv cannot report every tree in use. Empty argv exits 2. Read-only. Operator surface: [Worktree Divergence Is a Memory Cost](#worktree-divergence-is-a-memory-cost).
 - `util/duplicati_scheduled_backup.bash` / `util/install_duplicati_timer.bash` / `util/duplicati_backup_failure.bash` -- Host `$HOME` Duplicati lane under `systemd --user` (#1292).
   - Installer **copies** (never symlinks) the runner, OnFailure reporter, and three user units; does **not** `enable --now` the timer.
   - Runner fail-closes on empty/short passphrase, unmounted dest, wrong-filesystem dest, and tmpfs `--tempdir`; `flock` / DB-open holders `skip_or_fail` (a skip overwrites `result=OK`, so the next skip always escalates).
@@ -5069,6 +5110,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
+| 0.6.24  | 2026-09-04 | Worktree in-use probe: cwd-only liveness is not enough (open fd is STRONG); WEAK cmdline must not set the exit code (self/parent argv); sibling prefix; empty argv exits 2 |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
