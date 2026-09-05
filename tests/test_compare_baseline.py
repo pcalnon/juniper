@@ -40,7 +40,7 @@ from experiments import read_run_metrics as rrm  # noqa: E402
 SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
-def _suite(root: Path, name: str, *, step_count=1770, step_sum=63.0, epochs=4000, cells=2, with_cell_yaml=True) -> Path:
+def _suite(root: Path, name: str, *, step_count=1770, step_sum=63.0, epochs=4000, cells=2, with_cell_yaml=True, reason="early_stopped") -> Path:
     suite_dir = root / name
     (suite_dir / "cells").mkdir(parents=True, exist_ok=True)
     lines = []
@@ -57,6 +57,7 @@ def _suite(root: Path, name: str, *, step_count=1770, step_sum=63.0, epochs=4000
                     "drive_loop": {"polls": 14},
                     "environment": {"nproc": 16, "python": "3.13.13", "platform": "Linux-test", "thread_env": {"OMP_NUM_THREADS": None}},
                     "metrics_scraped": {"scrape_confirmed": True},
+                    "completion_reason": reason,
                 }
             ),
             encoding="utf-8",
@@ -281,3 +282,72 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TerminationBranchTest(unittest.TestCase):
+    """The determinism question, settled 2026-09-04 and pinned here.
+
+    `step_count` is deterministic for a seed-fixed config ONLY GIVEN the branch that ended
+    training. Corpus census (`util/ad-hoc/2026-09-04_step_count_determinism_census.py`): 333
+    runs, 153 distinct configs, 79 repeated, **29 divergent in step_count — and all 29 fully
+    explained by `completion_reason`**, with ZERO still divergent within a branch.
+
+    The real case this prevents: one config, identical seeds, all `succeeded`, giving 6496
+    (`early_stopped`) / 6095 (`below_threshold`) / 6496 (`early_stopped`). Before this guard
+    the comparator emitted **FAIL exit 1** for the middle one — a false regression, which is
+    the failure mode that gets a gate switched off.
+    """
+
+    def test_a_flipped_branch_REFUSES_rather_than_FAILS(self):
+        # The counterexample, reproduced in miniature.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=6496, reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", step_count=6095, reason="below_threshold")
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED, "a branch flip is not a work regression")
+            self.assertEqual(cb.EXIT[result["verdict"]], 2)
+            self.assertIn("termination branch", " ".join(result["reasons"]).lower() + "step_count is deterministic only WITHIN a termination branch")
+
+    def test_same_branch_still_FAILS_on_a_real_move(self):
+        # The guard must not swallow genuine regressions.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770, reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", step_count=1771, reason="early_stopped")
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.FAIL)
+            self.assertEqual(cb.EXIT[result["verdict"]], 1)
+
+    def test_truncated_termination_is_refused(self):
+        # timed_out stops the DRIVER, not the workload: the histogram is cut short, so the
+        # count measures the budget rather than the code.
+        for reason in ("timed_out", "torn_down_early", "stalled"):
+            with self.subTest(reason=reason), tempfile.TemporaryDirectory() as tmp:
+                base = _suite(Path(tmp), "base", reason="early_stopped")
+                payload, host = _baseline(Path(tmp), "t", base)
+                cand = _suite(Path(tmp), "cand", reason=reason)
+                self.assertEqual(cb.compare(payload, host, [cand])["verdict"], cb.REFUSED)
+
+    def test_mixed_branches_within_a_candidate_are_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", cells=2, reason="early_stopped")
+            # Rewrite one cell's manifest so the two cells disagree.
+            row = rrm.read_suite(cand)[1]
+            mpath = Path(row["run_dir"]) / "manifest.json"
+            m = json.loads(mpath.read_text())
+            m["completion_reason"] = "below_threshold"
+            mpath.write_text(json.dumps(m), encoding="utf-8")
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("different branches", " ".join(result["reasons"]))
+
+    def test_absent_reason_fails_CLOSED(self):
+        # Unknown branch means the precondition cannot be checked. Refuse rather than assume.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", reason="early_stopped")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", reason=None)
+            self.assertEqual(cb.compare(payload, host, [cand])["verdict"], cb.REFUSED)

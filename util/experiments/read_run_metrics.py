@@ -62,6 +62,10 @@ STEP_COUNT_COLUMN = "juniper_cascor_training_step_duration_seconds_count"
 SERIES_RELPATH = "artifacts/results/metrics_series.csv"
 MANIFEST_RELPATH = "manifest.json"
 
+# Terminal states that stop the DRIVER rather than the workload, so the step-duration histogram is
+# cut short and its count measures the budget, not the code. Never gate on one.
+TRUNCATING_TERMINATIONS = frozenset({"timed_out", "torn_down_early", "stalled"})
+
 
 def _load_json(path: Path) -> Dict[str, Any]:
     try:
@@ -151,6 +155,18 @@ def read_run(run_dir: Path) -> Dict[str, Any]:
         "outcome": manifest.get("outcome"),
         "kind": "cascor",
         "work_countable": True,
+        # TERMINATION BRANCH -- part of the comparison precondition, not decoration.
+        #
+        # `step_count` is deterministic for a seed-fixed config ONLY GIVEN the branch that ended
+        # training. Censused over the whole corpus 2026-09-04
+        # (util/ad-hoc/2026-09-04_step_count_determinism_census.py): 333 runs, 153 distinct configs,
+        # 79 repeated, of which **29 diverge in step_count** -- and **all 29 are fully explained by
+        # completion_reason**, with ZERO still divergent once grouped by it.
+        #
+        # So a differing reason means a different trajectory, and comparing across it produces a
+        # FALSE FAIL. The observed case: identical config_sha256 and seeds gave 6496
+        # (early_stopped) / 6095 (below_threshold) / 6496 (early_stopped).
+        "completion_reason": manifest.get("completion_reason"),
         "drive_seconds": timings.get("drive"),
         "polls": drive_loop.get("polls"),
         "step_sum_seconds": step_sum,
@@ -255,10 +271,17 @@ def summarise(rows: Sequence[Mapping[str, Any]]) -> Dict[str, Any]:
     # failed, but because the question does not apply. Kept as a THIRD state so a caller never reads
     # "not countable" as "counted, and they matched".
     countable = all(r.get("work_countable", True) for r in rows) if rows else False
+    reasons = sorted({str(r["completion_reason"]) for r in rows if r.get("completion_reason")})
     out: Dict[str, Any] = {
         "cells": len(rows),
         "kinds": sorted({str(r.get("kind", "cascor")) for r in rows}),
         "work_countable": countable,
+        # Cells that ended on DIFFERENT branches are not repeats of each other, even at one config.
+        "completion_reasons": reasons,
+        "single_completion_reason": len(reasons) == 1,
+        # These end the run before the workload does, so the histogram is truncated by construction
+        # and its count is a fact about the budget rather than about the code.
+        "truncated_terminations": sorted({r for r in reasons if r in TRUNCATING_TERMINATIONS}),
         "step_counts": sorted(set(counts)),
         "work_invariant": countable and len(set(counts)) == 1 and bool(counts),
         # A suite whose cells ran DIFFERENT workloads is not a set of repeats either, and its
