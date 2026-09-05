@@ -1,5 +1,7 @@
 # Performance lane — P1 Design of record
 
+> **Operator surface (2026-09-05).** Q-8 writer + split comparator are on main. `step_count` is exact **within a termination branch** ([juniper-ml#1733](https://github.com/pcalnon/juniper-ml/pull/1733); census closed the #1710 counterexample). A branch flip is REFUSE, not FAIL. Do not wire `compare_baseline.py` to CI — unmeasured-drop / fingerprint-collapse remain. Operator contract: [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
+
 **Closes**: phase **P1** of the four-phase gate in
 [`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md` §1.1](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md).
 That table's P1 deliverable: *"Design-of-record note: what is measured, on which tier, against which

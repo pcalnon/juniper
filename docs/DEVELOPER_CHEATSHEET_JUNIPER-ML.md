@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
-**Date**: 2026-09-04
+**Version**: 1.0.73
+**Date**: 2026-09-05
 **Project**: juniper-ml
 
 ---
@@ -36,6 +36,9 @@
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum` + `completion_reason`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Same-branch FAIL is a real move; branch flip REFUSES. **Do not wire to CI.** |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
@@ -506,6 +509,11 @@ Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
+Tip: `compare_baseline.py` is a **split** gate (exact `step_count` **within a termination branch**, ungated speed).
+After juniper-ml#1733 a branch flip REFUSES (exit 2); a same-branch one-step move still FAILS (exit 1).
+Legacy baselines with no `completion_reason` refuse — re-cut under a new tag. Confirm `TRUNCATING_TERMINATIONS` exists in the reader before trusting a FAIL.
+**Do not wire to CI** (unmeasured cells are still dropped). Full contract: [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate).
+
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
@@ -667,6 +675,13 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
 | Experiment `grafana bridge failed — tearing the run back down` | Expected `--grafana-bridge` teardown; install `socat`/`docker` or omit the flag. |
 | Experiment port range exhausted after a failed `--config` | Staging aborted between `allocate_port` and `ports.json` (open #979) — clear `*.lock` under `JUNIPER_EXP_LOCK_ROOT` with no live listener. |
+| `compare_baseline` FAIL, same YAML / seed / host / same `completion_reason` | Real work move after #1733. Cut a new tag or waive; do not add the tool to `ci.yml`. See [REFERENCE](REFERENCE.md#perf-lane-work-gate). |
+| `compare_baseline` FAIL and reader has no `TRUNCATING_TERMINATIONS` | Pre-#1733 checkout — a branch flip is still a false FAIL. Confirm `completion_reason` by hand. |
+| `compare_baseline` REFUSED, no `completion_reason` on the baseline | Expected for tags cut before #1733. Re-cut under a new name. |
+| `compare_baseline` REFUSED, "only WITHIN a termination branch" | Branch flip, not a regression. Compare like with like. |
+| `compare_baseline` PASS with empty series | Expected today — unmeasured rows are dropped. `make_baseline` would have refused. |
+| `compare_baseline` REFUSED after a real work miss | Another `--suite` on the same command was unreadable. Split the invocation; do not collapse exit 1 and 2. |
+| `make_baseline: already exists` | No `--force`. Choose a new tag. |
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — see `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
@@ -723,12 +738,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; `step_count` exact within a termination branch (#1733); do not CI-wire
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Last Updated:** 2026-09-05
+**Version:** 1.0.73
 **Maintainer:** Paul Calnon
