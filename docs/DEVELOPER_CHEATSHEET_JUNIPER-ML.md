@@ -49,6 +49,7 @@
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
 | `python3 -m unittest -v tests/test_read_run_metrics.py` | Perf-lane reader regressions (last-row count, fingerprint) |
 | `python3 -m unittest -v tests/test_make_baseline.py` | Baseline refusals (work invariant, mixed workload, no `--force`) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -589,6 +590,11 @@ Tip: do **not** gate on `aggregate.csv` `wall_seconds` or `manifest.timings.driv
 `make_baseline` is operator-invoked, has no `--force`, and refuses mixed fingerprints.
 See [REFERENCE — Perf-lane metrics](REFERENCE.md#perf-lane-metrics-and-baselines).
 
+Tip: `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` is the split comparator (#1622).
+Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`), not a work FAIL (exit `1`). Speed cannot fail the gate.
+`--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
+Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
+
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
@@ -735,6 +741,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Driver exit `2` / API `422` on default `equities` | Universe > 14 symbols. Set `dataset.params.symbols` to a short list, or `allow_truncation: true` (writes `DatasetMeta.truncation`). |
 | Requested `max_symbols: 50` still caps at 14 | Request may only lower the ceiling. Raise `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the data service. |
 | Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path or flat `equities`. |
+| `compare_baseline` exit `2` / `REFUSED` | Identity or host mismatch, not a work regression. Do not treat as FAIL. Cut a new baseline for a config edit. |
+| `compare_baseline` exit `1` / `FAIL` | Same workload, `step_count` moved — the gate firing. A one-step difference is enough. |
+| `--accept-work-change` printed but exit is `2` | Waiver had no effect (cannot mask a refusal). Prefer a new baseline tag. |
+| Speed "regression" with matching `step_count` | Expected PASS — speed is never gated (13–20.5% host drift floor). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -884,6 +894,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
+- [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
