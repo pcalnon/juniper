@@ -2037,6 +2037,13 @@ Related: [Relocation Completeness (G3)](#relocation-completeness-g3),
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
 
+Two unittest entry points exist for every `tests/test_*.py` file, and they can disagree.
+
+- `python3 tests/<file>.py` calls `unittest.main()` at the `if __name__ == "__main__"` block. Classes defined **after** that block are never collected.
+- `python3 -m unittest …` (what AGENTS.md and CI use) imports the module fully first, so it sees every class.
+
+Review catch on [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/1612): `ObservedContextAppsTest` was appended after the existing `__main__` block. Direct execution reported 8 tests; `-m unittest` reported 12. The two negative controls (exact-name near-miss; Bandit app `57789` must not publish `Memory Budget`) were the ones going missing — a green result from a runner that never loaded the cases. Keep `__main__` at EOF so both entry points agree.
+
 - `tests/test_wake_the_claude.py` -- Regression tests for resume/session-id and argument handling in `wake_the_claude.bash`
 - `tests/test_env_repr_safety.py` -- Lint + behavior gate for the env-repr secret-leak class: forbids raw `os.environ`-derived subprocess `env=` mappings in `tests/` (they leak secrets through pytest `--showlocals`-style frame-local reprs) and proves `tests/redacted_env.py`'s `RedactedEnv` masks its repr while behaving as a normal subprocess env mapping. Includes a synthetic-violation self-test; `patch.dict(os.environ, ...)` is deliberately exempt.
 - Doc-link validator regression tests live in [`juniper-doc-tools/tests/`](juniper-doc-tools/tests/) (Wave 4 of the doc-link migration; exercised by the dedicated `CI -- juniper-doc-tools` workflow).
@@ -4737,6 +4744,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.16  | 2026-09-04 | Required-context ruleset writer: add vs `--amend-integration-id` (#1612), observed-publisher pre-flight, six invariants, `Memory Budget` unpinned-id hole (#1611) |
 | 0.6.17  | 2026-09-04 | Perf-lane reader / baseline operator surface: split work (`step_count` exact) vs speed (reported); de-ratified `wall_seconds`/`timings.drive`; last-row histogram; scrape tri-state; `make_baseline` refusals (no `--force`); #1613 workload fingerprint vs `config_sha256` and fail-on-mismatch behind identity |
 | 0.6.18  | 2026-09-04 | Pointer-follow soak operator surface: seeded vs organic, characterisation vs least-covered, `source-recovered` denominator, retrieval-channel / `parse_events` pitfalls (#1616) |
+| 0.6.19  | 2026-09-04 | Dual unittest entry-point trap (#1612 synchronize): `python3 tests/<file>.py` misses `TestCase` classes below `__main__`; CI's `-m unittest` does not. Keep `__main__` at EOF |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |

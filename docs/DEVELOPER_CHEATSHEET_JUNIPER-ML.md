@@ -807,6 +807,7 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
 | Isolated topology / metrics store empty, wire correct | Read the whole TOPOPROBE series; do not trust `_store()` or the first four lines. See [REFERENCE](REFERENCE.md#f-039-store-probe). |
 | `e2e_f039_topoprobe_instrument.py` `REFUSING` on `--target topology` | Expected — handler no longer receives the client's `State`. Probe `metrics` or add the `State`. |
+| `python3 tests/<file>.py` reports fewer cases than `-m unittest` | A `TestCase` class sits after `if __name__ == "__main__": unittest.main()` — direct execution never loads it. #1612: 8 vs 12 on `test_require_context_safely.py`. Move `__main__` to EOF. |
 | Isolated `bring-up failed` / partial trio | `do_up` already ran `do_down` — read the logs, confirm the ports are free, then retry. |
 | Isolated `--up` logs `ERROR: conda activate '…' failed` | Expected fail-closed path — fix the env name or `JUNIPER_E2E_CONDA_DIR`, then retry. |
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
