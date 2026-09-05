@@ -170,6 +170,7 @@ Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFEREN
 A required name that never reports leaves `main` unmergeable with every visible check green (the 2026-08-10 fleet-union class). Re-run the auditor; do not quote the incident note's §1 counts. Human-mode exit 0 can still print `ERROR:` rows; `--json` fails closed on probe errors.
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
+
 ## Worktree in-use probe (operational)
 
 `2026-09-02_worktree_inuse_probe.py` is an independent second opinion for a worktree sweep. The cwd-only liveness probe (`2026-08-20_worktree_liveness_probe.py`) and the P5 cleaner's `occupied()` gate miss an editor or a long `pytest` whose cwd is elsewhere while a file inside the tree is still open.
@@ -184,6 +185,7 @@ python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree
 ```
 
 Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
 ## Canopy E2E finding triage (operational)
 
 `e2e_finding_triage.py` is the mechanical P0/P1 open-count for Phase 2's exit criterion. It reads only line-starting `**F-<AREA>-<NNN> — …**` headers in the evidence ledger.
@@ -199,6 +201,7 @@ python3 util/ad-hoc/e2e_finding_triage.py --open-only
 ```
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
+
 ## F-CANOPY-037 render census (operational)
 
 `e2e_f037_render_census.py` re-drives the topology-graph paint that F-CANOPY-037 measured in 2 of 11 sessions. Default `--sessions` is 11; a single session is not a comparable claim. Exit 0 means every session produced PASS or FAIL (even if painted==0); exit 2 means the census failed to measure. All-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. Idle populated is VALID.
