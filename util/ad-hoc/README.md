@@ -148,6 +148,16 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 - **Backup lives in the git dir** (`f039-topoprobe.f039bak`), never beside `dashboard_manager.py`. A work-tree bak is swept by `git add -A`.
 - **`curl` cannot tick a Dash interval.** Hold a live browser session with the soak script.
 - **`e2e_f039_duplicate_store_probe.py` exit 1 is not a verdict** — the probe could not run. `dcc.Store` has no DOM; `paths.strs` hides duplicates.
+- **That `paths.strs` blindness now has a lift: `2026-09-05_dash_layout_id_census.py`.** Dash serves the layout tree as JSON from the *server* at `/<prefix>_dash-layout`, before dash-renderer indexes
+  anything, so a duplicate id appears there as two nodes carrying one id — which `paths.strs`, a one-id-to-one-path map, cannot represent at all. Use it before reaching for the duplicate probe. It
+  settled the question for `metrics-panel-metrics-store` on 2026-09-05 (465 id-bearing nodes, 465 distinct, zero duplicates anywhere) and a clean census is a **refutation**, not an absence of evidence.
+  It reads the layout **as served**, so a component a callback adds later would not appear; every canopy panel declares its stores statically, but that bound is real.
+- **A response census must detach its listener.** `2026-09-04_f035_candidate_loss_redrive.py` attached `page.on("response", …)`, never removed it, and returned the dict the handler keeps mutating —
+  so its log printed an honest 30 s window while the JSON, dumped 48 s later at end of run, reported the whole listening lifetime. One run, two archived artifacts, 17 writes vs 46. Both censuses now
+  `remove_listener`, return a copy, and record `window_s` in the artifact. If a census does not stop counting when its window closes, it is not a census — and the two artifacts will disagree silently.
+- **`2026-09-05_f035_store_write_latency_probe.py`** times each store-writing round trip against the interval that re-requests it, because dash-renderer retires an in-flight call on re-request. Read its
+  `overlap_fraction` as the retirement **precondition**, never as retirement: on 2026-09-05 it read 0.69 while the store was constant-empty across 130 server-side comparisons, so nine unopposed
+  responses also failed to land. A number that explains most of a result is not the cause of it.
 
 Always `revert` before committing anything from the instrumented checkout.
 

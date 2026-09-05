@@ -142,7 +142,14 @@ def _wire_census(page, seconds: float = 25.0):
 
     page.on("response", on_response)
     page.wait_for_timeout(int(seconds * 1000))
-    return hits
+    # DETACH, then return a COPY. Leaving the handler attached and returning the
+    # live dict made this census report its whole listening lifetime rather than
+    # its window: the log printed 15/80 at t=61 s and the JSON dumped 62/296 at
+    # t=139 s, from the SAME run. A census that does not stop counting when its
+    # window closes is not a census. The window is now closed twice over.
+    page.remove_listener("response", on_response)
+    hits["window_s"] = seconds
+    return dict(hits)
 
 
 def _write_census(page, seconds: float = 30.0):
@@ -188,7 +195,9 @@ def _write_census(page, seconds: float = 30.0):
 
     page.on("response", on_response)
     page.wait_for_timeout(int(seconds * 1000))
-    return out
+    page.remove_listener("response", on_response)  # see _wire_census: same leak, same fix
+    out["window_s"] = seconds
+    return {**out, "wrote": list(out["wrote"])}
 
 
 def main() -> int:
@@ -235,6 +244,19 @@ def main() -> int:
             res["ws_liveness"] = {"ok": live.get("ok"), "via": live.get("via"), "value": live.get("value")}
             log(f"  ws-liveness-store: ok={live.get('ok')} value={live.get('value')!r}")
 
+            # DISCRIMINATE BY WRITER. ``metrics-panel-metrics-store`` has TWO writers:
+            # the liveness-gated REST poll (``update_metrics_store``) and an UNGUARDED
+            # ``allow_duplicate`` appender (``append_ws_metrics_store``,
+            # dashboard_manager.py:3910). The topoprobe instrument's report demands this
+            # discrimination before its verdict is read. The appender fires ONLY on a
+            # ``ws-metrics-buffer`` change, and that store is written by a CLIENTSIDE
+            # callback -- so a response census cannot see it and its VALUE is the only
+            # admissible evidence. ``gen`` is bumped by the drain on every real drain,
+            # so gen==0 throughout means the appender never fired in this page session.
+            wsb = _store(page, "ws-metrics-buffer") or {}
+            res["ws_metrics_buffer_before"] = {"ok": wsb.get("ok"), "via": wsb.get("via"), "value": wsb.get("value")}
+            log(f"  ws-metrics-buffer BEFORE: ok={wsb.get('ok')} value={wsb.get('value')!r}")
+
             census = _wire_census(page, seconds=25.0)
             res["wire_census_25s"] = census
             log(f"  wire census (25 s): {census}")
@@ -257,6 +279,15 @@ def main() -> int:
                 "type": type(after.get("value")).__name__,
             }
             log(f"  {METRICS_STORE} AFTER {len(writes['wrote'])} writes: {res['store_read_after_writes']}")
+
+            wsb2 = _store(page, "ws-metrics-buffer") or {}
+            res["ws_metrics_buffer_after"] = {"ok": wsb2.get("ok"), "via": wsb2.get("via"), "value": wsb2.get("value")}
+            _b = (res.get("ws_metrics_buffer_before") or {}).get("value")
+            g0 = _b.get("gen") if isinstance(_b, dict) else None
+            _a = wsb2.get("value")
+            g1 = _a.get("gen") if isinstance(_a, dict) else None
+            res["ws_appender_fired"] = None if (g0 is None or g1 is None) else bool(g1 != g0 or (g1 or 0) > 0)
+            log(f"  ws-metrics-buffer AFTER: gen {g0} -> {g1}  => ws appender fired: {res['ws_appender_fired']}")
 
             # Give the plot the same effect budget the panel's other consumers get.
             wait_for(
