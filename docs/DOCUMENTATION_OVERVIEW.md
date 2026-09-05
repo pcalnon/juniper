@@ -31,6 +31,7 @@
 | **Operate the scheduled Duplicati backup lane** | [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane)                                | docs/    |
 | **Archive the Juniper project tree to external media** | [REFERENCE — Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) (per-repo `.tbz2.gpg`; restore `-xjf`; not Duplicati) | docs/    |
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
+| **Run / score a pointer-follow soak probe** | [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) (least-covered vs characterisation; `source-recovered` denominator) | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
 | **Diagnose a broken conda `import torch`** | [REFERENCE — Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) (exit **2** = P-5 free-threaded; exit **4** = May-7 wheel layout; does not rebuild) | docs/    |
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
@@ -42,6 +43,8 @@
 | **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) (incl. partial-`--up` → `teardown_run`) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
 | **Run a PF scenario suite (PF-1…PF-7)** | [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites) (`--dry-run` first; PF-1 matched 4000/4000 epochs; `JUNIPER_SUITE_GRAFANA_BRIDGE`; PF-4/PF-8 are not driver suites) + [P1 design](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) | docs/ + notes/ |
 | **Bless / compare a perf-lane baseline** | [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) (`read_run_metrics` / `make_baseline` / `compare_baseline`; sound since ml#1743, but do **not** wire the exact work gate to CI — that is an open owner decision, P1 design §6) | docs/ |
+| **Read ratified perf metrics / bless a baseline** | [REFERENCE — Perf-lane metrics and baselines](REFERENCE.md#perf-lane-metrics-and-baselines) (`read_run_metrics.py` / `make_baseline.py`; `step_count` FAIL behind workload fingerprint, not `config_sha256`) | docs/ |
+| **Compare a suite to a Q-8 baseline**   | [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) (identity first; work exact / speed reported; exit 0/1/2) | docs/    |
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
 | **Run `equities` / `equities_seq` without a 422** | [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) (14-symbol refuse; unit is symbols because cost is per request; silent slice deleted) | docs/    |
 | **Attribute snapshots / pin the dataset instance** | [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin) (`seeded_params`, `--dataset-seed` vs `--seed`, sidecar-chain `--root` trap) | docs/    |
@@ -65,6 +68,7 @@
 | **Operate weekly docs-full-check**      | [REFERENCE — Docs Full Check](REFERENCE.md#docs-full-check)                                                                     | docs/    |
 | **Understand weekly security / lockfile hygiene** | [REFERENCE — Scheduled Security Scan and Lockfile Update](REFERENCE.md#scheduled-security-scan-and-lockfile-update)     | docs/    |
 | **Triage CodeQL / `Analyze (python)`** | [REFERENCE — CodeQL Analysis](REFERENCE.md#codeql-analysis) (SHA group, `merge_group` divergence, review-thread stall) | docs/    |
+| **Add or re-pin a required status-check context** | [REFERENCE — Required-Context Ruleset Writer](REFERENCE.md#required-context-ruleset-writer) (`--amend-integration-id`; do not hand-roll a ruleset PUT) | docs/    |
 | **Read the release-train detect summary / Slack** | [REFERENCE — Detect Summary and Slack](REFERENCE.md#release-train-detect-summary-and-slack)                             | docs/    |
 | **Understand the AGENTS.md date check** | [REFERENCE — AGENTS.md Date Check](REFERENCE.md#agentsmd-date-check)                                                             | docs/    |
 | **Audit `claude.yml` access safeguards**| [REFERENCE — Claude.yml Access Validation](REFERENCE.md#claudeyml-access-validation) + [ANTHROPIC API key walkthrough](../notes/JUNIPER_2026-05-10_JUNIPER-ECOSYSTEM_ANTHROPIC-API-KEY-ACCESS-VALIDATION-WALKTHROUGH.md) | docs/ + notes/ |
@@ -146,6 +150,8 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md**                                 | Plan        | Shared-session memory / P5 fleet ratchet. Operator surface for slack vs headroom in [REFERENCE](REFERENCE.md#memory-budget-slack-planning) |
 | **JUNIPER_2026-08-24_JUNIPER-ML_MEMORY-INDEX-RUNWAY-AND-ENFORCEMENT-OPTIONS.md**                | Analysis    | MEMORY.md runway + hook-not-line 120; option A is `util/memory_index_check.py`. Operator surface in [REFERENCE](REFERENCE.md#memorymd-index-check) |
 | **JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_RESIDENT-HAZARD-GAP-TRIAGE.md**                          | Triage      | Fleet-wide source-vs-resident hazard pass; operator surface in [REFERENCE](REFERENCE.md#resident-hazard-gap-triage) |
+| **JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md**                                | Protocol    | Seeded vs organic soak, Wilson verdicts, `source-recovered`; operator surface in [REFERENCE](REFERENCE.md#pointer-follow-soak) |
+| **JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md**                          | Design      | Soak exists to inform relocation decisions; characterisation §8–§9 (strata real, membership not); [REFERENCE](REFERENCE.md#pointer-follow-soak) |
 | **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
 
 Full naming rules for `notes/`: [`JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](../notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md).
