@@ -2,9 +2,9 @@
 
 ## Install Juniper Packages with juniper-ml
 
-**Version:** 0.3.12
+**Version:** 0.3.40
 **Status:** Active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -114,12 +114,17 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Documentation Overview](DOCUMENTATION_OVERVIEW.md) -- navigation index
 - [Reference](REFERENCE.md) -- extras, compatibility, and version reference
 - [Host Orchestration Utilities](REFERENCE.md#host-orchestration-utilities) -- run services on-host with `util/juniper_plant_all.bash` and `util/juniper_chop_all.bash`
+- [Conda Env Torch Shadow Diagnostic](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- classify `import torch` / `torch._C` (exit **2** = P-5 free-threaded; exit **4** = May-7; does not rebuild)
 - [Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety) -- `predict_merge` + `Allow-Docs-Rewrite` trailer parity (#926)
 - [Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) -- G4 pre-commit split, advisory Sequence Safety / Fleet PR Lint, post-merge `main-verify` catch-up
 - [Post-Merge Main Verification](REFERENCE.md#post-merge-main-verification) -- G3 / G3.1 catch-up BASE, stable-title failure notify, trailers vs labels, battery path-gate
 - [YubiKey GPG Provisioning](REFERENCE.md#yubikey-gpg-provisioning) -- ed448-on-card caveat + pointer to the validated transfer procedure
+- [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` to external media; restore with `tar -xjf`; not the Duplicati `$HOME` lane
 - [Open-PR Budget Alarm](REFERENCE.md#open-pr-budget-alarm) -- daily report-only open-PR / `cursor/` queue guardrail
 - [Experiment Stack Utilities](REFERENCE.md#experiment-stack-utilities) -- per-run cascor/recurrence experiments via `util/experiment_stack.bash` + `run_experiment.py` (failed `--up` auto-tears down)
+- [PF Scenario Suites](REFERENCE.md#pf-scenario-suites) -- Wave 7.3 instruments (`--dry-run` first; PF-1 matched 4000/4000 epochs; `JUNIPER_SUITE_GRAFANA_BRIDGE`; PF-4/PF-8 are not driver suites)
+- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; do **not** wire the exact `step_count` gate to CI (juniper-ml#1710)
+- [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default `equities` / `equities_seq` is 422 at 14 symbols (cost is per request; silent slice deleted in data#354)
 - [Shared-Package CI Workflows](REFERENCE.md#shared-package-ci-workflows) -- the six in-repo `ci-<pkg>.yml` contracts (paths, floors, coverage enforce)
 - [Docs Full Check](REFERENCE.md#docs-full-check) -- weekly cross-repo link validation + the `ECOSYSTEM_REPOS` clone-list lockstep
 - [Scheduled Security Scan and Lockfile Update](REFERENCE.md#scheduled-security-scan-and-lockfile-update) -- weekly `pip-audit --strict` + the lockfile refresh PR
@@ -129,6 +134,11 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [juniper-service-core](REFERENCE.md#juniper-service-core) -- body limit, 429 headers, control-WS sanitizer, `/ws/workers` contracts
 - [HTTP Client Base-URL Contract](REFERENCE.md#http-client-base-url-contract) -- shared REST `_normalize_url`, TLS-downgrade pitfall, WS streams still rstrip-only
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy event-loop blocking; count is 58 (canopy#567); the slice-1a gate is authority for `main.py` only (do not quote the v1 name-matching census)
+- [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; the `W4-*` / `W1-12..14` IDs are real matrix §4 steps (F-E2E-007 claimed otherwise and was withdrawn)
+- [P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) -- 19 YAML catalog; `include` does not inherit `matrix`; cap-128 H2H is n=2; recurrence P4 cells report, they do not gate
+- [Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) -- `measure-growth` sizes a ceiling; headroom below that figure is not a `Memory Budget` failure
+- [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert when a canopy store looks empty after a correct wire response; read the whole series; `--target topology` refuses
+- [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local Claude Code index gate; 200/25k silent newest-first truncate; hook-not-line 120 on NEW slugs; CI cannot see `~/.claude`
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
@@ -137,5 +147,5 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.3.12
+**Version:** 0.3.39
 **Status:** Active
