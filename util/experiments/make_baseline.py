@@ -251,7 +251,11 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
         "accepted_warnings": accept_warnings,
         "scenarios": scenarios,
         "metric_contract": {
-            "work": "step_count -- gated EXACTLY; deterministic for a seed-fixed config and contention-immune",
+            "work": (
+                "step_count -- gated EXACTLY; deterministic for a seed-fixed config and contention-immune "
+                "ONLY WITHIN a termination branch (see completion_reason). Corpus census 2026-09-04: 29 of 79 "
+                "repeated configs diverge across branches, none within one."
+            ),
             "speed": "mean_step_seconds -- REPORTED, never gated; carries a 13-20.5% host drift floor",
             "de_ratified": "timings.drive and wall_seconds; drive is quantized to the 5 s poll interval",
         },

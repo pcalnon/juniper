@@ -144,6 +144,11 @@ python3 -m unittest -v tests/test_e2e_matrix_rescore.py
 python3 -m unittest -v tests/test_e2e_unfilled_rows.py
 python3 -m unittest -v tests/test_e2e_f037_render_census.py
 python3 -m unittest -v tests/test_e2e_row_coverage.py
+python3 -m unittest -v tests/test_soak_probe_evidence.py
+python3 -m unittest -v tests/test_soak_wilson_resolving.py
+python3 -m unittest -v tests/test_soak_run_probe_stopping_rule.py
+python3 -m unittest -v tests/test_soak_ledger_status_token.py
+python3 -m unittest -v tests/test_soak_analyse_date_pool.py
 python3 -m unittest -v tests/test_canopy_poller_inventory.py
 python3 -m unittest -v tests/test_cascor_freeze_tell.py
 python3 -m unittest -v tests/test_ruleset_context_audit.py
