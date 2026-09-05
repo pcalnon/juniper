@@ -53,7 +53,6 @@ from __future__ import annotations
 import argparse
 import collections
 import json
-import sys
 
 FAST_GATES = ("black", "isort", "flake8", "mypy", "check-ast")
 COLLIDE_SUFFIXES = (".py", ".bash", ".sh", ".yml", ".yaml")
