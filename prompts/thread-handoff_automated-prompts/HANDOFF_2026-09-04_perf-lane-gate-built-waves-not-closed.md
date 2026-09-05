@@ -1,4 +1,4 @@
-# HANDOFF 2026-09-04 — the premise is SETTLED; the guard that settled it shipped TWO fail-open holes
+# HANDOFF 2026-09-05 — the gate is BUILT, its premise SETTLED, and all six comparator defects CLOSED
 
 Successor to `HANDOFF_2026-09-01_perf-lane-p3-and-arc-tail.md`.
 
@@ -23,7 +23,7 @@ with a PROCESS check, not only ports:
 `pgrep -c -x sha256sum` and
 `ps -eo pid,cmd --no-headers | grep -E "run_suite|contention_load|headroom_sweep" | grep -v grep`.
 
-`origin/main` was `a0420375` when this was finalised (`63ca9306` at first draft; it moved repeatedly
+`origin/main` was `d5969022` when this was finalised (`63ca9306` at first draft; it moved repeatedly
 during validation and the determinism fix) — **re-check it, do not branch from a recorded sha.**
 
 ---
@@ -51,8 +51,12 @@ not because anything drifted.
 [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md)
 unless stated otherwise.**
 
-0. **FIRST — land peer PR `ml#1735`** (it closes the two fail-open holes `ml#1733` introduced, §2
-   of this document), then the remaining comparator defects (§9). The determinism blocker
+0. ~~Land `ml#1735`, then the comparator defects.~~ **DONE 2026-09-05.** `ml#1741` `d8c0fc81`
+   closed the two fail-open holes; `ml#1743` `d5969022` closed all six comparator defects
+   (A1/A2/A3/A4/A6/A7). `ml#1735` (Cursor fleet) was **superseded, not landed** — it branched from
+   `fix/step-count-determinism-guard`, and once `ml#1733` squash-merged and that branch was deleted
+   GitHub retargeted it to `main`, where it conflicts (`update-branch` → 422). Close it or let the
+   fleet rebase it into a no-op. The determinism blocker
    is **settled and merged** (`ml#1733`), but `compare_baseline.py` still PASSes on unmeasured
    cells (A1) and on `timed_out` cells (A2) — both one-line imports of refusals
    `make_baseline.py` already implements — PASSes on zero-work runs (A4), converts a real FAIL
@@ -61,7 +65,7 @@ unless stated otherwise.**
    wiring**, since a caller treating exit 2 as "cannot compare" would lose a real regression.
 1. **Free — land the remaining open lane PRs** (peer-authored; enumerate them yourself, the set
    moves). Item 3.1 is already in via #1683 `06e81d3a`, so `main` can read a recurrence run and the
-   three gate suites run **76 tests**.
+   three gate suites run **88 tests**.
 2. **Free — P4 (Documentation) is a whole PHASE that is missing and never started.** §1.1 of the
    phasing note
    ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](../../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md))
@@ -151,8 +155,9 @@ unless stated otherwise.**
   FAILing (exit 1). Use **`pf1-2026-09-04b`**; `pf1-2026-09-04` predates the guard and is correctly
   refused.
 
-  **BUT `ml#1733` SHIPPED TWO FAIL-OPEN HOLES. Peer PR `ml#1735` fixes both — land it.** Found by
-  validating the fix rather than the original claim:
+  **`ml#1733` SHIPPED TWO FAIL-OPEN HOLES — both CLOSED in `ml#1741` (`d8c0fc81`).** Recorded because
+  the shapes recur, and because both were found by validating the FIX rather than re-validating the
+  original claim:
 
   1. **The truncated-termination guard CANNOT FIRE on real data.** It matches
      `{timed_out, torn_down_early, stalled}` against **`completion_reason`** — but those are
@@ -167,7 +172,9 @@ unless stated otherwise.**
      all-null candidate refuses. The baseline side is unconditional and does fail closed; the doc's
      earlier "fails closed on both sides" was wrong.
 
-  **Do not CI-wire the gate until `ml#1735` lands.**
+  **The gate is now safe to CI-wire on its own merits** — but whether the run tier gates at all
+  remains an open OWNER decision (§6 of the P1 design), and `run_suite`'s exit code is still
+  deliberately independent of the verdict.
 
   **One caveat on the census itself**: the 29 divergent configs partition into 74 branches, **54 of
   them singletons**, where within-branch agreement is definitionally guaranteed. Only **20 branches
@@ -206,7 +213,7 @@ python3 util/experiments/compare_baseline.py --baseline pf1-2026-09-04b \
 |---|---|
 | `rev-parse origin/main` | `63ca9306` **or later** |
 | `gh pr list` | several open lane PRs, peer-authored; the set moves — enumerate, do not trust a count |
-| three gate suites | **76 OK** (27 + 24 + 25) after `ml#1733`; will change again with `ml#1735` |
+| three gate suites | **88 OK** (27 reader + 24 baseline + 37 comparator) after `ml#1743` |
 | `compare_baseline` | `verdict: PASS`, `step_count baseline=1770.0 candidate=1770.0`, exit 0 |
 
 **Stop conditions.** If the comparator does not say PASS on the suite its own baseline was cut from,
@@ -289,7 +296,7 @@ so `tests/test_app_smoke.py::test_docs_require_auth_when_enabled` fails locally 
 
 **juniper-ml** — #1570 `abf15824`, #1578 `ee48ec44`, #1587 `aa0a8653`, #1592 `24aef672`,
 #1600 `03d2bf12`, #1601 `8ff925db`, #1605 `fbe82c04`, #1613 `24e448e3`, #1622 `3116147e`,
-#1643 `255603ef`, #1683 `06e81d3a`, #1710 `6d9725ef`, #1733 `a0420375`. **juniper-cascor** — #618 `2dec835`. **Open at hand-off**: `ml#1735` (fixes #1733's two holes) plus a large and moving set of peer PRs — enumerate with `gh pr list`, do not trust a count.
+#1643 `255603ef`, #1683 `06e81d3a`, #1710 `6d9725ef`, #1733 `a0420375`, #1739 `52f83db3`, #1741 `d8c0fc81`, #1743 `d5969022`. **juniper-cascor** — #618 `2dec835`. **Open at hand-off**: `ml#1735` (fixes #1733's two holes) plus a large and moving set of peer PRs — enumerate with `gh pr list`, do not trust a count.
 
 **Files created**: `util/experiments/read_run_metrics.py`, `make_baseline.py`, `compare_baseline.py`;
 `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py`;
