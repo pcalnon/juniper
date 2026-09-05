@@ -42,8 +42,8 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import unittest.mock as mock
 from pathlib import Path
-from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "util" / "ad-hoc" / "e2e_f037_render_census.py"

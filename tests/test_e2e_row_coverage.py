@@ -195,7 +195,7 @@ class CompressedRangeCreditsInteriors(unittest.TestCase):
             path.write_text("M-TOPOLOGY-01..06,09\tPASS\n", encoding="utf-8")
             known = {f"M-TOPOLOGY-{n:02d}" for n in range(1, 11)}
             hit, unknown = mod.verdicted([path], known)
-        self.assertTrue({"M-TOPOLOGY-01", "M-TOPOLOGY-03", "M-TOPOLOGY-06", "M-TOPOLOGY-09"} <= hit)
+        self.assertLessEqual({"M-TOPOLOGY-01", "M-TOPOLOGY-03", "M-TOPOLOGY-06", "M-TOPOLOGY-09"}, hit)
         self.assertNotIn("M-TOPOLOGY-07", hit)
         self.assertNotIn("M-TOPOLOGY-08", hit)
         self.assertNotIn("M-TOPOLOGY-10", hit)
