@@ -7,6 +7,8 @@
 **Version**: 1.0.0
 **Last Updated**: 2026-08-10
 
+**Operator surface (2026-09-04):** [`docs/REFERENCE.md` § Ruleset Context Audit](../docs/REFERENCE.md#ruleset-context-audit). This note is the 2026-08-10 incident record; §1 counts are historical. Re-run `util/ad-hoc/2026-08-10_ruleset_context_audit.py` rather than quoting them.
+
 ---
 
 ## 1. Why this document exists
