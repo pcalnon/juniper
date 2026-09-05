@@ -1,0 +1,10 @@
+[t=     94ms]   server /api/metrics/history: {'ok': True, 'total': 100, 'phases': {'candidate': 99, 'output': 1}, 'candidate': 99}
+[t=    579ms] navigating to http://127.0.0.1:8052
+[t=  14310ms]   welcome modal dismissed
+[t=  29576ms]   metrics-panel-metrics-store: ok via 'paths.strs' type=list len=0
+[t=  30112ms]   ws-liveness-store: ok=True value={'metrics_live': False, 'state_live': False}
+[t=  55115ms]   wire census (25 s): {'store_writes': 13, 'responses': 74}
+[t= 100516ms]   !! timed out after 45s waiting for candidate loss plot to render a populated trace (last=False)
+[t= 100830ms]   loss figure: {'present': True, 'traces': [], 'annotations': []}
+[t= 100830ms]   M-CANDIDATES-07 -> FAIL: store readable and EMPTY while the server serves candidate history
+[t= 100949ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f035_redrive.json
