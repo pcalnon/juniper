@@ -1022,6 +1022,12 @@ jobs:
           python3 -m unittest -v tests/test_e2e_append_statuses.py
           # tests/test_recurrence_kind_edges.py: Recurrence-kind edges in `util/experiments/read_run_metrics.py`: a manifest whose `timings`, `drive_loop` or `dataset` is a truthy NON-mapping. `or {}` guards absence, not type, so a list or string reached `.get` and took down `read_suite` -- and with it make_baseline, compare_baseline, and run_suite.aggregate, which then destroys its own aggregate.csv.
           python3 -m unittest -v tests/test_recurrence_kind_edges.py
+          # tests/test_e2e_topology_row_predicates.py: The three M-TOPOLOGY row predicates, extracted from `util/ad-hoc/e2e_seg17_topology_driver.py` into `util/ad-hoc/e2e_topology_row_predicates.py` so they can be unit-tested at all: `util/` is outside every pre-commit Python hook. Pins that M-TOPOLOGY-06 requires the label AND the count (an OR over two independent claims scores the easier one), that M-TOPOLOGY-07 asserts the label it reads, and that M-TOPOLOGY-12's absent-control case is BLOCKED rather than FAIL.
+          python3 -m unittest -v tests/test_e2e_topology_row_predicates.py
+          # tests/test_e2e_topology_score_contracts.py: Heatmap / export / store-gate score contracts extracted into `util/ad-hoc/e2e_topology_score_contracts.py`: what each row's verdict actually turns on, and which inputs must make it FAIL rather than being recorded as decoration.
+          python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
+          # tests/test_e2e_topology_step_order.py: `--step` parsing extracted into `util/ad-hoc/e2e_topology_step_cli.py`: order is preserved, an unknown step is rejected loudly rather than silently skipped, and the driver walks the WANTED list rather than the registered one.
+          python3 -m unittest -v tests/test_e2e_topology_step_order.py
           # tests/test_compare_baseline_defects.py: The A1-A7 comparator refusals the happy-path suite cannot reach: partial scenario coverage, duplicate baseline fingerprints, a driver-truncated candidate, and the mixed measured/unmeasured suite whose one surviving cell used to satisfy the work invariant vacuously.
           python3 -m unittest -v tests/test_compare_baseline_defects.py
           # tests/test_work_countable_contract.py: The `work_countable` third state end to end: a recurrence candidate is REFUSED with the honest reason rather than FAILed, and no waiver can override a refusal that says the WORK half of the gate does not apply.
