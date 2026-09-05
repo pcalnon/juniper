@@ -44,12 +44,22 @@
 | `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum`) |
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
 | `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Sound since #1743; CI-wiring is an open **owner** decision. |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified `step_count` / `mean_step_seconds` (not `wall_seconds` / `timings.drive`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR --dry-run` | Validate a Q-8 baseline; writes nothing. No `--force`. |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
+| `python3 -m unittest -v tests/test_read_run_metrics.py` | Perf-lane reader regressions (last-row count, fingerprint) |
+| `python3 -m unittest -v tests/test_make_baseline.py` | Baseline refusals (work invariant, mixed workload, no `--force`) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
 | `juniper-symbol-loss-check --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
+| `python3 util/soak_run_probe.py --dry-run`             | Preview next pointer-follow soak probe (no `claude` required) |
+| `python3 util/soak_run_probe.py`                       | Run least-covered soak probe; writes `scoring_packet.md` |
+| `python3 util/soak_ledger.py status`                   | Soak verdict + escalations (exit 1 is often by design) |
+| `python3 -m unittest -v tests/test_soak_ledger.py`     | Soak ledger regressions (`util/` is not pre-commit-gated) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -73,6 +83,9 @@
 | `python3 -m unittest -v tests/test_memory_index_check.py` | Hermetic index-gate suite (CI cannot see `~/.claude`) |
 | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` | Fleet required-context audit (BLOCKING / Tier 1 / path-gated; read-only) |
 | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json --repo juniper-ml` | Same, one repo, JSON (exit 1 on BLOCKING **or** probe error) |
+| `python3 util/ad-hoc/2026-08-20_require_context_safely.py --status` | Census required contexts on the 9-repo roster (never writes) |
+| `python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-ml --context 'Memory Budget' --amend-integration-id` | Dry-run re-pin of an already-required context (#1612) |
+| `python3 -m unittest -v tests/test_require_context_safely.py` | Hermetic ruleset-writer gate (find_ruleset, roster, amend pre-flight) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -570,6 +583,18 @@ Full contract: [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-g
 
 Tip: default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols (data#354). Cost is per request, so the cap is in **symbols**, not bytes. Set `symbols: [AAPL, …]` (E-H already does) or `allow_truncation: true`. A request may only *lower* `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS`. `experiment_stack.bash` sets the cache dir, not the cap. Full contract: [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
 
+Tip: do **not** gate on `aggregate.csv` `wall_seconds` or `manifest.timings.drive` (poll-quantized).
+`python util/experiments/read_run_metrics.py SUITE_DIR` reads the last `metrics_series.csv` row.
+`step_count` is exact and fail-on-mismatch (#1613); speed is reported only.
+`config_sha256` is not workload identity (it sees `experiment.description`).
+`make_baseline` is operator-invoked, has no `--force`, and refuses mixed fingerprints.
+See [REFERENCE — Perf-lane metrics](REFERENCE.md#perf-lane-metrics-and-baselines).
+
+Tip: `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` is the split comparator (#1622).
+Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`), not a work FAIL (exit `1`). Speed cannot fail the gate.
+`--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
+Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
+
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
@@ -582,6 +607,13 @@ Tip: `python util/env_floor_drift_check.py --repo-root PATH [--env NAME|--site-p
 Tip: `util/check_conda_env_torch.bash ENV` classifies `import torch` / `torch._C` — it does not rebuild. Exit **2** is P-5 free-threaded (`cp*t` + regular wheel); exit **4** is the May-7 regular-3.14 wheel-layout class. A free-threaded **warning** with exit 0 is not a failure. Floor/editable can stay green because they never import torch. See [REFERENCE — Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5).
 
 Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash --dry-run` first. The awk gate keeps only current-user python whose cmdline has `JuniperC*` or `Juniper/worktrees/`; `skipped` is a ps→gone / missing-`PPid:` race, not a kill. See [REFERENCE.md § Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper).
+
+Tip: pointer-follow soak — `python3 util/soak_run_probe.py --dry-run` then run; **score with `--reveal` only after**.
+Default pick is least-covered (pooled estimate). For characterisation / a relocation decision pass `--probe-id`.
+The 2026-09-04 runs (#1616) showed the strata are real (permutation p=0.0017) but membership is not resolved at n=2–4.
+Keep `stream.jsonl` if `parse_events` crashes — a string `message` raises after the session is spent.
+`status` exit 1 is often an open escalation, not a broken tool.
+Full contract: [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak).
 
 Tip: `python util/editable_install_drift_check.py --fix --json` is the live mutation path (`action=FIXED` on success). `ERROR` (pip/`OSError`) truncates detail to 500 chars and continues the plan — re-scan still exits `1` while orphans remain. Preview with `--dry-run` first. Coverage: [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
@@ -698,6 +730,9 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
+| Gating experiment speed on `wall_seconds` / `timings.drive` | De-ratified — `python util/experiments/read_run_metrics.py SUITE_DIR` (last histogram row). |
+| `make_baseline` exit `2` `NOT invariant` / `different workloads` | Not repeats, or fingerprints diverged (#1613). New `--tag`; no `--force`; `--accept-warnings` does not waive work. |
+| `config_sha256` differs across PF-1 repeats | Expected — it hashes `experiment.description`. Use `workload_fingerprint` (`description`/`name` stripped, `seed` kept). |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
 | P4 cell `stalled` at ~130 s while healthy | Missing `stall_seconds` > 120 on pool ≥ 16 **or** cap ≥ 64. See [REFERENCE — P4](REFERENCE.md#p4-campaign-suites). |
 | P4 `timed_out` with no `manifest.json` | `per_run_timeout_seconds` ≤ driver wall — raise the subprocess ceiling. |
@@ -706,6 +741,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Driver exit `2` / API `422` on default `equities` | Universe > 14 symbols. Set `dataset.params.symbols` to a short list, or `allow_truncation: true` (writes `DatasetMeta.truncation`). |
 | Requested `max_symbols: 50` still caps at 14 | Request may only lower the ceiling. Raise `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the data service. |
 | Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path or flat `equities`. |
+| `compare_baseline` exit `2` / `REFUSED` | Identity or host mismatch, not a work regression. Do not treat as FAIL. Cut a new baseline for a config edit. |
+| `compare_baseline` exit `1` / `FAIL` | Same workload, `step_count` moved — the gate firing. A one-step difference is enough. |
+| `--accept-work-change` printed but exit is `2` | Waiver had no effect (cannot mask a refusal). Prefer a new baseline tag. |
+| Speed "regression" with matching `step_count` | Expected PASS — speed is never gated (13–20.5% host drift floor). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -720,6 +759,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `juniper-backup` exit 4 PARTIAL | A device/copy failed; already-verified archives stay. Re-run makes a new UUID. |
 | `juniper-backup` `FATAL: gpg recipient not found` | Both `ENCRYPT_KEYS` UIDs must resolve in the local keyring before tar starts. |
 | `juniper-backup` `SKIP … is not a mount point` | Drive unattached (would fill `/`). Attach it, or pass `--dest DIR`. |
+| Soak `parse_events` AttributeError after a spent session | `message` was a string, not a dict. Re-parse saved `stream.jsonl`; do not re-run. Type guard: #1616. |
+| Soak channel says follow but the task names the pointer path | Mechanical false-positive (P06 `--dest docs/REFERENCE.md`). Verify the doc was actually read. |
+| Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
+| Soak probe reaped / no `status.json` | Pidfile was under `reports/soak/runs/` (unscanned) or interpreter was `JuniperC*`. Use `/usr/bin/python3`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
@@ -742,6 +785,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Stub pinentry “No pinentry” / dead agent | Assuan greeting must be `OK …` (#914); check `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash`. Throwaway creds only. |
 | Ed448 keygen fails under gpg 2.4 | Ubuntu/Debian FreePG-patched build (not upstream) — add `--compliance=gnupg` (or `compliance gnupg` in ceremony `gpg.conf`). |
 | Every `push:main` Quality Gate red; advisory job "skipped" | An advisory job was added to `required-checks.needs` — remove it; promote via branch ruleset instead. |
+| `ALREADY REQUIRED` from require_context_safely | Add path no-op — use `--amend-integration-id` to change `integration_id` (#1612). Do not hand-roll a PUT. |
+| Amend `REFUSING: app N has not been observed publishing` | Wrong publisher — Actions is `15368`; never pin `Memory Budget` to Bandit `57789`. |
+| PR BLOCKED, checks all SUCCESS, nothing pending | Required context pinned to an app that never reports, or required before it published — re-pin/un-require via the writer, then `update-branch`. |
+| `--require-observed` unknown on require_context_safely | Not a flag; observed-only is the default. |
 | Security job skipped → Quality Gate red | The security arm must stay `== "failure"`, not `!= "success"`. |
 | Initial / force-push tip skipped the battery | The path detector must fail-open to `run=true` when no base resolves — read the `Detect relevant path changes` log. |
 | Weekly security scan green with a known CVE | Audit step must stay `pip-audit --strict --desc on`; dropping `--strict` softens findings. |
@@ -770,6 +817,7 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
 | Isolated topology / metrics store empty, wire correct | Read the whole TOPOPROBE series; do not trust `_store()` or the first four lines. See [REFERENCE](REFERENCE.md#f-039-store-probe). |
 | `e2e_f039_topoprobe_instrument.py` `REFUSING` on `--target topology` | Expected — handler no longer receives the client's `State`. Probe `metrics` or add the `State`. |
+| `python3 tests/<file>.py` reports fewer cases than `-m unittest` | A `TestCase` class sits after `if __name__ == "__main__": unittest.main()` — direct execution never loads it. #1612: 8 vs 12 on `test_require_context_safely.py`. Move `__main__` to EOF. |
 | Isolated `bring-up failed` / partial trio | `do_up` already ran `do_down` — read the logs, confirm the ports are free, then retry. |
 | Isolated `--up` logs `ERROR: conda activate '…' failed` | Expected fail-closed path — fix the env name or `JUNIPER_E2E_CONDA_DIR`, then retry. |
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
@@ -845,6 +893,8 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
+- [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
