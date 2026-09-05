@@ -991,8 +991,14 @@ class TestDataUpLive(unittest.TestCase):
             f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n'
             "  exit 0\n"
             "fi\n"
-            f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n'
-            f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n'
+            # Published ATOMICALLY (.partial then mv) -- see _read_marker_when_written.
+            # A direct write is observable mid-record, and the helper's trailing-newline
+            # guard cannot catch a truncation that lands on a line boundary: CI caught
+            # this one at "--port\\n" with the port value missing.
+            f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env.partial"\n'
+            f'mv -f "{marker_dir}/python.env.partial" "{marker_dir}/python.env"\n'
+            f'printf "%s\\n" "$@" >"{marker_dir}/python.args.partial"\n'
+            f'mv -f "{marker_dir}/python.args.partial" "{marker_dir}/python.args"\n'
             "exec sleep 60\n"
             "PY\n"
             'chmod 755 "$dest/bin/pip" "$dest/bin/python"\n'
@@ -1108,7 +1114,11 @@ class TestDataUpLive(unittest.TestCase):
             (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
             (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
             (data_venv / "bin" / "pip").chmod(0o755)
-            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            # The two markers are published ATOMICALLY (.partial then mv) -- see
+            # _read_marker_when_written. A direct write is observable mid-record.
+            (data_venv / "bin" / "python").write_text(
+                "#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env.partial"\n' f'mv -f "{marker_dir}/python.env.partial" "{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args.partial"\n' f'mv -f "{marker_dir}/python.args.partial" "{marker_dir}/python.args"\n' "exec sleep 60\n"
+            )
             (data_venv / "bin" / "python").chmod(0o755)
             # python3.14 stub that FAILS if -m venv is invoked (proves skip).
             (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
@@ -1156,7 +1166,11 @@ class TestDataUpLive(unittest.TestCase):
             (data_venv / "bin" / "activate").write_text('_OLD_VIRTUAL_PATH="$PATH"\n' f'VIRTUAL_ENV="{data_venv}"\n' "export VIRTUAL_ENV\n" 'PATH="$VIRTUAL_ENV/bin:$PATH"\n' "export PATH\n" "deactivate() {\n" '  PATH="$_OLD_VIRTUAL_PATH"\n' "  export PATH\n" "  unset VIRTUAL_ENV\n" "  unset -f deactivate 2>/dev/null || true\n" "}\n")
             (data_venv / "bin" / "pip").write_text("#!/usr/bin/env bash\n" f'printf "%s\\n" "$@" >>"{marker_dir}/pip.log"\n' "exit 0\n")
             (data_venv / "bin" / "pip").chmod(0o755)
-            (data_venv / "bin" / "python").write_text("#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args"\n' "exec sleep 60\n")
+            # The two markers are published ATOMICALLY (.partial then mv) -- see
+            # _read_marker_when_written. A direct write is observable mid-record.
+            (data_venv / "bin" / "python").write_text(
+                "#!/usr/bin/env bash\n" 'if [[ "${1-}" == "-c" ]]; then\n' f'  if [[ -f "{marker_dir}/gil_probe_answer" ]]; then cat "{marker_dir}/gil_probe_answer"; else echo 1; fi\n' "  exit 0\n" "fi\n" f'printf "PYTHON_GIL=%s\\n" "${{PYTHON_GIL-}}" >"{marker_dir}/python.env.partial"\n' f'mv -f "{marker_dir}/python.env.partial" "{marker_dir}/python.env"\n' f'printf "%s\\n" "$@" >"{marker_dir}/python.args.partial"\n' f'mv -f "{marker_dir}/python.args.partial" "{marker_dir}/python.args"\n' "exec sleep 60\n"
+            )
             (data_venv / "bin" / "python").chmod(0o755)
             (bin_dir / "python3.14").write_text("#!/usr/bin/env bash\n" f'echo "VENV_SHOULD_NOT_RUN" >>"{marker_dir}/venv.log"\n' "exit 99\n")
             (bin_dir / "python3.14").chmod(0o755)
@@ -1899,3 +1913,77 @@ class TestDoUpPartialFailureTeardown(unittest.TestCase):
             finally:
                 if child_pid is not None:
                     self._force_kill(child_pid)
+
+
+#: Source above this line is what the atomic-publish guard scans. Kept as a module
+#: constant so the guard cannot match its own fixtures and report itself.
+_GUARDED_SOURCE_END = "class TestStubMarkersArePublishedAtomically"
+
+
+class TestStubMarkersArePublishedAtomically(unittest.TestCase):
+    """Every ASYNCHRONOUSLY-published marker must be staged and moved, never written in place.
+
+    ``_read_marker_when_written`` says outright that completeness is guaranteed by the
+    WRITER, and that its trailing-newline check "cannot catch a truncated record that
+    happens to end on a line boundary". CI proved the point on 2026-09-05: the three
+    ``bin/python`` stubs wrote ``python.args`` straight to its final path, and a reader
+    observed ``-m juniper_data --host 127.0.0.1 --port`` with the port value missing --
+    a truncation ending exactly on a line boundary, invisible to the guard.
+
+    **Scope is the async markers only.** These four are the ones read back through
+    ``_read_marker_when_written``, i.e. written by a nohup-backgrounded stub that races
+    the assertion. ``pip.log`` and ``venv.log`` are written by stubs the harness waits
+    for and are read with a plain ``read_text()``; they are deliberately NOT covered,
+    because widening the claim past the evidence would make this test assert a rule
+    nobody has shown to matter there.
+
+    Structural on purpose: the race is timing-dependent and will not reproduce on
+    demand, so a behavioural test would pass for the wrong reason. Asserting that no
+    stub writes an async marker in place is a property that holds or does not -- and it
+    binds the stubs nobody has written yet, which is what the helper's docstring asks
+    for.
+    """
+
+    #: Async markers by the literal shape their writer uses. ``python.*`` are written
+    #: through ``{marker_dir}/<name>``; ``launch.log`` / ``env.log`` through an
+    #: interpolated path variable, so both shapes have to be enumerated by hand --
+    #: a guard that knew only the first shape would score six stubs and miss four.
+    ASYNC_MARKER_PATTERNS = (
+        (r'>"\{marker_dir\}/python\.args(?!\.partial)"', "python.args"),
+        (r'>"\{marker_dir\}/python\.env(?!\.partial)"', "python.env"),
+        (r'>"\{launch_log\}(?!\.partial)"', "launch.log"),
+        (r'>"\{env_log\}(?!\.partial)"', "env.log"),
+    )
+
+    def _guarded_source(self) -> str:
+        source = Path(__file__).read_text()
+        return source[: source.index(_GUARDED_SOURCE_END)]
+
+    def test_no_stub_writes_an_async_marker_to_its_final_path(self) -> None:
+        source = self._guarded_source()
+        offenders = []
+        for pattern, name in self.ASYNC_MARKER_PATTERNS:
+            for match in re.finditer(pattern, source):
+                offenders.append((name, source.count("\n", 0, match.start()) + 1))
+        self.assertEqual(
+            offenders,
+            [],
+            "these stubs redirect an async marker straight to its final path; stage to " f"'<marker>.partial' and 'mv -f' it into place instead: {offenders}",
+        )
+
+    def test_every_async_marker_shape_is_actually_present_in_the_source(self) -> None:
+        """The enumeration is checked separately from the predicate.
+
+        A correct predicate over an enumeration that has gone stale reports clean
+        forever. If a marker's writer is renamed or removed, this fails and says so,
+        rather than the scan silently checking three shapes and calling it four.
+        """
+        source = self._guarded_source()
+        for _pattern, name in self.ASYNC_MARKER_PATTERNS:
+            self.assertIn(name, source, f"{name} no longer appears in the stub source -- update ASYNC_MARKER_PATTERNS")
+
+    def test_the_scan_would_catch_a_direct_write(self) -> None:
+        """Drive the predicate over a synthetic DIRTY input -- an empty result otherwise proves nothing."""
+        pattern = self.ASYNC_MARKER_PATTERNS[0][0]
+        self.assertRegex('printf "%s" "$@" >"{marker_dir}/python.args"', pattern)
+        self.assertNotRegex('printf "%s" "$@" >"{marker_dir}/python.args.partial"', pattern)
