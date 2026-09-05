@@ -60,6 +60,9 @@
 | `python3 -m unittest -v tests/test_list_runs.py`       | Lister/pruner state + `--prune` safety pins |
 | `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step probe` | Score Topology-tab rows against isolated `:8051` (`STEPS` names only) |
 | `util/ad-hoc/2026-09-04_canopy_verify_instance.bash up SRC [PORT]` | Second canopy from a worktree (default `:8052`); does not restart `:8051` |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum` + `completion_reason`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Same-branch FAIL is a real move; branch flip REFUSES. **Do not wire to CI.** |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python3 util/ruleset_scope_guard.py` | Assert this repo's rulesets are not scoped `~ALL` (Quality Gate hard need) |
@@ -949,6 +952,11 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `compare_baseline` PASS with empty series / `timed_out` cells | **No longer possible** — A1/A2 refuse both. If you see it, the reader drifted; stop. |
 | `compare_baseline` REFUSED after a real work miss | **No longer possible** — A3 gives FAIL precedence. A real miss exits 1 even with an unreadable sibling `--suite`. |
 | `compare_baseline` REFUSED "covered N of M" / "DUPLICATE fingerprint" | A6/A7 — partial scenario coverage, or two blessed scenarios sharing a workload. Run the rest, or re-cut from distinct workloads. |
+| `compare_baseline` FAIL, same YAML / seed / host / same `completion_reason` | Real work move after #1733. Cut a new tag or waive; do not add the tool to `ci.yml`. See [REFERENCE](REFERENCE.md#perf-lane-work-gate). |
+| `compare_baseline` FAIL and reader has no `TRUNCATING_TERMINATIONS` | Pre-#1733 checkout — a branch flip is still a false FAIL. Confirm `completion_reason` by hand. |
+| `compare_baseline` REFUSED, no `completion_reason` on the baseline | Expected for tags cut before #1733. Re-cut under a new name. |
+| `compare_baseline` REFUSED, "only WITHIN a termination branch" | Branch flip, not a regression. Compare like with like. |
+| `compare_baseline` PASS with empty series | Expected today — unmeasured rows are dropped. `make_baseline` would have refused. |
 | `make_baseline: already exists` | No `--force`. Choose a new tag. |
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — see `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |

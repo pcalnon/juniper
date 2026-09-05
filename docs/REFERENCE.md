@@ -4695,6 +4695,10 @@ into `compare_baseline`. Verified against the source on `origin/main`:
 | Baseline holds duplicate workload fingerprints | n/a | REFUSE (A7) — collision detected, not resolved arbitrarily |
 | Candidate covers only some baseline scenarios | n/a | REFUSE (A6) — names the uncovered ones |
 | Recurrence / `work_countable: False` | REFUSE | REFUSE (speed alone is not gated; source comments quote a 13–20.5% host drift floor) |
+| Any cell `outcome != succeeded` | REFUSE | `outcome` is still not read. Truncating **reasons** (`timed_out` / `torn_down_early` / `stalled`) REFUSE; a `failed` cell with a non-truncating reason can still PASS |
+| Both sides `step_count == 0` | writes a zero-work baseline (if a single non-truncating reason) | PASS (`0 == 0`) |
+| Mixed / truncating `completion_reason` | REFUSE | REFUSE (same) |
+| Absent `completion_reason` on every cell | writes `completion_reason: null` | REFUSE (fail closed) |
 
 A PASS now does mean "same workload, same host, same termination branch, every cell succeeded and
 measured, every baseline scenario covered." That is the whole point of the ladder: the operator
@@ -4739,6 +4743,11 @@ open follow-ups; they are not a license to CI-wire the gate — that call is the
 | `compare_baseline` REFUSED, exit 2, after a real work miss | **No longer possible** — A3 gives FAIL precedence over REFUSED. A real work miss now exits 1 even when another `--suite` is unreadable. |
 | `compare_baseline` REFUSED, "covered N of M baseline scenario(s)" | A6. The candidate did not run every blessed workload; a PASS would have meant only that the ones you ran still match. Run the rest, or cut a narrower baseline. |
 | `compare_baseline` REFUSED, "DUPLICATE workload fingerprint(s)" | A7. Two blessed scenarios share a workload, so which one a candidate compares against is arbitrary. Re-cut the baseline from distinct workloads. |
+| `compare_baseline` FAIL, exit 1, same YAML / seed / host / **same** `completion_reason` | Treat as a work regression. The guard did not swallow it. Cut a new tag only if the move is deliberate, or waive with a reason. |
+| `compare_baseline` FAIL, exit 1, and `TRUNCATING_TERMINATIONS` is absent from the reader | Pre-#1733 checkout — a branch flip is still a false FAIL. Confirm both sides reached the same `completion_reason` by hand, or land / cherry-pick #1733. |
+| `compare_baseline` REFUSED, "baseline … records no completion_reason" | Expected for tags cut before #1733. Re-cut under a new name (`pf1-2026-09-04` → `pf1-2026-09-04b`). |
+| `compare_baseline` REFUSED, "deterministic only WITHIN a termination branch" | Branch flip (6496 `early_stopped` vs 6095 `below_threshold`). Not a work regression. Compare like with like, or re-cut. |
+| `compare_baseline` REFUSED, "driver stopped before the workload did" | Candidate (or its cells) ended `timed_out` / `torn_down_early` / `stalled`. Raise the budget and re-run; do not gate on a truncated histogram. |
 | `make_baseline: … already exists` | No `--force`. Choose a new tag. |
 | `make_baseline` refuses `validation_warnings` | Re-run clean, or pass `--accept-warnings` (recorded in `baseline.json`). |
 | `workload … is not in baseline` / `INVALID comparison` | Fingerprint mismatch (often a real config edit, or `output_epochs` / seed). Not a work regression. |
@@ -6871,6 +6880,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.47  | 2026-09-04 | Pointer-follow soak operator surface: do not run n≈8–10 (P21/P23 at 1/3 first resolve at 10/31); `--force` is an open owner decision; `--dry-run` is gated by the terminal verdict on this tree (+3 non-follows from 26/40 arms it); full probe slugs; `--outcome miss` needs `--class`; `analyse()` has no era filter |
 | 0.6.48  | 2026-09-04 | Pointer-follow soak operator surface: `--dry-run` is exempt from the terminal-verdict stop (juniper-ml#1690); do not drive n≈8–10; era split required; `source-recovered` stays in the denominator; soak-probes reaper pidfile |
 | 0.6.60  | 2026-09-05 | Canopy E2E unfilled-rows ledger: plan re-drives from `e2e_unfilled_rows.py` (matrix status cells only; `C2.` / `M-`; exit 0). `e2e_row_coverage.py` is an estimator and can list already-`PASS` rows as remaining |
+| 0.6.61  | 2026-09-05 | Perf-lane work gate: `step_count` is exact **within a termination branch** (juniper-ml#1733 census: 29 of 79 repeated-config divergences, 0 within a branch). Branch flip / truncating / absent `completion_reason` REFUSE; same-branch move still FAILS. Do not CI-wire — unmeasured-drop and fingerprint-collapse remain. Supersedes the in-flight #1715 "FAIL is uninterpretable" page. |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.59  | 2026-09-05 | Ruleset Context Audit: read-only fleet classifier for `required_status_checks` (`2026-08-10_ruleset_context_audit.py`); BLOCKING vs Tier 1 vs path-gated; advisory_predicate subtracts the live required set; text-mode 0 can still carry `ERROR:` rows |
 | 0.6.16  | 2026-09-04 | Required-context ruleset writer: add vs `--amend-integration-id` (#1612), observed-publisher pre-flight, six invariants, `Memory Budget` unpinned-id hole (#1611) |
