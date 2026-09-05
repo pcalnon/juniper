@@ -21,16 +21,54 @@ count. Where a figure is derived rather than measured, it says so.
 
 ## 1. The headline: bytes are the wrong unit here, and not by a little
 
-**A byte cap on `equities` would be anti-correlated with the cost it is meant to bound.**
+> **CORRECTED 2026-09-05 — this section's original argument was arithmetically inverted.** It
+> claimed the expensive request was the *smaller* one in bytes, and therefore that a byte cap would
+> "admit the expensive request and reject the cheap one". That is backwards, and it was derivable
+> from this document's own tables on the day it was published. The **decision** — cap `equities` by
+> symbol count — is unchanged and is now argued from something that does not depend on the
+> correlation direction at all. The original text is replaced rather than annotated because it
+> shipped into five other places (§1.1) and each needs the same replacement, not the same footnote.
 
-| Request | Wire bytes | Wall time |
+**A byte cap on `equities` cannot be a measurement. It can only be a prediction.**
+
+That is the whole argument, and it survives any correction to the numbers below.
+
+`csv_import` bounds **bytes** because it *has* an input: the upload is in hand, and the cap is a
+`stat` (then a read-enforced re-check). `equities` has **no input** — the request is a ticker list
+and a date range, and its byte count does not exist until the fetches the cap is meant to prevent
+have already been made. A byte cap there would have to be *estimated* from (symbols × horizon),
+which makes it a noisier function of the symbol count by construction. The symbol count, by
+contrast, is knowable before a single byte moves: `_resolve_symbols` counts the resolved list and
+raises `InputTooLargeError` with **zero network calls** (`juniper_data/generators/equities/generator.py`).
+
+The unit of a cap must be something the server can measure **before doing the work**. That is why
+the two halves of `APD-DATA-018` took different units, and it is a stronger claim than the one this
+section originally made — which rested on a correlation, and got its direction wrong.
+
+### 1.1 What the original argument said, and why it was wrong
+
+| Request | As published | Actually, with a per-request envelope |
 |---|---:|---:|
-| 1 symbol × 26 years (`since 2000`) | **210 KB** | **~2 s** |
-| Russell 3000 × **1 day** | **92 KB** | **1.7–3.2 h** |
+| 1 symbol × 26 years (`since 2000`) | 210 KB | ~215–223 KB (essentially unchanged) |
+| Russell 3000 × **1 day** | **92 KB** | **~2.0–3.9 MB** |
 
-The **smaller** request takes **three to five thousand times longer**. Any threshold that admits
-the first rejects the second, and vice versa — so a byte cap does not merely bound a different
-axis, it bounds the *wrong direction* on the axis that matters.
+The published figure came from a **purely proportional** model —
+`2,923 symbols × 32.1 B/day × 1 day = 91.6 KB` — with **no per-request intercept**, in
+`util/ad-hoc/2026-09-04_equities_sizing_matrix.py`. But Russell 3000 × 1 day is **2,923 separate
+HTTP requests**, each carrying its own response envelope. Fitting an intercept to *this document's
+own* horizon table (the two smallest rows, 1 month and 1 year) gives **679 B fixed + 30.6 B/day**,
+hence **2.07 MB** for that row — 22× the published figure. The 1-year/5-year pair gives a 1,307 B
+intercept and 3.90 MB. Either way the expensive request is also the **larger** one, so bytes are
+**positively** correlated with cost here, not anti-correlated.
+
+Two consequences worth stating plainly:
+
+- **A byte cap would not, in fact, have picked the wrong request.** The published sentence claiming
+  it would is false. What disqualifies a byte cap is §1's argument — that it is unmeasurable before
+  the work — not a correlation that points the other way.
+- **The exact envelope is not pinned.** 679 B and 1,307 B are fits to two different pairs of the
+  same four rows; an OLS fit over all four gives a *negative* intercept. Any figure quoted to
+  three digits here is over-precise. What is robust is the sign and the order of magnitude.
 
 (The wall-time range is the two independent per-symbol measurements reconciled in the paragraph
 below; the conclusion holds at either end.)
@@ -45,8 +83,15 @@ chart API with one symbol, varying only the horizon:
 | 5 years | 36,762 B | 139,113 B | 0.42 |
 | since 2000 | 215,505 B | 724,740 B | 0.58 |
 
-**163× the payload costs 1.16× the time.** There is no per-byte term worth modelling in the range
-that matters. The unit cost is:
+**163× the payload costs 1.16× the time** — but read that as an order-of-magnitude statement, not a
+measurement. It is the two **extremes** of a four-point series quoted as one ratio, and the series
+is **non-monotonic**: 1 year (0.34 s) is *faster* than 1 month (0.50 s), so 1.16× is inside the
+sampling noise rather than above it. A re-run reported 156× payload against **0.83×** time — which
+points the same way (time is flat in payload) while showing the ratio itself is not repeatable.
+
+What the series does support, robustly, is the qualitative claim: **there is no per-byte term worth
+modelling in the range that matters** — wall time tracks the number of *requests*, not their size.
+The unit cost is:
 
 - **Yahoo chart**: ~0.34–0.58 s per request direct; **~1.85 s** through `yfinance`, which adds
   cookie/crumb negotiation and DataFrame construction.
@@ -62,7 +107,12 @@ not change any conclusion below, because every universe is one to two orders of 
 budget either way. **Where a single figure is needed, the conservative 4.0 s is used.**
 
 Bytes per trading day per symbol, for completeness: **~32 B gzipped wire**, ~108 B uncompressed,
-~44 B in the NPZ (10 `float32` feature columns + a `float32` label), 56 B in the pandas frame.
+**~68 B in the NPZ** (16 `float32` feature columns + a `float32` label), 56 B in the pandas frame.
+
+*(Corrected 2026-09-05: this said "~44 B … 10 `float32` feature columns". The matrix went 10 → 16
+columns in juniper-data#362, published after the measurement, and §7 of this same document records
+that widening — so the document contradicted itself. `NPZ_X_BYTES_PER_ROW = 10 * 4` in
+`util/ad-hoc/2026-09-04_equities_sizing_matrix.py` is stale for the same reason.)*
 
 ---
 
@@ -256,14 +306,41 @@ Verified live against AAPL 2013–2021: **34 dividends** and both real splits (*
 
 `days_since_report` came back at **−19 days** on live data. A negative filing age is impossible, and
 it was the symptom of a real leak: the SEC shares series was aligned on the **period end** and
-forward-filled, so Apple's quarter ending 2021-03-27 — not filed until 2021-04-29 — reached every
-trade date in those five weeks. **`total_shares` and `market_cap` have been carrying that leak all
-along**; the new column merely made it visible.
+forward-filled, so a figure reached every trade date between the period it described and the filing
+that disclosed it. **`total_shares` and `market_cap` have been carrying that leak all along**; the
+new column merely made it visible. Over the AAPL 2013–2021 window, **325 of 2,266 rows (14.3%)**
+carried a negative age.
+
+> **CORRECTED 2026-09-05 — the worked example was false, and it shipped into five files.** This
+> paragraph said "Apple's quarter ending 2021-03-27 — not filed until 2021-04-29 — reached every
+> trade date in those five weeks." Verified against the real cached payload:
+>
+> - AAPL's dei series has **no 2021-03 point at all**.
+> - The 2021-04-29 filing carries **`end=2021-04-16`** — a **13-day** gap, not five weeks.
+> - `end` on this tag is an **as-of date, not a fiscal period end**. SEC's own description is
+>   *"as stated on cover of related periodic report"*. AAPL's fiscal Q2 FY2021 did end 2021-03-27;
+>   the dei point does not.
+> - The **−19** comes from **four 2015–2016 filings** (2015-01-09, 2015-10-09, 2016-01-08,
+>   2016-04-08), which tie. 2021's widest gap is **14** days, so 2021 could not have produced it.
+> - The genuine outlier is a 10-K/A: `end=2009-10-16` filed 2010-01-25, **101 days**.
+>
+> The leak, the −19, and the 325/2,266 are **confirmed exactly**. Only the example was wrong.
+> Corrected in `juniper-data/juniper_data/generators/equities/generator.py`,
+> `juniper-data/juniper_data/tests/unit/test_equities_generator.py` and `juniper-data/CHANGELOG.md`
+> by juniper-data#376.
 
 Alignment is now on the filing date, and a point with no `filed` is dropped rather than approximated
 by its period end. Post-fix: 0 negative ages, 0 future report dates, coverage unchanged.
 
-*Adding a field that is a function of an existing one is a cheap way to audit the existing one.*
+**The fix was also incomplete, and its test could not see the gap.** Two facts can share one `filed`
+date — an 8-K restating an old quarter is filed the same day as the current 10-Q — and the
+de-duplication resolved that tie with an *unstable* sort, keeping the restated old figure on **15
+collisions across 9 tickers** (DVA by 10.4%, ADSK — inside the default 14-symbol universe — by
+0.26%). Meanwhile `test_shares_are_not_visible_before_they_were_filed` inspected only `report_date`,
+never `total_shares`, so a look-ahead in the value itself passed it. Both fixed in juniper-data#376.
+
+*Adding a field that is a function of an existing one is a cheap way to audit the existing one —
+and the audit it produces still needs auditing.*
 
 ### 6.3 The KO gap: 37 of 503, and a bug that made it look worse
 
@@ -288,6 +365,36 @@ So the real before/after is **451 → 463 working**, not 463 either way.
 **`KO` itself is not a bug.** It, along with 36 others, reports no shares concept to SEC under
 either tag — including some large names: **META, SPGI, HCA, HUM, WELL, STZ, RL**. That is upstream
 reality, not something juniper-data can fix.
+
+> **CORRECTED 2026-09-05 — "upstream reality" was right, but not permanent, and "37" is not a
+> measurement of absence.** Two independent problems with the census this table rests on:
+>
+> **1. The instrument conflates throttling with absence.** `_facts` in
+> `util/ad-hoc/2026-09-04_survey_sec_shares_coverage.py` maps a 403, a timeout, a 404 and an
+> empty-units body onto values the verdict cascade treats identically, and — unlike the generator's
+> `_sec_get(retries=3)` — it performs **no retries**. At `_SEC_MIN_INTERVAL = 0.12` (≈8.3 req/s)
+> over ~1,509 requests, a single throttle sends a ticker to "NO SHARES ANYWHERE". So **37 cannot be
+> separated from "37 minus however many were throttled"**. Re-measure with an instrument that
+> distinguishes the three before quoting this figure again.
+>
+> **2. The gap is a *regression*, not a property.** A June-2026 `companyconcept` cache on this
+> machine holds KO's **same 71 dei facts** that `companyfacts` returns today — i.e. `companyconcept`
+> *did* serve KO, three months earlier. Across the probed tickers, the ones rescued at the first two
+> rungs are **exactly** the ones with a June cache entry (set equality, zero symmetric difference).
+> Population-level: no-data went **15 → 37** between June and September against a constituents CSV
+> unchanged since 2026-06-03.
+>
+> **3. The published mechanism is inverted.** The "multi-class filers tag shares per share class, so
+> the facts carry a dimension and are excluded" story does not fit its own example: **KO is
+> single-class** and its rows carry **no dimensional keys at all**. Meanwhile the three genuine
+> multi-class filers (GOOG/GOOGL, NWS/NWSA, FOX/FOXA) all resolved to *undimensioned* series in
+> June — the mechanism's predicted victims were never hidden. The one name the story does fit,
+> **STZ**, is the one it failed to rescue.
+>
+> **Consequence for the rescue ladder**: if SEC restores `companyconcept`, the framing is wrong; if
+> it degrades further, the `companyfacts` rung is not guaranteed either. The ladder is still the
+> right shape — it is a fallback, and a fallback does not need to know why the primary failed — but
+> it should not be documented as compensating for a permanent property of the endpoint.
 
 What *was* wrong is that it was **silent**: the generator warned only when the fetch raised, never
 when it returned nothing, so `fundamentals_fill="zero"` turned a missing series into
