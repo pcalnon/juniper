@@ -15,7 +15,11 @@
 #   THE GATE HAS TWO HALVES WITH DIFFERENT CONTRACTS:
 #     * WORK  -- step_count, compared EXACTLY. Deterministic for a seed-fixed config and
 #                contention-immune (measured identical across 21 cells spanning a 3x range of step
-#                duration), so a change in it is a statement about the CODE, never about the host.
+#                duration) -- but ONLY WITHIN A TERMINATION BRANCH. Corpus census 2026-09-04 over
+#                333 runs: 29 of 79 repeated configs diverge in step_count, and ALL 29 are explained
+#                by completion_reason; none remains divergent within a branch. So a change in it is
+#                a statement about the CODE rather than the host ONLY once the branch matches, which
+#                is why a branch flip REFUSES (exit 2) instead of FAILing (ml#1733).
 #     * SPEED -- mean step duration, REPORTED and never gated. The host's own drift floor is
 #                13-20.5%, larger than the effect of six competing CPU-bound processes, so a speed
 #                threshold here would fire on an idle machine.
