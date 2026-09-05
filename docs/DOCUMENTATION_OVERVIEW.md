@@ -2,9 +2,9 @@
 
 ## Navigation Guide to juniper-ml Documentation
 
-**Version:** 0.2.27
+**Version:** 0.2.54
 **Status:** Active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -29,16 +29,26 @@
 | **Configure HTTP client `base_url`**    | [REFERENCE.md](REFERENCE.md#http-client-base-url-contract)                                                                       | docs/    |
 | **Run the local host stack**            | [REFERENCE.md](REFERENCE.md#host-orchestration-utilities)                                                                        | docs/    |
 | **Operate the scheduled Duplicati backup lane** | [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane)                                | docs/    |
+| **Archive the Juniper project tree to external media** | [REFERENCE — Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) (per-repo `.tbz2.gpg`; restore `-xjf`; not Duplicati) | docs/    |
 | **Reap orphaned Juniper pytest children** | [REFERENCE.md](REFERENCE.md#pytest-orphan-reaper)                                                                              | docs/    |
 | **Check installed juniper-* floor drift** | [REFERENCE.md](REFERENCE.md#environment-floor-drift-check)                                                                     | docs/    |
+| **Diagnose a broken conda `import torch`** | [REFERENCE — Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) (exit **2** = P-5 free-threaded; exit **4** = May-7 wheel layout; does not rebuild) | docs/    |
 | **Check custom-agent suite health**     | [REFERENCE.md](REFERENCE.md#agent-suite-doctor)                                                                                  | docs/    |
 | **Triage fleet PRs / sequence-safety**  | [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                                 | docs/    |
 | **Run the isolated E2E trio**           | [Isolated-stack E2E checklist](../notes/JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md) + [REFERENCE — Isolated Stack](REFERENCE.md#isolated-stack-e2e-utilities) | notes/ + docs/ |
 | **Triage Cursor-fleet / predicted-merge PRs** | [REFERENCE — Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety)                            | docs/    |
 | **Run a per-run experiment stack**      | [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities) (incl. partial-`--up` → `teardown_run`) + [CLI experimentation plan](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) | docs/ + notes/ |
+| **Run a PF scenario suite (PF-1…PF-7)** | [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites) (`--dry-run` first; PF-1 matched 4000/4000 epochs; `JUNIPER_SUITE_GRAFANA_BRIDGE`; PF-4/PF-8 are not driver suites) + [P1 design](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md) | docs/ + notes/ |
+| **Bless / compare a perf-lane baseline** | [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) (`read_run_metrics` / `make_baseline` / `compare_baseline`; do **not** wire the exact work gate to CI — juniper-ml#1710) | docs/ |
 | **Check which generators an env can run** | [REFERENCE — Generator Availability Matrix](REFERENCE.md#generator-availability-matrix-on-host) (gates, mnist/equities install paths, probe one-liner) | docs/    |
+| **Run `equities` / `equities_seq` without a 422** | [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) (14-symbol refuse; unit is symbols because cost is per request; silent slice deleted) | docs/    |
 | **Attribute snapshots / pin the dataset instance** | [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin) (`seeded_params`, `--dataset-seed` vs `--seed`, sidecar-chain `--root` trap) | docs/    |
+| **Run a P4 campaign suite** | [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) (19 YAMLs; `include` ≠ `matrix`; cap-128 H2H is n=2; recurrence P4 cells report, they do not gate) | docs/    |
 | **Census X7 off-loop / slice 1a** | [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) (canopy gate is authority for `main.py` only; count 58; do not quote v1; site-local exemption only) | docs/    |
+| **Re-drive the topology block** | [REFERENCE — Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) (`topostate` first or alone; the `W4-*` IDs are real matrix §4 steps) | docs/    |
+| **Size memory-budget slack after a cut** | [REFERENCE — Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) (`measure-growth` `max`, floored at 2,000; headroom is not a CI failure) | docs/    |
+| **Re-probe a canopy store that "never advances"** | [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe) (apply / soak / report / revert; read the whole series; `--target topology` refuses) | docs/    |
+| **Check the Claude Code MEMORY.md index** | [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) (200/25k silent newest-first truncate; hook-not-line 120 on NEW slugs; CI cannot see `~/.claude`) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |
@@ -74,10 +84,8 @@
 |----------------------------------------|------------|--------------------------------------------------------------------------------------------------|
 | **DOCUMENTATION_OVERVIEW.md**          | Overview   | This file -- navigation index                                                                    |
 | **QUICK_START.md**                     | Tutorial   | Install Juniper packages in under a minute                                                       |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, open-PR budget alarm, and X7 off-loop census |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, and X7 census pitfalls |
-| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, agent-suite doctor, post-merge main-verify, YubiKey GPG, fleet triage / sequence-safety, shared-package CI + publish, security-scan / lockfile, docs-full-check, release-train detect, AGENTS.md date check, `claude.yml` access, sibling packages (incl. service-core), flood CI gates, open-PR budget alarm, and X7 off-loop census |
-| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, and X7 census pitfalls |
+| **REFERENCE.md**                       | Reference  | Extras, compatibility, host-stack / isolated-stack / experiment-stack ops, Duplicati backup, project-tree / external-media backup, agent-suite doctor, post-merge main-verify, YubiKey GPG pointer, fleet triage / sequence-safety, shared-package CI + publish pipelines (Gate 1 poll; release-only trigger), scheduled security-scan / lockfile-update, docs-full-check, release-train detect summary, AGENTS.md date check, `claude.yml` access validation, Claude Code Action (`@claude` assistant), sibling packages (incl. service-core), release-workflow, flood CI gates, open-PR budget alarm, X7 off-loop census, PF scenario suites, P4 campaign suites, perf-lane work gate, memory-budget planning slack, `MEMORY.md` index check, conda torch-shadow diagnostic, equities 14-symbol refuse, canopy topology step order / blast-radius IDs, and the F-039 store-apply probe |
+| **DEVELOPER_CHEATSHEET_JUNIPER-ML.md** | Cheatsheet | Quick-reference card for common development, host-stack, backup-lane, CI guardrail and hygiene tasks, signing-ceremony tasks, service-core contracts, experiment-stack tasks, X7 census pitfalls, PF-suite scrapeability / epoch-pair traps, P4 campaign-suite catalog, perf-lane work-gate reads, memory-budget slack vs CI headroom, `MEMORY.md` index limits, conda torch-shadow triage, equities symbol-cap operator surface, topology step order / W-id facts, and the F-039 store-apply probe |
 
 > The deprecated monolithic cheatsheet (`DEVELOPER_CHEATSHEET-ORIGINAL.md`)
 > was relocated to `notes/history/` in 2026-04 and consolidated into
@@ -112,6 +120,7 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md**                     | Runbook     | Modes (`off`/`report`/`propose`/`ceremony`), Gate 1/2 review, HALTs, App-token setup             |
 | **JUNIPER_2026-08-03_JUNIPER-ECOSYSTEM_YUBIKEY-GPG-ED448-KEYTOCARD-PROCEDURE.md**              | Procedure   | YubiKey 5 ed448 `keytocard` root cause + validated ed25519/cv25519 transfer (pointer in [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning)) |
 | **JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md**                  | Findings    | Why the July restore points are gone; scheduled lane is the replacement (pointer in [REFERENCE](REFERENCE.md#scheduled-duplicati-backup-lane)) |
+| **JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md**               | Design      | Snapshot retention + `juniper-backup.bash` restore-drill gate (SS6.4.2 q3); operator surface in [REFERENCE](REFERENCE.md#juniper-project-tree-backup) |
 | **JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md**          | Investigation | GPGFlushError / Duplicati GPG wrapper; not a reason to drop `--no-auto-compact` |
 | **JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md**                      | Analysis    | Flood remediation (§4 item 9 = open-PR budget alarm; operator surface in [REFERENCE](REFERENCE.md#open-pr-budget-alarm)) |
 | **JUNIPER_2026-07-30_JUNIPER-ML_CURSOR-DASHBOARD-CONFIG-REQUESTS.md**                          | Requests    | Source-side Cursor dashboard caps (companion to the repo budget alarm)                           |
@@ -119,10 +128,24 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-06-18_JUNIPER-ECOSYSTEM_PYPI-PUBLISH-PROCEDURE.md**                             | Procedure   | Cut a GitHub Release + archive `notes/releases/` (mandatory for every PyPI deploy)               |
 | **JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md**                                  | Procedure   | Create an isolated git worktree for task work                                                    |
 | **JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md**                             | Procedure   | Merge/cleanup after a task (CWD-safe); includes batch stale-worktree sweep                       |
+| **JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md**                         | Procedure   | P-5 torch._C free-threaded shadow recovery (Option A/B). Classify first: [REFERENCE](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) |
+| **JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md**                                          | Fix         | May-7 regular-3.14 wheel-layout class + plant default `JuniperCascor1`. Classify first: [REFERENCE](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) |
 | **JUNIPER_2026-07-21_JUNIPER-ECOSYSTEM_ISOLATED-STACK-E2E-CHECKLIST.md**                       | Checklist   | Dedicated data/cascor/canopy E2E trio via `util/isolated_stack.bash` (compose contract also in [REFERENCE](REFERENCE.md#isolated-stack-e2e-utilities)) |
+| **JUNIPER_2026-08-09_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P4-STUDIES-EVIDENCE.md** | Evidence | First-nine P4 studies (E-A…E-H, 55 cells — historical); operator catalog of the current 19 YAMLs in [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) |
+| **JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md** | Plan   | Per-run experiment stack + driver (Waves 2.1–2.7); operator contract + partial-`--up` teardown in [REFERENCE](REFERENCE.md#experiment-stack-utilities); P4 §10.5 catalog in [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) |
+| **JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md**                               | Evidence    | Canopy E2E ledger (F-CANOPY-039 FIXED canopy#549). Operator loop in [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe) |
 | **JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md** | Plan   | Per-run experiment stack + driver (Waves 2.1–2.7); operator contract + partial-`--up` teardown in [REFERENCE](REFERENCE.md#experiment-stack-utilities) |
+| **JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md** | Design | §12.3 scenario matrix (PF-1…PF-8); operator surface in [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites) |
+| **JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md** | Plan | Sized/sequenced PF-lane work items; operator surface in [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites) |
+| **JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md** | Design | Q-8 baseline directory + regression definition; operator surface in [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) |
+| **JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md** | Plan   | Split work/speed gate + wave table. The "step_count is deterministic" premise is **not** established — do not CI-wire; operator surface in [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) |
 | **JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md**                       | Findings    | Attribution floors + why the dataset instance must be pinned; operator surface in [REFERENCE](REFERENCE.md#snapshot-attribution-dataset-pin) |
+| **JUNIPER_2026-09-04_JUNIPER-DATA_EQUITIES-INGEST-SIZING-AND-FIELD-AVAILABILITY.md**            | Analysis    | Why equities bounds **symbols** (14), not bytes; operator surface in [REFERENCE](REFERENCE.md#equities-symbol-cap) |
 | **JUNIPER_2026-09-03_JUNIPER-CANOPY_X7-EVENT-LOOP-BLOCKING-REMEDIATION-DESIGN.md**              | Design      | X7 event-loop blocking; slice 1a closes it. Operator surface in [REFERENCE](REFERENCE.md#x7-off-loop-census) (gate is authority for `main.py`; the count is 58 — canopy#567) |
+| **JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md**                                | Ledger      | Canopy E2E findings. Operator traps (step order, W-id definitions, header severity) in [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids); F-CANOPY-037 is OPEN |
+| **JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md**                         | Matrix      | Click-by-click rows **and** §4's canonical workflow scripts — `### W4` is 17 numbered steps, `### W1` is 19 |
+| **JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md**                                 | Plan        | Shared-session memory / P5 fleet ratchet. Operator surface for slack vs headroom in [REFERENCE](REFERENCE.md#memory-budget-slack-planning) |
+| **JUNIPER_2026-08-24_JUNIPER-ML_MEMORY-INDEX-RUNWAY-AND-ENFORCEMENT-OPTIONS.md**                | Analysis    | MEMORY.md runway + hook-not-line 120; option A is `util/memory_index_check.py`. Operator surface in [REFERENCE](REFERENCE.md#memorymd-index-check) |
 | **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
 
 Full naming rules for `notes/`: [`JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](../notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md).
@@ -179,5 +202,5 @@ Exact floors and ranges: [`REFERENCE.md`](REFERENCE.md#extras-reference) and `py
 ---
 
 **Last Updated:** 2026-09-04
-**Version:** 0.2.27
+**Version:** 0.2.54
 **Maintainer:** Paul Calnon
