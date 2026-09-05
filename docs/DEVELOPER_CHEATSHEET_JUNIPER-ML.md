@@ -43,7 +43,7 @@
 | `python util/experiments/run_suite.py --suite util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml --dry-run` | Expand a P4 campaign suite (no writes); see [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) |
 | `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum`) |
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
-| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). **Do not wire to CI.** |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Sound since #1743; CI-wiring is an open **owner** decision. |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -547,10 +547,12 @@ Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2
 
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
 
-Tip: `compare_baseline.py` is a **split** gate (exact `step_count`, ungated speed) and is **not** safe to wire to CI.
-Consensus validation ([#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) produced a counterexample: identical
-fingerprint/seed/host, different `step_count`, all `outcome: succeeded` — blessing one side is a false regression.
-`make_baseline` refuses unmeasured / `timed_out` cells; the comparator still PASSes them.
+Tip: `compare_baseline.py` is a **split** gate (exact `step_count`, ungated speed). The #1710 counterexample is
+**settled**: a corpus census (333 runs) showed all 29 divergences are explained by `completion_reason`, and #1733 made
+the termination branch part of the precondition — a branch flip now REFUSES (2) instead of FAILing (1). #1741 + #1743
+closed the writer/comparator asymmetry, so the comparator now refuses unmeasured / `timed_out` / zero-work cells too.
+**Still do not wire it to CI** — not because it is unsound, but because *whether the run tier gates at all* is an
+unmade owner decision (§6 of the P1 design).
 Full contract: [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate).
 
 Tip: default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols (data#354). Cost is per request, so the cap is in **symbols**, not bytes. Set `symbols: [AAPL, …]` (E-H already does) or `allow_truncation: true`. A request may only *lower* `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS`. `experiment_stack.bash` sets the cache dir, not the cap. Full contract: [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
@@ -755,9 +757,11 @@ Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 byt
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
 | Experiment `grafana bridge failed — tearing the run back down` | Expected `--grafana-bridge` teardown; install `socat`/`docker` or omit the flag. |
 | Experiment port range exhausted after a failed `--config` | Staging aborted between `allocate_port` and `ports.json` (open #979) — clear `*.lock` under `JUNIPER_EXP_LOCK_ROOT` with no live listener. |
-| `compare_baseline` FAIL, same YAML / seed / host | Do **not** treat as a code regression — termination may have moved. Do not add the tool to `ci.yml`. See [REFERENCE](REFERENCE.md#perf-lane-work-gate). |
-| `compare_baseline` PASS with empty series / `timed_out` cells | Expected today — unmeasured rows are dropped and `outcome` is not read. `make_baseline` would have refused. |
-| `compare_baseline` REFUSED after a real work miss | Another `--suite` on the same command was unreadable. Split the invocation; do not collapse exit 1 and 2. |
+| `compare_baseline` FAIL, same YAML / seed / host | Interpretable since #1733/#1743 — branch, `outcome`, measurement and coverage all checked out. Investigate the change; waive only once you know why. |
+| `compare_baseline` REFUSED "different branches" / "no completion_reason" | Not a regression. Candidate terminated differently, or the baseline predates the #1733 guard (`pf1-2026-09-04`). Use `pf1-2026-09-04b` or re-cut. |
+| `compare_baseline` PASS with empty series / `timed_out` cells | **No longer possible** — A1/A2 refuse both. If you see it, the reader drifted; stop. |
+| `compare_baseline` REFUSED after a real work miss | **No longer possible** — A3 gives FAIL precedence. A real miss exits 1 even with an unreadable sibling `--suite`. |
+| `compare_baseline` REFUSED "covered N of M" / "DUPLICATE fingerprint" | A6/A7 — partial scenario coverage, or two blessed scenarios sharing a workload. Run the rest, or re-cut from distinct workloads. |
 | `make_baseline: already exists` | No `--force`. Choose a new tag. |
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — see `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
@@ -824,7 +828,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [PF Scenario Suites](REFERENCE.md#pf-scenario-suites) -- Wave 7.3 instruments; PF-1 matched epoch pair + matrix-axis repeats; PF-4/PF-8 are not driver suites
 - [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; the W4/W1 blast-radius IDs are real matrix §4 steps (F-E2E-007 claimed otherwise and was withdrawn)
 - [P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) -- 19 YAML catalog; include ≠ matrix; cap-128 H2H is n=2; recurrence P4 cells do not gate
-- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; do not CI-wire the exact work gate (#1710)
+- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; sound since #1743; CI-wiring is an open owner decision, not a soundness bar
 - [Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) -- headroom is not a CI input; size slack from `measure-growth` `max`, floored at 2,000
 - [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default `equities` is 422 at 14 symbols; unit is symbols because cost is per request
 - [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert; read the whole series; `--target topology` refuses
