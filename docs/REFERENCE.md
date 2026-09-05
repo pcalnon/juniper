@@ -1356,6 +1356,7 @@ Do **not** use `e2e_matrix_fill.py --overwrite` to re-score a named subset. `--o
 
 ### How to run
 
+```bash
 # Ledger: what is still a placeholder? (plan from this, not from e2e_row_coverage.py)
 python3 util/ad-hoc/e2e_unfilled_rows.py
 
@@ -1373,6 +1374,7 @@ python3 util/ad-hoc/2026-09-02_matrix_set_verdicts.py \
 # After a fix: touch only the re-opened rows (dry-run first)
 python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --row M-DATASET-02 --status PASS
 python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --write
+```
 
 ### Contracts verified against source
 
@@ -1404,7 +1406,10 @@ python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --wri
 - Refuses a status that starts with `pending` (exit `2`).
 - Missing `--row` ids: stderr WARNING, **still writes the found rows**, exit `0`. Confirm the printed list before `--write`.
 
+### Operator pitfalls
 
+| Symptom | Cause / fix |
+|---------|-------------|
 | Neighbouring row now says PASS | Hand-edit, or `set_verdicts` on a row with an escaped pipe (naive split). Use the tools; dry-run fill/rescore first |
 | `set_verdicts` wrote immediately | It has no dry-run. Review `--from` / `--set` before invoking |
 | `rescore --write` landed 1 of 3 rows | Missing ids warn and still write. Check the WARNING list |
@@ -1432,6 +1437,7 @@ dash-renderer 4.2.0 (`dash_renderer.dev.js` ~2846) promotes `callbacks.prioritiz
 
 ```text
 available = Math.max(0, 12 - executing.length - watched.length)
+```
 
 If `executing + watched >= 12`, **nothing** leaves `prioritized` on that pass. Ordering is `sortPriority` / `getPriority` (base-36 downstream depth×breadth, **DESCENDING**). A terminal render callback — outputs feed no further callback — scores the minimum and loses every arbitration while the pool is contended. The callback is registered, resolvable, and queued; it is simply never picked.
 
@@ -3252,9 +3258,11 @@ The tool is **read-only** (GET only). It never PUTs a ruleset and never adds or 
 
 ### Usage
 
+```bash
 python3 util/ruleset_scope_guard.py                  # this repo only (per-PR / CI default)
 python3 util/ruleset_scope_guard.py --fleet          # all 9 repos (manual)
 python3 util/ruleset_scope_guard.py --repo juniper-data --json
+```
 
 `--fleet` and `--repo` are mutually exclusive. Default repo is `juniper-ml`. `FLEET` is a stdlib-only list kept in lockstep with the release-train registry's publishing repos plus `juniper-deploy` (`FleetListDriftTest` — adding a sibling means updating this list too).
 
