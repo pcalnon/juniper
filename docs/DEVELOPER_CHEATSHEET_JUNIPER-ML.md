@@ -53,6 +53,10 @@
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
 | `juniper-symbol-loss-check --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
+| `python3 util/soak_run_probe.py --dry-run`             | Preview next pointer-follow soak probe (no `claude` required) |
+| `python3 util/soak_run_probe.py`                       | Run least-covered soak probe; writes `scoring_packet.md` |
+| `python3 util/soak_ledger.py status`                   | Soak verdict + escalations (exit 1 is often by design) |
+| `python3 -m unittest -v tests/test_soak_ledger.py`     | Soak ledger regressions (`util/` is not pre-commit-gated) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -589,6 +593,13 @@ Tip: `util/check_conda_env_torch.bash ENV` classifies `import torch` / `torch._C
 
 Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash --dry-run` first. The awk gate keeps only current-user python whose cmdline has `JuniperC*` or `Juniper/worktrees/`; `skipped` is a ps→gone / missing-`PPid:` race, not a kill. See [REFERENCE.md § Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper).
 
+Tip: pointer-follow soak — `python3 util/soak_run_probe.py --dry-run` then run; **score with `--reveal` only after**.
+Default pick is least-covered (pooled estimate). For characterisation / a relocation decision pass `--probe-id`.
+The 2026-09-04 runs (#1616) showed the strata are real (permutation p=0.0017) but membership is not resolved at n=2–4.
+Keep `stream.jsonl` if `parse_events` crashes — a string `message` raises after the session is spent.
+`status` exit 1 is often an open escalation, not a broken tool.
+Full contract: [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak).
+
 Tip: `python util/editable_install_drift_check.py --fix --json` is the live mutation path (`action=FIXED` on success). `ERROR` (pip/`OSError`) truncates detail to 500 chars and continues the plan — re-scan still exits `1` while orphans remain. Preview with `--dry-run` first. Coverage: [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
 Tip: `FRESH` does **not** mean up to date. An editable's `*.dist-info/METADATA` is frozen at the last `pip install -e`, so `import` follows the live tree while `importlib.metadata.version()` reports the old number — that is what fails a repo's own `version == pyproject` self-check and makes a host-launched service export a wrong build-info version. The `STALE` column catches it (soft by default; `--strict-version` to fail, `--fix --fix-stale` to re-stamp). Scope with `--env NAME` when a long-lived service is running from an env.
@@ -729,6 +740,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `juniper-backup` exit 4 PARTIAL | A device/copy failed; already-verified archives stay. Re-run makes a new UUID. |
 | `juniper-backup` `FATAL: gpg recipient not found` | Both `ENCRYPT_KEYS` UIDs must resolve in the local keyring before tar starts. |
 | `juniper-backup` `SKIP … is not a mount point` | Drive unattached (would fill `/`). Attach it, or pass `--dest DIR`. |
+| Soak `parse_events` AttributeError after a spent session | `message` was a string, not a dict. Re-parse saved `stream.jsonl`; do not re-run. Type guard: #1616. |
+| Soak channel says follow but the task names the pointer path | Mechanical false-positive (P06 `--dest docs/REFERENCE.md`). Verify the doc was actually read. |
+| Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
+| Soak probe reaped / no `status.json` | Pidfile was under `reports/soak/runs/` (unscanned) or interpreter was `JuniperC*`. Use `/usr/bin/python3`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
@@ -858,6 +873,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
 - [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
