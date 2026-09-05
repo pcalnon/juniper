@@ -915,6 +915,9 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `--merge` printed a report but wrote nothing | Default is dry-run. Pass `--apply`. |
 | Regenerated requirements from the ledger; Detail gone | Restore from git. `by-area` is the corpus of record. See [REFERENCE](REFERENCE.md#requirements-snapshot-consolidation). |
 | Requirements source paths point at `.claude/worktrees` | `ECOSYSTEM_ROOT` missed the sibling repos. Do not treat a green round-trip as proof the paths are right. |
+| Estimator lists remaining rows the ledger calls UNFILLED 0 | Trust the ledger — those status cells are already filled (often `PASS` with no TSV token). |
+| Estimator remaining is 0 but the ledger still lists ids | Estimator over-credited a range or a `pending …` record. Re-drive the ledger list. |
+| W-ids in estimator unmatched / remaining | Not `C2.` / `M-`. The ledger ignores them; do not invent matrix rows from TSV tokens. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
 | M-TOPOLOGY-18 `INDETERMINATE` after `topo,…,topostate` | Store already filled. Re-drive `--step topostate` alone. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids). |
@@ -1064,6 +1067,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- shipped count is 58; v1 is the name-matching negative example; C5 remedy refuted
 - [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- unprimed probe loop; do not run n≈8–10; `--force` is an open owner decision; full slugs; `--class` on miss
 - [Requirements Snapshot Consolidation](REFERENCE.md#requirements-snapshot-consolidation) -- `by-area` is the corpus of record; ledger has no `detail`; `--check-roundtrip` is by-area only
+- [Canopy E2E Unfilled-Rows Ledger](REFERENCE.md#canopy-e2e-unfilled-rows-ledger) -- plan re-drives from the matrix status cells, not the TSV estimator
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell) -- exact-prefix hold test; exit 0 is "no user-owned importer"
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
