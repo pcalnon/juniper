@@ -120,7 +120,6 @@ The copied blast-radius sentence *W4-01..17 and W1-12..14 stay BLOCKED* names 20
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Step Order and Blast-Radius IDs](../../docs/REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
 
-
 ## Memory-budget slack (operational)
 
 `2026-08-25_p5_port_memory_budget.py measure-growth`, `2026-08-26_p5_fleet_state.py`,
@@ -170,7 +169,6 @@ A required name that never reports leaves `main` unmergeable with every visible 
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
 
-
 ## Canopy E2E matrix writes (operational)
 
 The 298-row ledger is `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`. Do not hand-edit status cells.
@@ -183,7 +181,6 @@ The 298-row ledger is `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLIC
 | `e2e_unfilled_rows.py` | read-only | Ledger reader. Do **not** plan from `e2e_row_coverage.py` (estimator). |
 
 W-lane ids have no status cell (`no-matrix-row`, not an error). Operator contract: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../../docs/REFERENCE.md#canopy-e2e-matrix-writes).
-
 
 ## F-CANOPY-027 poller starvation (operational)
 
@@ -198,7 +195,6 @@ Live probes (`e2e_f027_queues.py`, `e2e_f027_ready.py`, `e2e_f027_slots.py`) nee
 `e2e_f027_deps_endpoint.py` is a **server-registry** check: run it from `juniper-canopy/src` so `frontend.dashboard_manager` imports. `e2e_f027_cleanroom.py` is self-hosted (default port `8399`); rebuild is the default, `--no-rebuild` omits the once-only `visualization-tabs.children` rewrite.
 
 These scripts are **not** CI. Sibling `e2e_f027_*.py` files in this directory are earlier refutation probes (layout, dispatch, redux, DOM) kept as the twenty-mechanism record; start with queues / ready / slots.
-
 
 ## Worktree in-use probe (operational)
 
@@ -215,7 +211,6 @@ python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree
 
 Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
 
-
 ## Canopy E2E finding triage (operational)
 
 `e2e_finding_triage.py` is the mechanical P0/P1 open-count for Phase 2's exit criterion. It reads only line-starting `**F-<AREA>-<NNN> — …**` headers in the evidence ledger.
@@ -229,7 +224,6 @@ python3 util/ad-hoc/e2e_finding_triage.py
 python3 util/ad-hoc/e2e_finding_triage.py --open-only
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
-
 
 ## What does NOT belong here
 
