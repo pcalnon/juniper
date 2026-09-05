@@ -121,6 +121,9 @@
 | `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 11-session topology-paint census (isolated stack; does not judge the rate) |
 | `python3 util/ad-hoc/register_open_set.py` | Re-derive defect-register open/fixed counts (`**FIXED` token; cwd = repo root) |
 | `python3 util/ad-hoc/register_status_crosscheck.py` | Third reading of §2 / §4 / §5.1 (`AGREE` / `DISAGREE`; any cwd) |
+| `python3 util/requirements_consolidate.py --check-roundtrip` | Requirements corpus gate (`by-area` only; exit 0/1) |
+| `python3 util/requirements_consolidate.py --check-views` | Derived `by-repo` / `by-status` must match the `by-area` projection |
+| `python3 util/requirements_consolidate.py --merge PATH.yaml` | Preview a v5 refresh (default dry-run; add `--apply` to write) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 | `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 topology-graph paint census (default 11 sessions; exit 0 is not a paint PASS) |
 
@@ -908,6 +911,10 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | X7 census / gate count dropped but a twin still blocks | Module-global expression exemption — must be site-local. See [REFERENCE](REFERENCE.md#x7-off-loop-census). |
 | `ruff --select ASYNC` green on canopy `backend.*` | Expected. Opaque calls are invisible; trust the slice-1a gate, not ruff. |
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
+| `--check-roundtrip` green, views still drift | Round-trip never reads `by-repo` / `by-status`. Run `--check-views`. |
+| `--merge` printed a report but wrote nothing | Default is dry-run. Pass `--apply`. |
+| Regenerated requirements from the ledger; Detail gone | Restore from git. `by-area` is the corpus of record. See [REFERENCE](REFERENCE.md#requirements-snapshot-consolidation). |
+| Requirements source paths point at `.claude/worktrees` | `ECOSYSTEM_ROOT` missed the sibling repos. Do not treat a green round-trip as proof the paths are right. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
 | M-TOPOLOGY-18 `INDETERMINATE` after `topo,…,topostate` | Store already filled. Re-drive `--step topostate` alone. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids). |
@@ -1056,6 +1063,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; exit 2 = failed to measure; idle populated is VALID
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- shipped count is 58; v1 is the name-matching negative example; C5 remedy refuted
 - [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- unprimed probe loop; do not run n≈8–10; `--force` is an open owner decision; full slugs; `--class` on miss
+- [Requirements Snapshot Consolidation](REFERENCE.md#requirements-snapshot-consolidation) -- `by-area` is the corpus of record; ledger has no `detail`; `--check-roundtrip` is by-area only
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell) -- exact-prefix hold test; exit 0 is "no user-owned importer"
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)

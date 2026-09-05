@@ -73,6 +73,7 @@
 | **Close or count a defect-register row** | [REFERENCE — Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) (`**FIXED` token, cwd pitfall, third reading vs the two §4 counters) | docs/    |
 | **Read the NPZ / partition contract (`X_full` vs `X_val`)** | [REFERENCE — Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) + [partition design](../notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md) | docs/ + notes/ |
 | **Run / score a pointer-follow soak probe** | [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) (least-covered vs characterisation; `--dry-run` is exempt from the terminal-verdict stop) | docs/    |
+| **Refresh the requirements snapshot** | [REFERENCE — Requirements Snapshot Consolidation](REFERENCE.md#requirements-snapshot-consolidation) (`by-area` is the corpus of record; ledger has no `detail`; `--check-roundtrip` then `--check-views`) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |
@@ -181,6 +182,8 @@ Each subpackage has its own `README.md`, `CHANGELOG.md`, and `pyproject.toml`.
 | **JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md**                                | Protocol    | Seeded vs organic soak, Wilson verdicts, `source-recovered`; operator surface in [REFERENCE](REFERENCE.md#pointer-follow-soak) |
 | **JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md**                          | Design      | Soak exists to inform relocation decisions; characterisation §8–§9 (strata real, membership not); [REFERENCE](REFERENCE.md#pointer-follow-soak) |
 | **JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md**                   | Design      | Partition question CLOSED; `*_full` leaves the contract (not yet implemented). Operator surface in [REFERENCE](REFERENCE.md#train--val--test-partition-contract) |
+| **JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md**                             | Procedure   | Snapshot consumption + refresh. Operator surface in [REFERENCE](REFERENCE.md#requirements-snapshot-consolidation) (`by-area` is the corpus of record) |
+| **JUNIPER_2026-05-11_JUNIPER-ECOSYSTEM_REQUIREMENTS-IDENTIFICATION-PLAN.md**                    | Plan        | Requirements identification plan; §11 v5-1/v5-2 forced the consolidator redesign |
 | **JUNIPER_2026-02-23_JUNIPER-ML_THREAD-HANDOFF-PROCEDURE.md**                                  | Procedure   | Thread handoff instead of compaction                                                             |
 
 Full naming rules for `notes/`: [`JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md`](../notes/JUNIPER_2026-07-04_JUNIPER-ML_NOTES-FILE-NAMING-CONVENTION.md).
