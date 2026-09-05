@@ -1,5 +1,9 @@
 # Performance lane — P2 Planning: work items, sized and sequenced
 
+Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 traps, PF-3 stall/wall, PF-4/PF-8 not driver suites): [`docs/REFERENCE.md` § PF Scenario Suites](../docs/REFERENCE.md#pf-scenario-suites).
+
+> **Operator surface (2026-09-04).** The work-gate tools (`read_run_metrics` / `make_baseline` / `compare_baseline`) shipped, but consensus validation ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) refuted the premise that `step_count` is deterministic under a seed-fixed config. **Do not wire the exact-match work gate to CI** until termination determinism is settled. Operator contract: [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
+
 **Closes P2** of the four-phase gate in §1.1 of the phasing note
 ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md)),
 whose deliverable is *"work items with repo, size, and dependencies — the §14-style wave table this

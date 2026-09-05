@@ -35,7 +35,7 @@ from experiments import read_run_metrics as rrm  # noqa: E402  (path-invoked uti
 SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
-def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0, 100), (63.4, 1770)), scrape=True, with_series=True) -> Path:
+def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0, 100), (63.4, 1770)), scrape=True, with_series=True, reason="early_stopped") -> Path:
     """Build a synthetic RUN_DIR. ``samples`` is an ordered list of (sum, count) poll rows."""
     run_dir = root / run_id
     (run_dir / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
@@ -45,6 +45,7 @@ def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0,
         "timings": {"drive": drive, "total": drive + 3},
         "drive_loop": {"polls": polls},
         "metrics_scraped": {"grafana_bridge": True, "scrape_confirmed": scrape, "target_file_written": True},
+        "completion_reason": reason,
     }
     (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     if with_series:

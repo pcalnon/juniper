@@ -39,7 +39,7 @@ from experiments import read_run_metrics as rrm  # noqa: E402
 SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
-def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outcome="succeeded", warnings=None, python="3.13.13", with_series=True) -> Path:
+def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outcome="succeeded", warnings=None, python="3.13.13", with_series=True, reason="early_stopped") -> Path:
     run_dir = root / run_id
     (run_dir / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
     manifest = {
@@ -49,6 +49,7 @@ def _write_run(root: Path, run_id: str, *, step_sum=63.0, step_count=1770, outco
         "drive_loop": {"polls": 14},
         "environment": {"nproc": 16, "python": python, "platform": "Linux-test", "thread_env": {"OMP_NUM_THREADS": None}},
         "metrics_scraped": {"scrape_confirmed": True},
+        "completion_reason": reason,
     }
     if warnings:
         manifest["validation_warnings"] = warnings

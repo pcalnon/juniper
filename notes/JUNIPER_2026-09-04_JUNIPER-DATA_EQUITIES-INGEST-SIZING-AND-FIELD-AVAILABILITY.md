@@ -215,14 +215,10 @@ contract unchanged.
   async-job pattern was considered and rejected on 2026-09-04; Yahoo-side parallelism is the
   remaining lever and would need its own design (it is the majority of the wall time, and SEC is
   already near its published ceiling).
-- **Whether any of the §3.1 free fields should actually be added.** They cost nothing to fetch, but
-  each one widens `EQUITIES_FEATURE_COLUMNS`, which is a dataset-shape change for every existing
-  consumer.
-- **The KO gap**: `KO` returns 636 bytes and **zero facts** on `dei:EntityCommonStockSharesOutstanding`
-  and 404 on the `us-gaap` fallback, so it gets no shares data at all and its `total_shares` /
-  `market_cap` features fill per `EQUITIES_DEFAULT_FUNDAMENTALS_FILL` (default `"zero"`). How many
-  of the 503 constituents share that gap was not surveyed here, and a silent zero in a feature
-  column is the same class of problem as a silent truncation.
+- ~~**Whether any of the §3.1 free fields should actually be added.**~~ — **RESOLVED 2026-09-04: all
+  six added** in [juniper-data#362](https://github.com/pcalnon/juniper-data/pull/362), matrix 10 → 16
+  with existing positions preserved. See §6.
+- ~~**The KO gap**~~ — **SURVEYED 2026-09-04. See §6.**
 
 ---
 
@@ -240,3 +236,73 @@ S&P 500 = 503, the row count of the bundled `sp500_constituents.csv`.
 Regulatory: [SEC Pay Versus Performance final rule](https://www.sec.gov/files/rules/final/2022/34-95607.pdf)
 and [SEC small-business compliance guide](https://www.sec.gov/resources-small-businesses/small-business-compliance-guides/pay-versus-performance)
 for Item 402(v) Inline XBRL tagging and its effective date.
+
+---
+
+## 6. Follow-up, 2026-09-04: the free fields shipped, and the KO gap is measured
+
+### 6.1 The six free fields are in
+
+[juniper-data#362](https://github.com/pcalnon/juniper-data/pull/362) added `adj_close`, `dividend`,
+`split_ratio`, `days_since_week52_high`, `days_since_week52_low` and `days_since_report` —
+`EQUITIES_FEATURE_COLUMNS` goes 10 → 16, with the existing ten holding their positions. The three
+underlying dates ship as row-aligned YYYYMMDD arrays (`week52_high_date_*`, `week52_low_date_*`,
+`report_date_*`) rather than as feature columns.
+
+Verified live against AAPL 2013–2021: **34 dividends** and both real splits (**7:1 on 2014-06-09**,
+**4:1 on 2020-08-31**).
+
+### 6.2 Adding one of them exposed a look-ahead leak that predates it
+
+`days_since_report` came back at **−19 days** on live data. A negative filing age is impossible, and
+it was the symptom of a real leak: the SEC shares series was aligned on the **period end** and
+forward-filled, so Apple's quarter ending 2021-03-27 — not filed until 2021-04-29 — reached every
+trade date in those five weeks. **`total_shares` and `market_cap` have been carrying that leak all
+along**; the new column merely made it visible.
+
+Alignment is now on the filing date, and a point with no `filed` is dropped rather than approximated
+by its period end. Post-fix: 0 negative ages, 0 future report dates, coverage unchanged.
+
+*Adding a field that is a function of an existing one is a cheap way to audit the existing one.*
+
+### 6.3 The KO gap: 37 of 503, and a bug that made it look worse
+
+**Census** — `util/ad-hoc/2026-09-04_survey_sec_shares_coverage.py`, all 503 bundled constituents,
+three concept tags each:
+
+| Outcome | Count | Share |
+|---|---:|---:|
+| Shares available | **463** | 92.0% |
+| **No shares under either tag** | **37** | **7.4%** |
+| Rescuable by `us-gaap:CommonStockSharesIssued` | 3 | 0.6% |
+
+**But 12 of the 463 were broken anyway, by a bug.** SEC answers `200` with
+`{"units": {"shares": {}}}` for some filers, and the generator's guard was
+`if payload and payload.get("units")` — **that dict is truthy**, so the loop accepted the empty
+concept and never tried the `us-gaap` fallback. Twelve tickers had perfectly good data there and got
+none of it: **BIIB, CDNS, EXE, GD, GEHC, HUBB, JCI, MDLZ, NXPI, OMC, PNR, PPG**. Fixed in
+juniper-data#362 by counting facts instead of testing truthiness.
+
+So the real before/after is **451 → 463 working**, not 463 either way.
+
+**`KO` itself is not a bug.** It, along with 36 others, reports no shares concept to SEC under
+either tag — including some large names: **META, SPGI, HCA, HUM, WELL, STZ, RL**. That is upstream
+reality, not something juniper-data can fix.
+
+What *was* wrong is that it was **silent**: the generator warned only when the fetch raised, never
+when it returned nothing, so `fundamentals_fill="zero"` turned a missing series into
+`total_shares = 0.0` and `market_cap = 0.0` — a value no listed company can have, and one nothing
+downstream distinguishes from a measurement. It now logs a warning naming the ticker and the fill
+policy.
+
+### 6.4 What this leaves for the owner
+
+- **The 3 rescuable tickers.** `us-gaap:CommonStockSharesIssued` would cover them, but *issued* is
+  not *outstanding* — it includes treasury shares, so `market_cap` would silently mean something
+  different for those three than for the other 500. Not added; it is a judgement call.
+- **Whether a zero-filled `market_cap` should be an error rather than a warning.** 7.4% of the
+  default universe is affected, and `fundamentals_fill` already offers `"nan"` and `"drop"` — the
+  question is whether `"zero"` should remain the default when it fabricates an impossible value.
+- **Why the 37 report nothing.** Not investigated. `META` is a plausible clue: multi-class share
+  structures may report per share class rather than into the default units bucket, which would make
+  this a parsing gap rather than an absence.

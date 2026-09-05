@@ -22,19 +22,41 @@ So the load-bearing property is a NEGATIVE one: stdout must carry the task and
 NOTHING else. That is not visible by reading the output (a leak looks like extra
 helpful context), which is exactly the kind of property that needs a test rather
 than a careful author.
+
+The second load-bearing property is WHICH probe is dispatched. Default pick is
+least-covered then registry order -- that evens the pooled estimate. Organic,
+pre-intervention, and non-observation rows (rescore / resolve / invalidate)
+must not inflate a probe's count, or the timer under-samples it and
+characterisation (``--probe-id``) silently diverges from least-covered.
 """
 
 from __future__ import annotations
 
+import importlib.util
+import io
 import json
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
+import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "util" / "soak_next_probe.py"
 PROBES = REPO_ROOT / "conf" / "soak_probes.json"
+
+
+def load_mod():
+    spec = importlib.util.spec_from_file_location("soak_next_probe", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    assert spec.loader is not None
+    spec.loader.exec_module(mod)
+    return mod
+
+
+mod = load_mod()
 
 
 def run(*args: str) -> subprocess.CompletedProcess:
@@ -115,6 +137,168 @@ class ProbeSelection(unittest.TestCase):
         out = run("--status").stdout
         for p in probes():
             self.assertIn(p["probe_id"], out)
+
+
+def _seeded(probe_id: str, ts: str | None, **extra: object) -> dict:
+    row: dict = {
+        "kind": "observation",
+        "arm": "seeded",
+        "ts": ts,
+        "probe_id": probe_id,
+    }
+    row.update(extra)
+    return row
+
+
+class PostInterventionFilter(unittest.TestCase):
+    """Least-covered counts must not include organic, pre-cut, or ledger-meta rows.
+
+    A test must be able to fail for the reason it exists: if the filter is
+    dropped, these cases return the row and the timer treats the probe as
+    covered.
+    """
+
+    POST = "2026-08-31T00:00:00Z"
+    PRE = "2026-08-30T23:59:59Z"
+
+    def test_intervention_marker_is_the_rung1_date(self) -> None:
+        self.assertEqual(mod.INTERVENTION, "2026-08-31")
+
+    def test_post_intervention_seeded_observation_is_kept(self) -> None:
+        rows = [_seeded("P01", self.POST)]
+        self.assertEqual(mod.post_intervention(rows), rows)
+
+    def test_pre_intervention_seeded_observation_is_excluded(self) -> None:
+        rows = [_seeded("P01", self.PRE)]
+        self.assertEqual(mod.post_intervention(rows), [])
+
+    def test_organic_arm_is_excluded_even_when_post_intervention(self) -> None:
+        rows = [_seeded("P01", self.POST, arm="organic")]
+        self.assertEqual(mod.post_intervention(rows), [])
+
+    def test_rescore_resolve_invalidate_do_not_count_as_coverage(self) -> None:
+        for kind in ("rescore", "resolve", "invalidate"):
+            with self.subTest(kind=kind):
+                rows = [_seeded("P01", self.POST, kind=kind)]
+                self.assertEqual(
+                    mod.post_intervention(rows),
+                    [],
+                    f"{kind} rows must not inflate least-covered counts",
+                )
+
+    def test_missing_kind_is_treated_as_observation(self) -> None:
+        row = {"arm": "seeded", "ts": self.POST, "probe_id": "P01"}
+        self.assertEqual(mod.post_intervention([row]), [row])
+
+    def test_missing_ts_is_excluded(self) -> None:
+        # Empty / absent ts sorts before INTERVENTION and must not count.
+        self.assertEqual(
+            mod.post_intervention([{"kind": "observation", "arm": "seeded", "probe_id": "P01"}]),
+            [],
+        )
+        self.assertEqual(mod.post_intervention([_seeded("P01", None)]), [])
+
+
+class LeastCoveredThenRegistryOrder(unittest.TestCase):
+    """Default dispatch evens the pooled estimate; --probe-id is characterisation.
+
+    Hermetic: patches the module LEDGER so the live soak file cannot change
+    which probe is selected. A test that read the real ledger would drift as
+    runs accumulate and could not fail for a selection-logic regression.
+    """
+
+    def setUp(self) -> None:
+        self._orig_ledger = mod.LEDGER
+        self._plist = probes()
+        self.assertGreaterEqual(len(self._plist), 2)
+
+    def tearDown(self) -> None:
+        mod.LEDGER = self._orig_ledger
+
+    def _write_ledger(self, rows: list[dict]) -> None:
+        tmp = Path(tempfile.mkdtemp()) / "pointer_follow_soak.jsonl"
+        tmp.write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        mod.LEDGER = tmp
+
+    def _main(self, *argv: str) -> tuple[int, str, str]:
+        out, err = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", ["soak_next_probe.py", *argv]):
+            with redirect_stdout(out), redirect_stderr(err):
+                rc = mod.main()
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_empty_ledger_picks_the_first_registry_probe(self) -> None:
+        self._write_ledger([])
+        rc, out, err = self._main()
+        first = self._plist[0]
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), first["task"].strip())
+        self.assertIn(first["probe_id"], err)
+
+    def test_default_picks_the_probe_with_fewest_post_intervention_runs(self) -> None:
+        a, b = self._plist[0], self._plist[1]
+        self._write_ledger(
+            [
+                _seeded(a["probe_id"], "2026-09-01T00:00:00Z"),
+                _seeded(a["probe_id"], "2026-09-01T01:00:00Z"),
+            ]
+        )
+        rc, out, err = self._main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), b["task"].strip())
+        self.assertIn(b["probe_id"], err)
+        self.assertNotIn(a["task"].strip(), out)
+
+    def test_probe_id_overrides_least_covered_for_characterisation(self) -> None:
+        a, b = self._plist[0], self._plist[1]
+        self._write_ledger([_seeded(a["probe_id"], "2026-09-01T00:00:00Z")] * 5)
+        rc, out, _err = self._main("--probe-id", a["probe_id"])
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), a["task"].strip())
+        rc2, out2, _err2 = self._main()
+        self.assertEqual(rc2, 0)
+        self.assertEqual(out2.strip(), b["task"].strip())
+
+    def test_pre_intervention_runs_do_not_make_a_probe_look_covered(self) -> None:
+        a, b = self._plist[0], self._plist[1]
+        self._write_ledger(
+            [
+                _seeded(b["probe_id"], "2026-08-01T00:00:00Z"),
+                _seeded(b["probe_id"], "2026-08-15T00:00:00Z"),
+                _seeded(a["probe_id"], "2026-09-01T00:00:00Z"),
+            ]
+        )
+        rc, out, err = self._main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), b["task"].strip())
+        self.assertIn(b["probe_id"], err)
+
+    def test_organic_runs_do_not_make_a_probe_look_covered(self) -> None:
+        a, b = self._plist[0], self._plist[1]
+        self._write_ledger(
+            [
+                _seeded(b["probe_id"], "2026-09-01T00:00:00Z", arm="organic"),
+                _seeded(b["probe_id"], "2026-09-01T01:00:00Z", arm="organic"),
+                _seeded(a["probe_id"], "2026-09-01T00:00:00Z"),
+            ]
+        )
+        rc, out, err = self._main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), b["task"].strip())
+        self.assertIn(b["probe_id"], err)
+
+    def test_rescore_rows_do_not_make_a_probe_look_covered(self) -> None:
+        a, b = self._plist[0], self._plist[1]
+        self._write_ledger(
+            [
+                _seeded(b["probe_id"], "2026-09-01T00:00:00Z", kind="rescore"),
+                _seeded(a["probe_id"], "2026-09-01T00:00:00Z"),
+            ]
+        )
+        rc, out, err = self._main()
+        self.assertEqual(rc, 0)
+        self.assertEqual(out.strip(), b["task"].strip())
+        self.assertIn(b["probe_id"], err)
 
 
 if __name__ == "__main__":

@@ -4,6 +4,8 @@
 **Date:** 2026-05-03
 **Scope:** `JuniperCascor`, `JuniperCanopy`, `JuniperData` conda envs
 
+Operator surface (exit codes; **2** is this free-threaded class, **4** is the May-7 wheel-layout class): [`docs/REFERENCE.md` § Conda Env Torch Shadow Diagnostic](../docs/REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5). Classify with `util/check_conda_env_torch.bash` before rebuilding.
+
 ---
 
 ## 1. Symptom
