@@ -1926,7 +1926,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `DatasetInstanceIsFixedTest` (juniper-ml#1333): a generator declaring `seed=None` is given `DATASET_SEED`; a declared seed (spiral) is kept; two calls with the same seed agree; a params class with **no** `seed` field is left untouched; `DATASET_SEED` is a constant, not a drifting default. Stand-ins — no cascor tree, no juniper-data tree, no archive. Operator surface: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 - `tests/test_read_run_metrics.py` -- Hermetic tests for `util/experiments/read_run_metrics.py` (P2 item 0.4): last-row `step_count` / `step_sum`, scrape tri-state, `work_invariant` over **measured** cells only (`summarise` drops `None`), fingerprint strips `description`/`name`, recurrence `work_countable: False`. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
 - `tests/test_make_baseline.py` -- Hermetic tests for `util/experiments/make_baseline.py` (P2 item 1.1): no `--force`; refuses broken work invariant / unmeasured / failed / mixed-workload / not-countable; `--accept-warnings` is recorded. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
-- `tests/test_compare_baseline.py` -- Hermetic tests for `util/experiments/compare_baseline.py` (P2 item 1.2): exact work, ungated speed, identity-first REFUSE, host blocking vs advisory, WAIVED ≠ PASS, 0/1/2 stay distinct. Does **not** pin the six open defects. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
+- `tests/test_compare_baseline.py` -- Hermetic tests for `util/experiments/compare_baseline.py` (P2 item 1.2): exact work, ungated speed, identity-first REFUSE, host blocking vs advisory, WAIVED ≠ PASS, 0/1/2 stay distinct, and the A1-A7 refusal ladder (unmeasured / not-succeeded / zero-work / FAIL-over-REFUSED precedence / partial coverage / duplicate fingerprints) closed by ml#1741 + ml#1743. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate).
 - `tests/test_run_experiment.py` -- Hermetic tests for `util/experiments/run_experiment.py` (CLI experimentation plan Waves 2.2-2.6: the cascor + recurrence service paths, the §8.1 + §8.2 plot sets, and the §8.3 stats/summary renderers (e2e stats assertions for both kinds + every-outcome coverage + the `StatsSummaryUnitTest` percentile/delta/grouping/degraded-notes units) --
   plot arms cover all-rendered PNGs for both kinds (sequence-NPZ stub artifact for §8.2), per-kind plot-name validation, skip-vs-acceptance semantics (eval-disabled / degraded-sampling / disabled-phase skips, matplotlib-unavailable failure), and the `plots_cascor.py` / `plots_recurrence.py` renderer units incl. the `y_reg_` target-key preference;
   `util/` is not pre-commit-lint-gated, so this unittest is the gate. A scripted stub HTTP server stands in for juniper-data, cascor, and recurrence (no live services): the
@@ -2203,10 +2203,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `util/experiments/read_run_metrics.py` -- Canonical reader for the perf-lane's two ratified inputs (P2 item 0.4). Last row of `metrics_series.csv` (`step_sum` / `step_count`); de-ratifies `wall_seconds` and `timings.drive`. `workload_fingerprint` strips cosmetic `experiment.description`/`name`. Recurrence returns `work_countable: False`. Path-invoked; `--sweep` is docstring-only. Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_read_run_metrics.py`.
 - `util/experiments/make_baseline.py` -- Operator-only Q-8 writer (P2 item 1.1 / P1 §4). Writes `baselines/<tag>/{baseline.json,HOST.json,manifests/}` under `--run-root` (default `~/.local/state/juniper-experiments`).
   - No `--force`; refuses failed / unmeasured / not-invariant / mixed-workload / not-countable suites.
-  - `metric_contract` still claims `step_count` is deterministic — that claim is the thing juniper-ml#1710 refuted.
+  - `metric_contract`'s work string is **under-specified**: it still reads "deterministic for a seed-fixed config and contention-immune" without the termination-branch condition `ml#1733` established. The written `baseline.json` inherits that wording; the guard itself is correct. Known source gap.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_make_baseline.py`.
 - `util/experiments/compare_baseline.py` -- Split comparator (P2 item 1.2). WORK exact, SPEED reported never gated, identity first. Exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED.
-  - **Do not wire to CI** until termination determinism is settled (juniper-ml#1710).
+  - **Do not wire to CI** — sound since ml#1743, but whether the run tier gates at all is an open OWNER decision (P1 design §6).
   - Writer refusals the comparator still lacks: unmeasured cells, `timed_out` cells, zero-work, `--suite` collapse, duplicate-fingerprint last-wins, unchecked scenario coverage.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_compare_baseline.py`.
 - `util/experiments/run_suite.py` -- Suite driver. `EXECUTION_KEYS` forwards **both** Q-2 budget knobs to the driver: `execution.stall_seconds` → `--stall-seconds` (ml#1069) and `execution.max_wall_seconds` → `--max-wall-seconds`. Absent key ⇒ flag omitted entirely, so the driver keeps owning its default.
@@ -2359,7 +2359,7 @@ juniper-ml/
 │   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown, APD-DATA-018 data_up does not set IMPORT_DIR/MAX_BYTES/ALLOW_TRUNCATION; hermetic)
 │   ├── test_read_run_metrics.py          # Hermetic: util/experiments/read_run_metrics.py last-row step_count/step_sum, fingerprint, work_invariant over measured cells, recurrence not countable
 │   ├── test_make_baseline.py             # Hermetic: util/experiments/make_baseline.py Q-8 writer refusals (no --force, unmeasured/failed/not-invariant/mixed-workload)
-│   ├── test_compare_baseline.py          # Hermetic: util/experiments/compare_baseline.py split comparator (exact work, ungated speed, identity-first REFUSE, 0/1/2 exits). Does not pin the six open defects
+│   ├── test_compare_baseline.py          # Hermetic: util/experiments/compare_baseline.py split comparator (exact work, ungated speed, identity-first REFUSE, 0/1/2 exits, A1-A7 refusal ladder closed by ml#1741 + ml#1743)
 │   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags, JUNIPER_SUITE_GRAFANA_BRIDGE env toggle; hermetic). PF instruments: § PF Scenario Suites
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
@@ -2430,7 +2430,7 @@ juniper-ml/
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + read_run_metrics.py / make_baseline.py / compare_baseline.py (Q-8 split gate — do not CI-wire) + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + read_run_metrics.py / make_baseline.py / compare_baseline.py (Q-8 split gate — sound since ml#1743; CI-wiring is an open OWNER decision) + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -3000,7 +3000,7 @@ Do not read a SKIP-only `ValueError` as a blank PNG or acceptance regression.
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
-Q-8 baselines and the split comparator are a **separate** operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Do not treat a `compare_baseline.py` FAIL as a code regression, and do not wire that tool to CI, until termination determinism is settled (juniper-ml#1710).
+Q-8 baselines and the split comparator are a **separate** operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). A `compare_baseline.py` FAIL is now interpretable — it means the workload, host, termination branch and measurement all matched and `step_count` still moved. Do not wire that tool to CI: whether the run tier gates at all is an unmade **owner** decision (§6 of the P1 design), not a soundness question.
 
 ---
 
@@ -3008,19 +3008,31 @@ Q-8 baselines and the split comparator are a **separate** operator surface: [Per
 
 The Q-8 run-level tools are on main: `util/experiments/read_run_metrics.py` (reader), `make_baseline.py` (writer), `compare_baseline.py` (split comparator). They implement the rule in item 1.5 / §2.2 of [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) and the directory contract in §4 of [`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md).
 
-**Do not wire `compare_baseline.py` to CI.** Consensus validation of the perf-lane handoff
-([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) produced a counterexample:
-identical `workload_fingerprint`, seed, and host, all `outcome: succeeded`, different `step_count`.
-Blessing one side and comparing the other is a **false regression** — exit 1 for a change the code
-did not make, the failure mode item 1.5 was designed to avoid. The source comments and
-`baseline.json`'s `metric_contract` still say `step_count` is "deterministic for a seed-fixed
-config and contention-immune". That sentence is the thing #1710 refuted. What survives:
-`step_count` is exact **as a last-row measurement**. What does not: "deterministic, therefore safe
-to gate at zero tolerance."
+**The determinism question is SETTLED, and the reason not to CI-wire has changed.** Consensus
+validation ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) produced a
+counterexample — identical `workload_fingerprint`, seed, and host, all `outcome: succeeded`,
+different `step_count` — and a corpus census then explained it. Over 333 runs / 153 distinct
+configs, **79 configs repeat, 29 of those diverge in `step_count`, and all 29 are explained by
+`completion_reason`: zero remain divergent within a termination branch.** So `step_count` is exact
+and deterministic *given how training ended*; the original contract simply omitted that condition.
+[`ml#1733`](https://github.com/pcalnon/juniper-ml/pull/1733) made the branch part of the
+precondition, so a branch flip now **REFUSES (exit 2)** instead of FAILing.
 
-The review attributes the spread to wall-clock-sensitive termination (the stopping branch can move; `max_wall_seconds` can truncate the histogram). The P2 plan's "invariance follows from the iteration cap" attribution is not established — do not treat a 21-cell or 5-cell identical count as a proof that the next identical config will match.
+Read the census caveat before leaning on it: the 29 divergent configs partition into 74 branches,
+**54 of them singletons**, where within-branch agreement is definitionally guaranteed. Only **20
+branches have n≥2** and genuinely corroborate. No counterexample exists, but the finding rests on
+20 real comparisons.
 
-`ci.yml` already runs the **unittests**. That is not the same as a run-tier gate against a blessed baseline. Leave the run-tier hook unwired until termination determinism is settled.
+The P2 plan's "invariance follows from the iteration cap" attribution was **misattributed** and is
+withdrawn: every PF-1 run at both 20 s and 65 s terminates `early_stopped`, so none is cap-bound.
+The 21-cell invariance is a real empirical regularity with the wrong stated cause.
+
+**Do not wire `compare_baseline.py` to CI — but for a different reason than this section used to
+give.** The tool is now safe on its own merits (see the refusal ladder below). What remains open is
+a **policy** question that belongs to the owner: *whether the run tier gates CI at all*, §6 of the
+P1 design. Item 1.4 deliberately leaves `run_suite`'s exit code untouched by a verdict pending that
+decision, and a test is named for it. `ci.yml` already runs the **unittests**; that is not the same
+as a run-tier gate against a blessed baseline.
 
 ### What each tool does
 
@@ -3048,10 +3060,19 @@ Default `--run-root` is `~/.local/state/juniper-experiments` (`JUNIPER_EXP_RUN_R
 | Exit | Verdict | Meaning |
 |------|---------|---------|
 | `0` | PASS or WAIVED | Same workload, work matched — or an operator blessed a work change with `--accept-work-change REASON` |
-| `1` | FAIL | Same workload, `step_count` moved. The code as written treats this as a regression. Until termination determinism is settled, treat it as **uninterpretable**. |
-| `2` | REFUSED | Cannot compare: identity, host, incoherent candidate, missing baseline, or usage. A waiver **cannot** override a refusal (`render` must print `had NO effect`). |
+| `1` | FAIL | Same workload, same host, **same termination branch**, every cell `succeeded` and measured — and `step_count` still moved. Since `ml#1733` this is interpretable: a cross-branch flip lands on `2`, not here. |
+| `2` | REFUSED | Cannot compare — see the refusal ladder below. A waiver **cannot** override a refusal (`render` must print `had NO effect`). |
 
 Whitespace-only `--accept-work-change` is exit 2. Prefer cutting a **new baseline tag** over a waiver — tags supersede by name and are cheap.
+
+**Precedence is FAIL > REFUSED > PASS, and the order is load-bearing.** It used to be `if reasons:
+REFUSED` first, so one unreadable `--suite` on the command line converted a *real* FAIL on another
+suite into a REFUSE — and a caller treating exit 2 as "cannot compare, don't block" would lose the
+regression. `ml#1733` made that worse by adding four more refusal paths; `ml#1743` fixed the
+ordering. A positively-detected work regression is knowledge and wins; a refusal only means "could
+not verify", which must still beat PASS, so an unverifiable comparison never reports clean. Host
+and baseline-load failures (`basis_reasons`) are the one exception that outranks FAIL — without a
+valid basis there is nothing to have detected.
 
 ### Identity and host
 
@@ -3059,32 +3080,52 @@ Whitespace-only `--accept-work-change` is exit 2. Prefer cutting a **new baselin
 
 Host blocking (REFUSE): `cpu_model`, `cpu_count`, `thread_budget`. Advisory only (reported, never a refusal): `torch`, `numpy`, `python_runs`. Not compared: RAM, GPU, platform, `python_tool`. `HOST.json` is load-bearing: without it the comparison silently becomes cross-hardware. Torch/numpy versions come from **this** interpreter; a python mismatch is recorded as a caveat, not assumed away.
 
-### Writer vs comparator — the asymmetry
+### Writer vs comparator — the asymmetry, now CLOSED
 
-`make_baseline.py` already refuses the cases the comparator still accepts. Verified hermetically against the source on `origin/main`:
+**The asymmetry is closed.** It was real, and this section used to document it as a live hazard:
+`make_baseline` refused inputs the comparator quietly accepted, so a PASS did not mean "every cell
+succeeded and was measured." [`ml#1741`](https://github.com/pcalnon/juniper-ml/pull/1741) and
+[`ml#1743`](https://github.com/pcalnon/juniper-ml/pull/1743) imported every one of those refusals
+into `compare_baseline`. Verified against the source on `origin/main`:
 
 | Input | `make_baseline` | `compare_baseline` |
 |-------|-----------------|--------------------|
-| Any cell `outcome != succeeded` (incl. `timed_out`) | REFUSE | ignored — a matching `step_count` still PASSes |
-| Any cell with `step_count is None` | REFUSE | dropped by `summarise` before uniqueness — 4 of 5 unmeasured + one match PASSes |
-| Both sides `step_count == 0` | writes a zero-work baseline | PASS (`0 == 0`) |
+| Any cell `outcome != succeeded` (incl. `timed_out`) | REFUSE | REFUSE (A2) |
+| Any cell with `step_count is None` | REFUSE | REFUSE (A1) — no longer dropped before uniqueness |
+| Any cell `step_count == 0` | REFUSE | REFUSE (A4) — an equal count of nothing proves nothing |
 | Candidate `step_count` spread across cells | REFUSE ("not repeats") | REFUSE (same) |
+| Cells ended on **different termination branches** | REFUSE | REFUSE (`ml#1733`) |
+| Baseline records **no** `completion_reason` (cut pre-guard) | n/a | REFUSE — fails closed on both sides |
+| Baseline holds duplicate workload fingerprints | n/a | REFUSE (A7) — collision detected, not resolved arbitrarily |
+| Candidate covers only some baseline scenarios | n/a | REFUSE (A6) — names the uncovered ones |
 | Recurrence / `work_countable: False` | REFUSE | REFUSE (speed alone is not gated; source comments quote a 13–20.5% host drift floor) |
 
-A PASS therefore does **not** mean "every cell succeeded and was measured." Read `manifest.outcome` and the series file yourself before blessing or comparing.
+A PASS now does mean "same workload, same host, same termination branch, every cell succeeded and
+measured, every baseline scenario covered." That is the whole point of the ladder: the operator
+should not have to re-read `manifest.outcome` and the series file to know whether a PASS was earned.
 
-### Comparator defects still open (source-verified)
+### The refusal ladder (source-verified, `compare()` order)
 
-These are in `compare()` today. `ci.yml` does not pin them; the unittests cover the happy path and the identity/waiver contracts.
+Each rung `continue`s to the next suite rather than judging it. Order matters — the truncated-
+termination check runs before the rest so a driver-stopped run is never mistaken for a measurement:
 
-1. **Unmeasured cells are dropped, not refused.** `summarise` builds `step_counts` only from numeric values. One measured cell among four empty series still reports `work_invariant: True`.
-2. **`outcome` is never read.** Every cell `timed_out` (or `stalled` / `failed`) still PASSes when the remaining counts match.
-3. **Zero work PASSes.** `0 == 0` is a match. Both sides doing no steps is not a successful comparison.
-4. **One unreadable `--suite` converts FAIL(1) into REFUSE(2).** `reasons` are collected across all `--suite` args; any reason forces REFUSED. A real work miss on suite A plus a missing `registry.jsonl` on suite B exits 2.
-5. **Duplicate fingerprints collapse.** `by_fingerprint = {s["workload_fingerprint"]: s for s in scenarios}` keeps the last row. Two baseline scenarios sharing a fingerprint can produce a false FAIL against the discarded count.
-6. **Scenario coverage is unchecked.** A two-scenario baseline compared to one matching candidate still PASSes. Missing scenarios are not a refusal.
+1. **Truncated termination** — the driver stopped before the workload did, so `step_count` measures
+   the *budget*, not the code.
+2. **`outcome != succeeded`** (A2) · 3. **`step_count is None`** (A1) · 4. **`step_count == 0`** (A4)
+5. **Multiple workloads in one candidate** — its own spread is not a property of the code.
+6. **`work_countable: False`** — the WORK half does not apply, and speed alone is not gateable.
+7. **Work not invariant across cells** — not a set of repeats.
+8. **Mixed termination branches** (`ml#1733`) · 9. **Workload absent from the baseline** — invalid
+   comparison, not a regression. 10. **Baseline/candidate branch mismatch.**
 
-`#1617` / `#1626` (mixed known+unknown identity) and `#1625` (complementary tests) remain open follow-ups; they are not a license to CI-wire the gate.
+Then, after the per-suite loop: **host mismatch** and **duplicate baseline fingerprints** are
+`basis_reasons` (they outrank FAIL); **no scenarios compared** and **partial scenario coverage**
+(A6) are ordinary refusals.
+
+These are pinned by `tests/test_compare_baseline.py`, which is wired in `ci.yml`.
+[`#1713`](https://github.com/pcalnon/juniper-ml/pull/1713) adds further coverage of the A1–A7
+refusals. `#1617` / `#1626` (mixed known+unknown identity) and `#1625` (complementary tests) remain
+open follow-ups; they are not a license to CI-wire the gate — that call is the owner's, above.
 
 ### Recurrence is not countable
 
@@ -3094,10 +3135,14 @@ These are in `compare()` today. `ci.yml` does not pin them; the unittests cover 
 
 | Symptom | Check / Fix |
 |---------|-------------|
-| `compare_baseline` FAIL, exit 1, same YAML / seed / host | Do **not** treat as a code regression. Confirm both sides reached the same termination branch and were not wall-truncated. Until that is settled, cut a new tag or waive with a reason — do not add this tool to `ci.yml`. |
-| `compare_baseline` PASS, but several cells have no `metrics_series.csv` | Expected today — unmeasured rows are dropped. Re-run `read_run_metrics.py` and inspect per-cell `step_count`. |
-| `compare_baseline` PASS, every cell `timed_out` | Expected today — `outcome` is not consulted. `make_baseline` would have refused the same suite. |
-| `compare_baseline` REFUSED, exit 2, after a real work miss | Another `--suite` on the same command was unreadable or incoherent. Split the invocation; do not collapse 1 and 2. |
+| `compare_baseline` FAIL, exit 1, same YAML / seed / host | Interpretable since `ml#1733`/`ml#1743`: the branch, `outcome`, measurement and coverage checks all passed and the count still moved. Investigate the change. Cut a new tag or `--accept-work-change REASON` only once you know *why* it moved. |
+| `compare_baseline` REFUSED, "cells ended on different branches" | Not a regression. The candidate terminated differently from the baseline (`early_stopped` vs `below_threshold` is the canonical pair). Re-run, or re-cut the baseline in the branch you mean to track. |
+| `compare_baseline` REFUSED, "records no completion_reason" | The baseline predates the `ml#1733` guard (e.g. `pf1-2026-09-04`). Expected — re-cut under a new tag; use `pf1-2026-09-04b` or later. |
+| `compare_baseline` PASS, but several cells have no `metrics_series.csv` | **No longer possible** — A1 refuses unmeasured cells. If you see this, the reader drifted; stop and check `read_run_metrics.py`. |
+| `compare_baseline` PASS, every cell `timed_out` | **No longer possible** — A2 reads `outcome`. Same stop condition as above. |
+| `compare_baseline` REFUSED, exit 2, after a real work miss | **No longer possible** — A3 gives FAIL precedence over REFUSED. A real work miss now exits 1 even when another `--suite` is unreadable. |
+| `compare_baseline` REFUSED, "covered N of M baseline scenario(s)" | A6. The candidate did not run every blessed workload; a PASS would have meant only that the ones you ran still match. Run the rest, or cut a narrower baseline. |
+| `compare_baseline` REFUSED, "DUPLICATE workload fingerprint(s)" | A7. Two blessed scenarios share a workload, so which one a candidate compares against is arbitrary. Re-cut the baseline from distinct workloads. |
 | `make_baseline: … already exists` | No `--force`. Choose a new tag. |
 | `make_baseline` refuses `validation_warnings` | Re-run clean, or pass `--accept-warnings` (recorded in `baseline.json`). |
 | `workload … is not in baseline` / `INVALID comparison` | Fingerprint mismatch (often a real config edit, or `output_epochs` / seed). Not a work regression. |
@@ -3106,7 +3151,7 @@ These are in `compare()` today. `ci.yml` does not pin them; the unittests cover 
 | Reader says WORK INVARIANT HOLDS, one cell has no series | `summarise` dropped the None. The invariant is only over **measured** cells. |
 | Tempted to gate SPEED | Source comments quote a 13–20.5% host drift floor, larger than six competing CPU-bound processes. SPEED is reported, never gated. |
 
-Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py` (wired in `ci.yml`). Those suites pin last-row reads, writer refusals, identity-first compare, exact work, ungated speed, and the 0/1/2 exit split. They do **not** pin the six defects above.
+Coverage: `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py` (wired in `ci.yml`). Those suites pin last-row reads, writer refusals, identity-first compare, exact work, ungated speed, and the 0/1/2 exit split. Since ml#1741 + ml#1743 they also pin the A1-A7 refusals; #1713 adds further coverage.
 
 ---
 
@@ -4132,6 +4177,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.55  | 2026-09-04 | F-039 store probe: apply / soak / report / revert for the server-side TOPOPROBE; read the whole series; `--target topology` refuses on current canopy; backup lives in the git dir |
 | 0.6.56  | 2026-09-04 | Conda env torch shadow diagnostic: `util/check_conda_env_torch.bash` exit **2** is P-5 free-threaded, exit **4** is the May-7 regular-3.14 wheel-layout class; do not rebuild from the wrong code |
 | 0.6.57  | 2026-09-05 | MEMORY.md index check: local `util/memory_index_check.py` runbook — hard cap 200/25000 (silent newest-first), hook-not-line 120 on NEW slugs only, fail-closed missing file, `--accept` always exits 0 |
+| 0.6.59  | 2026-09-05 | Perf-lane work gate, post-`ml#1743`: determinism **settled** — `step_count` is exact *within a termination branch* (census: 333 runs, 29 of 79 repeated configs diverge, all explained by `completion_reason`), and `ml#1733` made the branch a precondition so a flip REFUSES. Writer-vs-comparator asymmetry and all six defects (A1-A4/A6/A7) **closed**; exit 1 is interpretable; FAIL outranks REFUSED. CI-wiring prohibition **re-grounded**: an owner decision (P1 §6), not a soundness bar. |
 | 0.6.58  | 2026-09-05 | Juniper project-tree backup: `util/juniper-backup.bash` per-repo `.tbz2.gpg` (bzip2, restore `-xjf`), build-once / copy ciphertext, `--dry-run` must not write, unattended verify is `--list-packets` only, `EXCLUDE_CASCOR_SNAPSHOTS` TRUE is `0` |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |

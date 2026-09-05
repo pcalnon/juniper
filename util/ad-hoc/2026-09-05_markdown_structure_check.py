@@ -48,11 +48,32 @@ from pathlib import Path
 SEPARATOR = re.compile(r"^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$")
 
 
+MARKDOWN_INFO_STRINGS = {"markdown", "md"}
+
+
+def _is_markdown_example(opener_line: str) -> bool:
+    """Does this fence declare that its CONTENT is markdown?
+
+    ```markdown / ```md hold sample documents, so H2s inside them are the point, not a
+    symptom. Anything else -- ```bash, ```python, or a bare ``` -- has no business
+    containing an H2, and that is the shape a dropped closing fence produces.
+    """
+    return opener_line.strip().lstrip("`").strip().lower() in MARKDOWN_INFO_STRINGS
+
+
 def check(path: Path) -> list:
     problems: list = []
     lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
 
     # (1) fence balance, and (2) headings swallowed by a fence -- checked in one walk.
+    #
+    # A fence whose info string says it CONTAINS markdown is exempt from the heading
+    # check: ```markdown blocks legitimately hold H2s, because they are showing the
+    # reader what a document should look like. juniper-canopy's AGENTS.md carries one
+    # (a sample `notes/history/INDEX.md`) with four such headings, and flagging it made
+    # this checker unwireable as a gate -- four permanent false findings on a clean
+    # tree. Every other info string, and a BARE fence, is still checked: the fence that
+    # swallowed 36 headings in juniper-ml#1746 was not a markdown example.
     in_fence = False
     opener = None
     for i, line in enumerate(lines, 1):
@@ -62,8 +83,11 @@ def check(path: Path) -> list:
             else:
                 in_fence, opener = False, None
             continue
-        if in_fence and line.startswith("## "):
-            problems.append(f"H2 swallowed by the fence opened at line {opener[0]}: line {i}: {line.strip()[:60]}")
+        if in_fence and line.startswith("## ") and not _is_markdown_example(opener[1]):
+            problems.append(
+                f"H2 swallowed by the fence opened at line {opener[0]} "
+                f"({opener[1].strip()[:20]!r}): line {i}: {line.strip()[:60]}"
+            )
     if in_fence:
         problems.append(f"UNCLOSED code fence opened at line {opener[0]}: {opener[1][:60]!r}")
 
