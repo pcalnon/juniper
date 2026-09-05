@@ -508,7 +508,10 @@ class KillResilienceTest(SafeMergeTestBase):
         to that repo's own measured p90, which is what "fast" actually meant.
         """
         measured_p90 = {
-            "juniper-ml": 263,
+            # ml re-measured 2026-09-05 (n=12); was 263 on 2026-08-20. The upper bound below
+            # is what forced the new budget to be chosen rather than guessed: it must clear
+            # the observed max (823 s) AND stay inside 4x p90 (1820 s).
+            "juniper-ml": 455,
             "juniper-data": 1100,
             "juniper-cascor": 1065,
             "juniper-canopy": 1371,
@@ -944,13 +947,18 @@ class TimeoutSizingTest(unittest.TestCase):
     ml max 273 s, data 1196 s, cascor 1547 s, canopy 1719 s. The prior single 900 s sat at
     canopy's MEDIAN, so about half of canopy's merges would have refused with "checks did
     not finish" while the checks were healthy.
+
+    ml RE-MEASURED 2026-09-05, n=12: p90 455 s, **max 823 s** -- 3.0x the August max, on a
+    repo then carrying 103 open PRs. The pin below moves with it. Leaving the stale 273
+    would have made this assertion VACUOUS for ml: any budget over 273 passes, including
+    the 900 s that refused a healthy ml#1754 in production.
     """
 
     def test_every_repo_budget_clears_its_measured_max(self):
         """cascor-client is deliberately absent: its max (15,616 s) is a QUEUED check, not
         CI working, and a budget that absorbed it could no longer tell stuck from slow."""
         measured_max = {
-            "juniper-ml": 273,
+            "juniper-ml": 823,  # re-measured 2026-09-05 (was 273 on 2026-08-20)
             "juniper-data": 1196,
             "juniper-cascor": 1547,
             "juniper-cascor-worker": 1717,
