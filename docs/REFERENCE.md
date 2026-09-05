@@ -3649,11 +3649,13 @@ In-tree table: [`util/experiments/suites/perf/README.md`](../util/experiments/su
 
 ### How to run
 
+```bash
 # Inspect first — write nothing
 python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml --dry-run
 
 # Live PF-1 (needs the Grafana bridge for the p50/p95 histogram)
 JUNIPER_SUITE_GRAFANA_BRIDGE=1 python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml
+```
 
 `--dry-run` prints the expanded cell list and every command. For PF-1, expect **5 cells**, every one carrying `max_hidden_units: 10`, `max_iterations: 10`, and the matched `max_epochs` / `output_epochs` pair of `4000`. If the dry-run shows fewer than 5 cells, or cells with differing overrides, **stop** — the repeats are not repeats.
 
@@ -3757,9 +3759,11 @@ Measured on the real artifacts (the case the design exists for):
 
 Path-invoked. `--suite` is repeatable. Default `--run-root` is `~/.local/state/juniper-experiments` (same as `make_baseline.DEFAULT_RUN_ROOT`). Baseline files are `<run-root>/baselines/<tag>/baseline.json` and `HOST.json`.
 
+```bash
 python util/experiments/compare_baseline.py --baseline t --suite S --json
 python util/experiments/compare_baseline.py --baseline t --suite S \
   --accept-work-change "cascor#618 raised the epoch budget"
+```
 
 `--json` emits the typed verdict (parseable; `verdict` is `PASS` / `FAIL` / `WAIVED` / `REFUSED`). Missing tag, unreadable `baseline.json`, or a whitespace-only waiver reason → exit `2` on stderr, no comparison.
 
