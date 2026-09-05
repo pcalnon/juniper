@@ -80,7 +80,17 @@ from typing import Callable, Optional
 
 # The repo-pinned fast-gate hooks run on the merged RESULT's touched .py files
 # (.pre-commit-config.yaml: black 26.3.1, isort, flake8, mypy v1.13.0, check-ast :83).
-PRECOMMIT_HOOKS = ("black", "isort", "flake8", "mypy", "check-ast")
+# The fast-gate battery. Superset across the nine ecosystem repos: juniper-ml and most
+# siblings use black/isort/flake8, juniper-data uses ruff/ruff-format, juniper-canopy has
+# BOTH. A hook absent from the target repo is reported `skip` by the runner, never `fail`
+# (see `_default_gate_runner`), so running the union here costs one no-op invocation per
+# missing hook and removes the juniper-ml-only blind spot: before 2026-09-05 `ruff` was
+# never run on ANY repo, so a juniper-data PR could be reported MERGE-CLEAN while CI
+# failed it on the lint the repo actually uses.
+PRECOMMIT_HOOKS = ("black", "isort", "flake8", "ruff", "ruff-format", "mypy", "check-ast")
+
+# pre-commit's message when the target repo does not define a requested hook.
+MISSING_HOOK_RE = re.compile(r"No hook with id", re.IGNORECASE)
 
 # The four verdicts the deterministic SCRIPT emits. DUP-CLOSE is deliberately
 # NOT here: it is an agent-layer, owner-confirmed adjudication, never a script call.
@@ -245,11 +255,22 @@ def _docs_additions_only_screen(clone: Path, base_ref: str, result_ref: str, cha
 # --------------------------------------------------------------------------- #
 
 def _default_gate_runner(clone: Path, hook: str, files: list) -> tuple:
-    """Run one pre-commit hook on the merged result's touched files; ('pass'|'fail', detail)."""
+    """Run one pre-commit hook on the merged result's touched files; ('pass'|'fail'|'skip', detail).
+
+    A hook the TARGET REPO does not define is ``skip``, never ``fail``. juniper-data
+    lints with ``ruff`` / ``ruff-format`` and defines no ``black`` / ``isort`` / ``flake8``
+    hook at all, so pre-commit answers ``No hook with id `black` in stage `pre-commit```
+    and exits non-zero. Scoring that as a gate FAILURE made every juniper-data PR
+    ``DAMAGED-FIX-FIRST`` for a property of the instrument rather than of the PR
+    (observed 2026-09-05: 6 of 30 juniper-data PRs, all false positives).
+    """
     cp = _run(["pre-commit", "run", hook, "--files", *files], cwd=clone)
     if cp.returncode == 0:
         return ("pass", "")
-    return ("fail", (cp.stdout + cp.stderr).strip()[-800:])
+    blob = (cp.stdout + cp.stderr).strip()
+    if MISSING_HOOK_RE.search(blob):
+        return ("skip", f"hook `{hook}` is not configured in this repo")
+    return ("fail", blob[-800:])
 
 
 def _run_gate_battery(clone: Path, changed_existing: list, *, run_gates: bool, gate_runner: Optional[GateRunner]) -> dict:
@@ -528,7 +549,46 @@ def triage_batch(repo_root, *, base_ref: str = "origin/main", **kw) -> dict:
         "prs": verdicts,
         "clusters": clusters,
         "merge_order": order,
+        "screen_coverage": screen_coverage(verdicts),
     }
+
+
+def screen_coverage(verdicts: list) -> dict:
+    """Per-gate pass/fail/SKIP counts + the PRs no compositional screen could evaluate.
+
+    Both loss screens hard-code ``{"status": "skip"}`` when the merge does not apply, so on
+    a CONFLICT PR they answer nothing. Reading a batch report without this section invites
+    the vacuous claim "0 docs deletions across all N" when the true statement is "0 across
+    the N-minus-skipped that were actually screened" -- a CORRECT predicate over an
+    INCOMPLETE site enumeration. On 2026-09-05 that was 43 of 99 juniper-ml PRs (43%),
+    and the unscreened set is exactly the CONFLICT set -- i.e. the PRs whose damage would
+    live in the conflict resolution, which is where the 2026-07-26 flood's damage came from.
+
+    ``unscreened`` is therefore the population a reviewer must read by hand; it is NOT a
+    clean bill of health for them.
+    """
+    gates = ("ast_symbol_screen", "docs_additions_only") + PRECOMMIT_HOOKS
+    coverage: dict = {}
+    for gate in gates:
+        tally = {"pass": 0, "fail": 0, "skip": 0, "absent": 0}
+        for v in verdicts:
+            entry = (v.get("gates") or {}).get(gate)
+            status = entry.get("status") if isinstance(entry, dict) else entry
+            tally[status if status in tally else "absent"] += 1
+        evaluated = tally["pass"] + tally["fail"]
+        coverage[gate] = {
+            **tally,
+            "evaluated": evaluated,
+            # The honest denominator. A rate over `len(verdicts)` is the vacuous one.
+            "screened_fraction": round(evaluated / len(verdicts), 3) if verdicts else 0.0,
+        }
+    unscreened = sorted(
+        v.get("pr")
+        for v in verdicts
+        if ((v.get("gates") or {}).get("ast_symbol_screen") or {}).get("status") == "skip"
+        or ((v.get("gates") or {}).get("docs_additions_only") or {}).get("status") == "skip"
+    )
+    return {"per_gate": coverage, "unscreened": unscreened, "unscreened_count": len(unscreened)}
 
 
 # --------------------------------------------------------------------------- #
@@ -574,6 +634,17 @@ def _render_batch(report: dict) -> str:
     for f, prs in sorted(contested.items(), key=lambda kv: (-len(kv[1]), kv[0])):
         lines.append(f"  {f}: {prs}")
     lines.append("")
+    cov = report.get("screen_coverage") or {}
+    if cov:
+        n = report["open_pr_count"]
+        lines.append(f"Screen coverage (a `skip` is NOT a pass -- it is a PR nothing examined):")
+        for gate, t in (cov.get("per_gate") or {}).items():
+            lines.append(f"  {gate}: pass={t['pass']} fail={t['fail']} skip={t['skip']} -> evaluated {t['evaluated']}/{n}")
+        unscreened = cov.get("unscreened") or []
+        if unscreened:
+            lines.append(f"  UNSCREENED by at least one loss screen ({len(unscreened)}/{n}): {unscreened}")
+            lines.append("  ^ these must be read by hand; no compositional-loss claim covers them.")
+        lines.append("")
     lines.append("Suggested merge order (heal first, then least-colliding): " + str(report["merge_order"]))
     return "\n".join(lines)
 

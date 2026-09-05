@@ -255,10 +255,6 @@ class CliTest(unittest.TestCase):
             rrm.main([])
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RecurrenceKindTest(unittest.TestCase):
     """Recurrence has NO work counter, and the reader must say so rather than imply one.
 
@@ -309,3 +305,7 @@ class RecurrenceKindTest(unittest.TestCase):
         self.assertFalse(summary["work_countable"])
         self.assertFalse(summary["work_invariant"])
         self.assertEqual(summary["kinds"], ["recurrence"])
+
+
+if __name__ == "__main__":
+    unittest.main()
