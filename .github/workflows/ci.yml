@@ -591,6 +591,12 @@ jobs:
           # like a follow. A leak is invisible by reading the output (it reads as extra
           # helpful context), so it needs a test rather than a careful author.
           python3 -m unittest -v tests/test_soak_next_probe.py
+          # tests/test_soak_next_probe_split.py: complementary leftover the unprimed-stdout
+          # suite cannot see -- it runs against the LIVE ledger and never calls
+          # post_intervention(). Pins the §15.4 date split the picker uses (on-cutoff is
+          # POST; pre-intervention pile does not steal the next session), that --status
+          # counts are post-only, and that bare --probe-id P19 is rejected (consensus §4.10).
+          python3 -m unittest -v tests/test_soak_next_probe_split.py
           # tests/test_soak_run_probe.py: the gate for util/soak_run_probe.py, which
           # runs a probe end to end. Hermetic -- it never launches `claude`. Pins the
           # same negative property one step further down the pipeline (the wrapper's
