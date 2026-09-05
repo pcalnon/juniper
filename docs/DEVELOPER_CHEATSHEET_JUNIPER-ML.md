@@ -54,6 +54,9 @@
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
+| `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py . --min-score 3` | Rank source comments that are hazard-shaped and resident nowhere |
+| `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py ../juniper-cascor --self-check --agents /tmp/pre609.md` | Positive control: cascor `max_epochs` split must score ≥ 3 and rank top 5 |
+| `python3 util/ad-hoc/2026-08-28_hazard_triage.py juniper-canopy --min-score 2` | Rank *already-resident* `AGENTS.md` blocks (`gh api` on GitHub `main`) |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
@@ -68,6 +71,8 @@
 | `python3 util/memory_index_check.py` | Check the Claude Code `MEMORY.md` index (200 lines / 25k bytes; new-row hook ≤ 120) |
 | `python3 util/memory_index_check.py --accept` | Grandfather current slugs + record one growth sample (always exit 0) |
 | `python3 -m unittest -v tests/test_memory_index_check.py` | Hermetic index-gate suite (CI cannot see `~/.claude`) |
+| `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` | Fleet required-context audit (BLOCKING / Tier 1 / path-gated; read-only) |
+| `python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json --repo juniper-ml` | Same, one repo, JSON (exit 1 on BLOCKING **or** probe error) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -273,6 +278,7 @@ REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip,
 | AGENTS.md date bump    | **You bump it**; CI verifies on PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; no bot commit) |
 | Shared-package CI      | Path-scoped `ci-<pkg>.yml` under `.github/workflows/` (six packages; see REFERENCE)         |
 | Open-PR budget alarm   | Daily 14:00 UTC `pr-budget-alarm.yml` (report-only); `gh workflow run pr-budget-alarm.yml`  |
+| Ruleset context audit  | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` (read-only; see tip below)         |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
 | Re-run main-verify     | `gh workflow run main-verify.yml --repo pcalnon/juniper-ml` (dispatch; catch-up BASE still applies) |
@@ -292,6 +298,13 @@ commit trailer in BASE..HEAD — the per-PR `allow-symbol-loss` label is WARN-on
 `NEEDS-UPDATE-BRANCH` means behind-main; `DAMAGED-FIX-FIRST` is gate **or** symbol **or** docs `fail`.
 Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
 [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
+
+**Ruleset context audit:** a required name that never reports leaves `main` unmergeable with every
+visible check green (2026-08-10 fleet-union of 30). Re-run the auditor; do not quote the note's
+§1 counts. Text-mode exit 0 can still print `ERROR:` (`--json` fails closed). `advisory_predicate`
+subtracts the live required set so a promoted check (ml#1011 `Sequence Safety`) stays in Tier 1.
+Writer is `require_context_safely.py`, not this script.
+[REFERENCE.md § Ruleset Context Audit](REFERENCE.md#ruleset-context-audit).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -644,12 +657,17 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 Tip: P4 `include` cells do not inherit `matrix`. Oversize cascor stall is pool ≥ 16 **or** cap ≥ 64 (`stall_seconds` > 120). `per_run_timeout_seconds` must sit **above** the driver wall (equal loses the manifest). `e-j-h2h-wide-cap128` is n=2 — the description still says 3. Recurrence P4 cells report; they do not gate. See [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites).
 
 Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 bytes. Run `python3 util/memory_index_check.py` on the host that writes `~/.claude` — CI never sees the real file. The 120 cap is the **hook** (`len` after the `)`), not the line. `--accept` grandfathers and always exits 0; it does not evict. See [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check).
+Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py <repos> --min-score 3 --json OUT`. The scored **total will rise** — relocation removes resident identifiers, so the gap predicate starts matching them. Health is the score ≥ 3 count (and whether anything *new* appears there), not the total. `2026-08-28_hazard_triage.py` alone cannot find what was never in `AGENTS.md`. Full contract: [REFERENCE — Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage).
 
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
+| Gap-triage total went up after a successful cut | Expected — cutting widens the gap. Read score ≥ 3 / new rows, not the total. |
+| `hazard_triage` missed a known-real source comment | It only ranks `AGENTS.md` on GitHub `main`. Use `2026-08-31_resident_gap_triage.py` for source gaps. |
+| `hazard_triage` ignores local `AGENTS.md` edits | It fetches via `gh api` `?ref=main`, not the checkout. |
+| Huge candidate counts on juniper-ml | Confirm `SKIP_DIRS` (`.claude` / `worktrees`) — pre-#1519 walked in-repo worktrees. |
 | `@claude` mention did nothing | Job `if:` needs the literal `@claude` in that event's body (or issue title); `issues: assigned` still needs it |
 | Copied `notes/templates/ci/claude.yml` onto live | Template snapshot lags Dependabot (checkout v6.0.2 / action v1.0.107); restore `.github/workflows/claude.yml` from `main` |
 | L2/L3 auditor green after permissions widen | Expected — bash is structure-only; `LiveClaudeWorkflowContractTests` pins the map |
@@ -786,6 +804,10 @@ Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 byt
 | Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
 | Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
 | `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
+| `main` BLOCKED, every check green | Required context never reports — run `2026-08-10_ruleset_context_audit.py --repo <repo>` before adding another. |
+| Context audit text exit 0 with `ERROR:` | Human mode ignores probe failures; use `--json` (exit 1) or re-run that `--repo`. |
+| Promoted check missing from Tier 1 | `advisory_predicate` must subtract the live required set (ml#1011 class). |
+| Quoted 23/200 blocking from the 2026-08-10 note | Historical. Re-run; do not strip a ruleset from a one-shot empty sample. |
 
 ## Quick Reference Tables
 
@@ -821,6 +843,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ## Cross-References
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
+- [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
@@ -835,6 +858,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- exit **2** is P-5 free-threaded; exit **4** is May-7 wheel layout
 - [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local `MEMORY.md` gate; hook-not-line; CI cannot see `~/.claude`
 - [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` (restore `-xjf`); not the Duplicati `$HOME` lane
+- [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- required-context classifier; 2026-08-10 class; text-mode 0 can still carry `ERROR:`
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference

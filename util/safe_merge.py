@@ -196,9 +196,30 @@ DEFAULT_REPO = "juniper-ml"
 TIMEOUT_CEILING = 3300
 DEFAULT_TIMEOUT = 2400  # unmeasured repos: the "standard" tier
 REPO_TIMEOUTS = {
-    # fast tier -- p90 263 s
-    "juniper-ml": 900,
-    # standard tier -- p90 1065-1122 s
+    # juniper-ml was the FAST tier at 900 s on the 2026-08-20 numbers above (p90 263, max
+    # 273). RE-MEASURED 2026-09-05 with the same tool, n=12: min 376, median 430, **p90 455,
+    # max 823**, and 26 checks on a head rather than 17. That is 1.7x growth at p90 and 3.0x
+    # at max, against a fleet carrying 103 open PRs on this repo (the 2026-08-18 audit's
+    # measured concurrency peak was 54).
+    #
+    # 900 s was therefore 2.0x p90 but only **1.09x the observed max**, and it REFUSED
+    # ml#1754 live -- "required checks did not finish within 900s -- absent: Quality Gate",
+    # on a PR whose checks were entirely healthy. The 2x-p90 sizing RULE did not fail here;
+    # the numbers it was applied to went stale.
+    #
+    # 1500 s is chosen, not guessed: the budget must CLEAR the observed max (823 s) and stay
+    # inside 4x p90 (1820 s), the bound `KillResilienceTest` enforces so a stuck run cannot
+    # masquerade as a slow one. That leaves (823, 1820]; 1500 sits mid-window at 3.3x p90
+    # and 1.8x max. An earlier draft of this change used the standard tier's 2400 and the
+    # test correctly rejected it.
+    #
+    # The rest of this table has NOT been re-measured on 2026-09-05 and is still sized off
+    # the August numbers -- if a sibling repo starts refusing healthy PRs, re-run
+    # `util/ad-hoc/2026-08-20_measure_required_check_span.py --repo <repo>` before assuming
+    # the PR is at fault.
+    # ml tier -- p90 455 s, max 823 s (2026-09-05)
+    "juniper-ml": 1500,
+    # standard tier -- p90 1065-1122 s (2026-08-20)
     "juniper-data": 2400,
     "juniper-cascor": 2400,
     "juniper-cascor-worker": 2400,

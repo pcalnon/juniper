@@ -223,6 +223,12 @@ jobs:
           python3 -m unittest -v tests/test_worktree_cleanup.py
           python3 -m unittest -v tests/test_worktree_activate.py
           python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+          # tests/test_p5_worktree_cleanup.py: the sweeper that actually deletes
+          # trees (util/ad-hoc/2026-08-28_p5_worktree_cleanup.py). #1632 pins the
+          # independent probe; this is the complementary leftover those tests
+          # cannot see: NO-PR vs LOOKUP-FAILED, disposable vs harvest, cwd-only
+          # occupancy. Fake proc_root; never walks host /proc or live gh.
+          python3 -m unittest -v tests/test_p5_worktree_cleanup.py
           # tests/test_yubikey_test_pinentry.py: Assuan OK greeting/BYE + GETPIN
           # class routing for util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash
           # (#914 regression: non-OK greeting -> gpg-agent "No pinentry").
@@ -565,6 +571,17 @@ jobs:
           # fence-blind regression and a silent bad cut, so it also pins the four-backtick
           # fence (canopy wraps ```-examples in ````) and the info-string closing rule.
           python3 -m unittest -v tests/test_p3_relocate_section.py
+          # tests/test_hazard_triage.py: the gate for the pre-cut HAZARD FINDER
+          # (util/ad-hoc/2026-08-28_hazard_triage.py). util/ is outside every
+          # pre-commit Python hook, so this suite is the gate. A first version
+          # scored per LINE and found ZERO of four real hazards in this repo's
+          # own AGENTS.md -- wrapped prose never reaches two signals on one
+          # line. That is the vacuous-pass class: the instrument that is
+          # supposed to be the test can hide the remainder and still print
+          # success (the same class as an X7 census that certified 36 where
+          # 58 is true). Pins block scoring, fence exclusion, and the
+          # AGENTS.md positive control.
+          python3 -m unittest -v tests/test_hazard_triage.py
           # tests/test_soak_ledger.py: the gate for util/soak_ledger.py (plan §6, the
           # pointer-follow soak). util/ is outside every pre-commit Python hook's scope,
           # so this suite IS the gate. It pins the properties that let the soak FALSIFY
@@ -909,6 +926,32 @@ jobs:
           # figures, insert-job lands before required-checks and outside its needs:, and adapt-test
           # rewrites depth + adds SPACE-separated nosec codes. util/ is not pre-commit-lint-gated.
           python3 -m unittest -v tests/test_p5_port_memory_budget.py
+          # tests/test_p5_fleet_state.py: the P5 fleet census
+          # (util/ad-hoc/2026-08-26_p5_fleet_state.py). Pins the invocation
+          # reconstruction that a whole-file `"--advisory" in wf` cannot see
+          # (comment + relocation_check --advisory read True fleet-wide),
+          # gh_api 404-only-None (rate-limit is not an absent file), CHAR vs
+          # BYTE size, and exact `Memory Budget` required-context match.
+          # util/ is not pre-commit-lint-gated; gh_api is monkeypatched.
+          python3 -m unittest -v tests/test_p5_fleet_state.py
+          # tests/test_resident_gap_triage.py: the gate for the third P5 hazard tool
+          # (util/ad-hoc/2026-08-31_resident_gap_triage.py). util/ is outside every
+          # pre-commit Python hook, so this suite is the gate. #1663 pins the
+          # AGENTS.md finder; this pins the leftover that finder cannot see --
+          # SOURCE comments that are resident nowhere. A first version scored a
+          # 2-sentence window and buried the known-real cascor max_epochs /
+          # output_epochs split (score 2, below threshold) because prohibition
+          # and silence sit four paragraphs apart. Pins block scoring, the gap
+          # predicate, log-level demotion that never drops a remaining-score hit,
+          # worktree skip, and --min-score as a print threshold (JSON keeps all
+          # scored rows).
+          python3 -m unittest -v tests/test_resident_gap_triage.py
+          # tests/test_resident_gap_scan.py: the gate for the P5 resident-gap FINDER
+          # (util/ad-hoc/2026-08-28_resident_gap_scan.py). util/ is outside every
+          # those cannot see -- IDENT prose-in-backticks, .claude/worktrees
+          # multiplication (23,120 files / 15,285 candidates), contiguous # join,
+          # and missing-AGENTS.md exit 2. Hermetic TemporaryDirectory only.
+          python3 -m unittest -v tests/test_resident_gap_scan.py
 
           # tests/test_require_context_safely.py: the ruleset writer that promotes a context to
           # REQUIRED (util/ad-hoc/2026-08-20_require_context_safely.py). find_ruleset must report a
@@ -933,6 +976,18 @@ jobs:
           # resolved, so DBPATH must be resolved too or the comparison matches nothing).
           # Also pins the scan shape: one find, not a readlink fork per fd on the host.
           python3 -m unittest -v tests/test_duplicati_db_holder_guard.py
+          # tests/test_matrix_set_verdicts.py: Hermetic gate for the E2E matrix verdict writer `util/ad-hoc/2026-09-02_matrix_set_verdicts.py` (`util/` is outside every pre-commit Python hook), which shipped with zero tests: verdict tokens, row identity, and the write-back path.
+          python3 -m unittest -v tests/test_matrix_set_verdicts.py
+          # tests/test_e2e_matrix_fill.py: Hermetic gate for the E2E matrix bulk-fill writer, which shipped with zero tests: which cells a fill may touch, and that an already-filled cell is not silently overwritten.
+          python3 -m unittest -v tests/test_e2e_matrix_fill.py
+          # tests/test_e2e_matrix_rescore.py: Hermetic gate for the named-row matrix re-score writer, which shipped with zero tests: row lookup by name, and that a re-score rewrites only the named row.
+          python3 -m unittest -v tests/test_e2e_matrix_rescore.py
+          # tests/test_e2e_unfilled_rows.py: Hermetic gate for the unfilled-rows ledger reader, which shipped with zero tests: what counts as unfilled, and that a partially-filled row is not reported complete.
+          python3 -m unittest -v tests/test_e2e_unfilled_rows.py
+          # tests/test_e2e_f037_render_census.py: Hermetic gate for the F-CANOPY-037 render census, which can certify a VACUOUS run -- a census over an empty or unrendered set reporting success is the failure this pins.
+          python3 -m unittest -v tests/test_e2e_f037_render_census.py
+          # tests/test_e2e_row_coverage.py: Hermetic gate for the row-coverage estimator, which can certify a PARTIAL ledger as complete -- coverage computed over the rows present, not the rows required.
+          python3 -m unittest -v tests/test_e2e_row_coverage.py
           # tests/test_canopy_poller_inventory.py: The canopy poller census that can certify a PARTIAL inventory -- a census counting the pollers it found, not the pollers that exist, reports completeness it cannot know.
           python3 -m unittest -v tests/test_canopy_poller_inventory.py
           # tests/test_cascor_freeze_tell.py: The cascor freeze tell that FALSE-FROZE siblings and missed the real one: both error directions of the same predicate, which a one-sided test cannot separate.
