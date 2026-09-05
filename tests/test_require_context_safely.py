@@ -27,9 +27,14 @@ What it pins, and why it mattered:
 
 from __future__ import annotations
 
+import copy
 import importlib.util
+import io
+import sys
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = REPO_ROOT / "util" / "ad-hoc" / "2026-08-20_require_context_safely.py"
@@ -253,6 +258,269 @@ class ObservedContextAppsTest(unittest.TestCase):
         publishers = mod.observed_context_apps("o", "r", "Memory Budget")
         self.assertIn(15368, publishers)
         self.assertNotIn(57789, publishers)
+
+
+# Contexts for the amend-path fixture: Memory Budget unpinned, Bandit on its real app,
+# and an Actions-pinned neighbour. Rewriting Bandit to 15368 is the five-repo outage.
+_AMEND_CONTEXTS = [
+    {"context": "Memory Budget", "integration_id": None},
+    {"context": "Bandit", "integration_id": 57789},
+    {"context": "Guard PR base branch", "integration_id": 15368},
+]
+
+
+def _amend_ruleset(contexts):
+    return {
+        "id": 1,
+        "name": "juniper-x-rules",
+        "target": "branch",
+        "enforcement": "active",
+        "conditions": {"ref_name": {"include": ["~DEFAULT_BRANCH"], "exclude": []}},
+        "bypass_actors": [{"actor_id": None, "actor_type": "DeployKey", "bypass_mode": "always"}],
+        "rules": [
+            {
+                "type": "required_status_checks",
+                "parameters": {
+                    "strict_required_status_checks_policy": True,
+                    "required_status_checks": copy.deepcopy(contexts),
+                },
+            },
+            {"type": "pull_request", "parameters": {}},
+            {"type": "code_quality"},
+        ],
+    }
+
+
+def _contexts_of_payload(body):
+    for rule in body.get("rules", []):
+        if rule.get("type") == "required_status_checks":
+            return (rule.get("parameters") or {}).get("required_status_checks", [])
+    return []
+
+
+class _AmendGH:
+    """Stateful ``gh_json``: one ruleset, recorded PUTs, optional post-write override.
+
+    ``after_contexts`` is the lie the post-write re-read returns -- used to pin the
+    verification assertions that must still fire DURING an amend. A successful apply
+    with ``after_contexts is None`` adopts the PUT body so the happy path verifies.
+    """
+
+    def __init__(self, contexts, pr_runs, after_contexts=None):
+        self.rs = _amend_ruleset(contexts)
+        self.pr_runs = pr_runs
+        self.after_contexts = after_contexts
+        self.puts: list[dict] = []
+
+    def __call__(self, path, method=None, body=None):
+        if method == "PUT":
+            self.puts.append(copy.deepcopy(body))
+            if self.after_contexts is not None:
+                self.rs = _amend_ruleset(self.after_contexts)
+            else:
+                self.rs = copy.deepcopy(self.rs)
+                self.rs["rules"] = copy.deepcopy(body["rules"])
+                for key in ("name", "target", "enforcement", "conditions", "bypass_actors"):
+                    if key in body:
+                        self.rs[key] = copy.deepcopy(body[key])
+            return {"id": 1}, None
+        if path == "repos/o/r/rulesets":
+            return ([{"id": 1, "name": "juniper-x-rules"}], None)
+        if path == "repos/o/r/rulesets/1":
+            return (copy.deepcopy(self.rs), None)
+        if path.startswith("repos/o/r/pulls?"):
+            return ([{"head": {"sha": "abc"}}], None)
+        if "commits/abc/check-runs" in path:
+            return (self.pr_runs, None)
+        if "commits/main/check-runs" in path:
+            return ({"check_runs": []}, None)
+        return (None, f"unexpected call {path}")
+
+
+class AmendPathTest(unittest.TestCase):
+    """The write path ``--amend-integration-id`` actually takes. Helper tests are not enough.
+
+    ``observed_context_apps`` answering correctly does not prove ``main()`` refuses a wrong
+    id, leaves ``Bandit``'s 57789 alone, or keeps the drift assertion live for the other
+    16 contexts. Those are the operations that unmerged five repos, and they had no test.
+    """
+
+    def setUp(self):
+        self._orig_gh = mod.gh_json
+        self._orig_snap = mod.SNAP_DIR
+        self._tmp = TemporaryDirectory()
+        mod.SNAP_DIR = Path(self._tmp.name)
+
+    def tearDown(self):
+        mod.gh_json = self._orig_gh
+        mod.SNAP_DIR = self._orig_snap
+        self._tmp.cleanup()
+
+    def _install(self, gh):
+        mod.gh_json = gh
+
+    def _run(self, *argv: str) -> tuple[int, str]:
+        buf = io.StringIO()
+        old = sys.argv
+        sys.argv = ["require_context_safely.py", *argv]
+        try:
+            with redirect_stdout(buf):
+                rc = mod.main()
+        finally:
+            sys.argv = old
+        return rc, buf.getvalue()
+
+    @staticmethod
+    def _actions_published():
+        return ObservedContextAppsTest._runs(("Memory Budget", 15368, "github-actions"))
+
+    def test_already_required_without_amend_flag_is_a_noop(self):
+        """Default path must still short-circuit. The amend branch is opt-in."""
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
+        self._install(gh)
+        rc, out = self._run("--owner", "o", "--repo", "r", "--context", "Memory Budget")
+        self.assertEqual(rc, 0)
+        self.assertIn("ALREADY REQUIRED", out)
+        self.assertEqual(gh.puts, [])
+        self.assertEqual(list(mod.SNAP_DIR.iterdir()), [])
+
+    def test_unobserved_publisher_is_refused_and_does_not_put(self):
+        """NEGATIVE CONTROL for the write path, not just the helper.
+
+        57789 has never published ``Memory Budget``. Pinning it is the five-repo outage:
+        the PR sits BLOCKED with nothing red. A dry-run must still refuse, and must not
+        snapshot or PUT.
+        """
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
+        self._install(gh)
+        rc, out = self._run(
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
+            "--amend-integration-id",
+            "--integration-id",
+            "57789",
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("REFUSING", out)
+        self.assertIn("57789", out)
+        self.assertNotIn("would amend", out)
+        self.assertEqual(gh.puts, [])
+        self.assertEqual(list(mod.SNAP_DIR.iterdir()), [])
+
+    def test_observed_publisher_dry_run_would_amend_without_writing(self):
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
+        self._install(gh)
+        rc, out = self._run(
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
+            "--amend-integration-id",
+        )
+        self.assertEqual(rc, 0)
+        self.assertIn("would amend", out)
+        self.assertIn("3 contexts, unchanged", out)
+        self.assertEqual(gh.puts, [])
+        self.assertEqual(list(mod.SNAP_DIR.iterdir()), [])
+
+    def test_apply_amends_only_the_named_context(self):
+        """Invariant 2: every OTHER context keeps its own integration_id.
+
+        The PUT that retargeted ``Bandit`` at 15368 is the defect. The amend must rewrite
+        ``Memory Budget`` in place and leave 57789 on ``Bandit``.
+        """
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published())
+        self._install(gh)
+        rc, out = self._run(
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
+            "--amend-integration-id",
+            "--apply",
+        )
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(len(gh.puts), 1)
+        pairs = {c["context"]: c.get("integration_id") for c in _contexts_of_payload(gh.puts[0])}
+        self.assertEqual(pairs["Memory Budget"], 15368)
+        self.assertEqual(pairs["Bandit"], 57789)
+        self.assertEqual(pairs["Guard PR base branch"], 15368)
+        self.assertEqual(len(pairs), 3)
+        self.assertIn("all invariants held", out)
+        self.assertTrue(any(mod.SNAP_DIR.iterdir()), "apply must snapshot before the PUT")
+
+    def test_post_write_other_context_drift_still_fails_during_an_amend(self):
+        """The drift check is narrowed, not disabled. Bandit moving is still a failure.
+
+        Switching the assertion off for the one operation that rewrites ids would be
+        worse than no check -- that is how a whitelist of exactly one (context, new_id)
+        pair was chosen over a skip.
+        """
+        drifted = [
+            {"context": "Memory Budget", "integration_id": 15368},
+            {"context": "Bandit", "integration_id": 15368},
+            {"context": "Guard PR base branch", "integration_id": 15368},
+        ]
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published(), after_contexts=drifted)
+        self._install(gh)
+        rc, out = self._run(
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
+            "--amend-integration-id",
+            "--apply",
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("POST-WRITE VERIFICATION FAILED", out)
+        self.assertIn("integration_id DRIFT on Bandit", out)
+        self.assertIn("57789", out)
+
+    def test_post_write_amend_did_not_take_fails(self):
+        still_none = copy.deepcopy(_AMEND_CONTEXTS)
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published(), after_contexts=still_none)
+        self._install(gh)
+        rc, out = self._run(
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
+            "--amend-integration-id",
+            "--apply",
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("amend DID NOT TAKE", out)
+
+    def test_post_write_context_count_change_fails(self):
+        extra = copy.deepcopy(_AMEND_CONTEXTS)
+        extra[0] = {"context": "Memory Budget", "integration_id": 15368}
+        extra.append({"context": "sneaky extra", "integration_id": 15368})
+        gh = _AmendGH(_AMEND_CONTEXTS, self._actions_published(), after_contexts=extra)
+        self._install(gh)
+        rc, out = self._run(
+            "--owner",
+            "o",
+            "--repo",
+            "r",
+            "--context",
+            "Memory Budget",
+            "--amend-integration-id",
+            "--apply",
+        )
+        self.assertEqual(rc, 1)
+        self.assertIn("context COUNT changed during an amend", out)
 
 
 if __name__ == "__main__":

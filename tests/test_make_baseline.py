@@ -164,6 +164,40 @@ class BuildRefusalTest(unittest.TestCase):
             self.assertTrue(payload["accepted_warnings"])
             self.assertTrue(payload["scenarios"][0]["validation_warnings"])
 
+    def test_refuses_when_some_cell_yaml_is_missing(self):
+        # Mixed known + unknown identity is the hole: dropping Nones before the uniqueness check
+        # made a 2-cell suite with one missing YAML look like a single workload and BLESS it.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            (suite / "cells" / "c001" / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("workload identity unknown", str(ctx.exception))
+
+    def test_refuses_when_some_identities_are_unknown(self):
+        # Mixed known+unknown is the vacuity hole: filtering Nones then seeing one remaining
+        # hash would bless the suite and pin the known cell's fingerprint as the scenario
+        # identity. A later comparison against a cell whose YAML is missing would then look
+        # like "same workload" rather than REFUSE.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            (suite / "cells" / "c001" / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("different workloads", str(ctx.exception))
+
+    def test_refuses_when_workload_identity_is_unknown(self):
+        # The fixture docstring claims this refusal; without it a baseline records
+        # workload_fingerprint=None and every later comparison is an invalid comparison
+        # disguised as a blessed reference.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            for cell_id in ("c000", "c001"):
+                (suite / "cells" / cell_id / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("different workloads", str(ctx.exception))
+
 
 class WriteTest(unittest.TestCase):
     def _payload(self, tmp):
