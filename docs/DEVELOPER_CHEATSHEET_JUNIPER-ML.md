@@ -62,6 +62,8 @@
 | `python3 util/soak_run_probe.py`                       | Run least-covered soak probe; writes `scoring_packet.md` |
 | `python3 util/soak_ledger.py status`                   | Soak verdict + escalations (exit 1 is often by design) |
 | `python3 -m unittest -v tests/test_soak_ledger.py`     | Soak ledger regressions (`util/` is not pre-commit-gated) |
+| `python3 util/soak_run_probe.py --probe-id ID [--force]` | Run a named soak probe; `--force` if verdict is terminal |
+| `python3 -m unittest -v tests/test_soak_run_probe.py`  | Soak wrapper regressions (`util/` is not pre-commit-gated) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -806,6 +808,7 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | `juniper-backup` `SKIP … is not a mount point` | Drive unattached (would fill `/`). Attach it, or pass `--dest DIR`. |
 | Soak `parse_events` AttributeError after a spent session | `message` was a string, not a dict. Re-parse saved `stream.jsonl`; do not re-run. Type guard: #1616. |
 | Soak channel says follow but the task names the pointer path | Mechanical false-positive (P06 `--dest docs/REFERENCE.md`). Verify the doc was actually read. |
+| Soak `--dry-run` exits 2 with no preview | Ledger verdict is `BET-FAILING` / `HOLDS-AT-*`. Pass `--force`; the refuse is before the dry-run branch. |
 | Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
 | Soak probe reaped / no `status.json` | Pidfile was under `reports/soak/runs/` (unscanned) or interpreter was `JuniperC*`. Use `/usr/bin/python3`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
