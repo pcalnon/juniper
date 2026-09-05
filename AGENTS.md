@@ -160,6 +160,11 @@ python3 -m unittest -v tests/test_ruleset_context_audit.py
 python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
 python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
 python3 -m unittest -v tests/test_e2e_append_statuses.py
+python3 -m unittest -v tests/test_compare_baseline_defects.py
+python3 -m unittest -v tests/test_work_countable_contract.py
+python3 -m unittest -v tests/test_termination_branch_precondition.py
+python3 -m unittest -v tests/test_run_suite_uncountable_report.py
+python3 -m unittest -v tests/test_worktree_inuse_probe.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.
