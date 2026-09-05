@@ -1028,6 +1028,16 @@ jobs:
           python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
           # tests/test_e2e_topology_step_order.py: `--step` parsing extracted into `util/ad-hoc/e2e_topology_step_cli.py`: order is preserved, an unknown step is rejected loudly rather than silently skipped, and the driver walks the WANTED list rather than the registered one.
           python3 -m unittest -v tests/test_e2e_topology_step_order.py
+          # tests/test_compare_baseline_defects.py: The A1-A7 comparator refusals the happy-path suite cannot reach: partial scenario coverage, duplicate baseline fingerprints, a driver-truncated candidate, and the mixed measured/unmeasured suite whose one surviving cell used to satisfy the work invariant vacuously.
+          python3 -m unittest -v tests/test_compare_baseline_defects.py
+          # tests/test_work_countable_contract.py: The `work_countable` third state end to end: a recurrence candidate is REFUSED with the honest reason rather than FAILed, and no waiver can override a refusal that says the WORK half of the gate does not apply.
+          python3 -m unittest -v tests/test_work_countable_contract.py
+          # tests/test_termination_branch_precondition.py: The termination-branch precondition: `step_count` is deterministic only WITHIN a branch (29 of 79 repeated configs diverge across branches, zero within one), a driver-truncated `outcome` measures the budget rather than the code, and an unannotated cell is its own branch rather than being filtered into unanimity.
+          python3 -m unittest -v tests/test_termination_branch_precondition.py
+          # tests/test_run_suite_uncountable_report.py: REPORT.md's third state: `not countable` must stay distinct from HOLDS and BROKEN, an empty gate must remain the cascor-unmeasured case, and the report must ask `summarise` rather than re-deriving `len(counts) == 1` -- which reads HOLDS on a half-measured suite.
+          python3 -m unittest -v tests/test_run_suite_uncountable_report.py
+          # tests/test_worktree_inuse_probe.py: Hermetic coverage for `util/ad-hoc/2026-09-02_worktree_inuse_probe.py`, the guard that REFUSES a destructive worktree cleanup: cwd and open-fd hits are STRONG, a cmdline mention alone is only a caution, and a process owned by another user is reported unreadable rather than counted as absent.
+          python3 -m unittest -v tests/test_worktree_inuse_probe.py
 
       - name: Run bash regression tests
         run: |
