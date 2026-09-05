@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.15
+**Version:** 0.6.22
 **Status:** Active
-**Last Updated:** 2026-08-24
+**Last Updated:** 2026-09-04
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -26,6 +26,7 @@
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
+- [X7 Off-Loop Census](#x7-off-loop-census)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1427,7 +1428,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_isolated_stack_script.py` -- Contract tests for `util/isolated_stack.bash` (plan unit E1): `bash -n` syntax, launch-line text assertions (dedicated-venv install, `python -m juniper_data`, `uvicorn api.app:create_app --factory`, canonical canopy env vars, the control-WS origin/allowlist pair), and hermetic `--dry-run` behavioural checks (prints commands with ports expanded, touches nothing; misuse exits 2).
 - `tests/test_experiment_stack_script.py` -- Contract + behavioural tests for `util/experiment_stack.bash` (CLI experimentation plan Wave 2.1; `util/` is not
   pre-commit-lint-gated, so this unittest is the gate): `bash -n` syntax, the CLI misuse matrix (exit 2), the §9.3 port ranges and §6.4 RUN_DIR contract, the §6.1 launch
-  recipes env-set by env-set, the **F-6** listener-pid rule (no `$!` in any `*_up`; `record_listener_pid` runs after `wait_for_health`; teardown verifies uid + cmdline),
+  recipes env-set by env-set (incl. the APD-DATA-018 pin that `data_up` does **not** set `JUNIPER_DATA_IMPORT_DIR` / `CSV_IMPORT_MAX_BYTES` / `CSV_IMPORT_ALLOW_TRUNCATION` — operators export them; the child inherits), the **F-6** listener-pid rule (no `$!` in any `*_up`; `record_listener_pid` runs after `wait_for_health`; teardown verifies uid + cmdline),
   §7.3 suffix-based `_monitoring$` gateway discovery + the exact socat relay line, the §7.2 target file rendered and parsed as JSON (four labels), and the operator-safety
   invariants (no `JuniperProject.pid`, no canopy, no repo `.env` write, no operator port).
   - Behavioral arms are hermetic: `JUNIPER_EXP_{RUN,LOCK}_ROOT` / `_DEPLOY_DIR` / `_CONDA_DIR` redirect every path into a tempdir and `ss`/`curl`/`docker`/`socat` are PATH
@@ -1447,6 +1448,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   shape-assert pass/mismatch, unstageable-generator refusal), the recurrence path (synchronous train 200/409/422/socket-timeout arms, predict/crossval `dataset_id` refs +
   record-and-continue on failure, the G-18 `save_model` CLI re-run via a PATH stub + missing-CLI acceptance failure), `ports.json` endpoint resolution, the §13.4 manifest
   written for every outcome, and the full 0/1/2/3/4 exit matrix incl. `RedactedEnv` subprocess arms.
+  csv_import operator surface (APD-DATA-018, the half that lives in this repo): `create_dataset` 422 is `ConfigError` / exit 2 on both the recurrence and cascor paths (create runs *before* staging; a 500 stays `RunFailed`); csv_import is registered-available on the stub but not in `STAGEABLE_GENERATOR_ALIASES`, so a successful create still cannot stage (the arc_agi-only unstageable arm is a false green if csv_import is added to the alias map).
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
@@ -1478,6 +1480,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Observed live 2026-08-16 on campaign `e-j-h2h-wide-cap6`: a dry run called the orchestrator, the experiment cascor service, and the watchdog all `WOULD REAP` while healthy. Over-protection is the deliberate safe direction — a stale pidfile still protects.
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
+- X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
@@ -1827,14 +1830,14 @@ juniper-ml/
 │   ├── test_scaffold_template.py         # Behavioural: util/scaffold_template.py new-template generator (P5; drift-compliant output)
 │   ├── test_open_signed_pr.py            # Behavioural: util/open_signed_pr.py signed cross-repo PR opener (hermetic gh stub; dry-run/dup-guard/refs-ref=/deletions)
 │   ├── test_wait_for_checks.py           # Behavioural: util/wait_for_checks.py required-context CI waiter (hermetic scripted-gh stub; positive-terminal, growing-rollup + observed-anchor negative control, absent-vs-running, hard-error, read-only)
-│   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown; hermetic)
+│   ├── test_experiment_stack_script.py   # Contract + behavioural: util/experiment_stack.bash per-run launcher (§6.1 recipes, §6.4 RUN_DIR, §7.2 target file, §9.3 ranges, F-6 listener pid, dry-run + teardown, APD-DATA-018 data_up does not set IMPORT_DIR/MAX_BYTES/ALLOW_TRUNCATION; hermetic)
 │   ├── test_run_suite.py                 # Behavioral: util/experiments/run_suite.py suite driver (expansion + cell_ids, per_cell seeds, driver-validated cells, stubbed up/drive/down loop, registry/index/aggregate, resume, both Q-2 budget flags; hermetic)
 │   ├── test_list_runs.py                 # Behavioral: util/experiments/list_runs.py lister/pruner (state classification, --older-than, prune safety gates; hermetic RUN_ROOT fixtures)
 │   ├── test_snapshot_index.py            # Behavioral: util/snapshot_index.py snapshot index/query (design §6.2) — bytes-attr decode, append-only rescan, --limit deferred-vs-present counting, D-C provenance filters, and an AST anti-resurrection guard that the tool stays READ-ONLY (retention is §6.4 and gated)
 │   ├── test_snapshot_classify.py         # Behavioral: util/snapshot_classify.py owner-scheme classifier (handoff 2026-08-22 §2.4) — the two-axis category/health rule (incl. the attributed zero-node row that made category 5 read empty), `readable`-is-not-loadable, iterations-not-epochs (inert meta.current_epoch), replace-not-append sidecar, fd-level stdout muffling, the train-stage scratch-root refusal, and an AST anti-resurrection guard that the tool stays READ-ONLY
 │   ├── test_snapshot_attribute.py        # Behavioural: util/snapshot_attribute.py dataset attribution (handoff §3.2) — permutation-corrected scoring (raw accuracy reports an inverted-label network as BELOW chance; archive snapshots at 0.010 are 0.990 inverted), the null floor being the untrained MAXIMUM rather than its p95 (a zero-hidden-unit network is a linear model yet scored ~0.624 on non-linearly-separable checkerboard, inside the tail a 120-sample null cannot characterise), the SECOND (cross-dataset) floor — a candidate must clear both, because the untrained null only asks "did this learn anything?" while attribution needs "did it learn THIS rather than something else?" — that a snapshot may not help set the bar it is judged against (a perfect 1.000 on moon must not be recorded as confidently circles), that a dataset an untrained network aces (gaussian, floor 1.000) can never be an answer, ambiguity/missing-null refusals, the partial-sidecar --write guards, and an AST read-only guard. Hermetic — no cascor tree, no juniper-data tree, no archive
 │   ├── test_snapshot_backfill.py           # Behavioural: util/snapshot_backfill.py consolidated recovered-metadata record (handoff §3.4) — the caveats ARE the feature. Pins that a SAMPLED cohort result (380 of 15,927 zero-node snapshots trained) stays quarantined in the `population` bucket rather than being written onto 15,547 files nobody trained, that an inferred dataset never reads as observed/measured, that run identity is never invented (zero run dirs survive from before 2026-07-30), that every failing snapshot gets a named root cause, and an AST read-only guard
-│   ├── test_run_experiment.py              # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
+│   ├── test_run_experiment.py              # Behavioural: util/experiments/run_experiment.py cascor + recurrence driver (§6.3 drive loops, Q-2 stall/budget, F-1 redirect sampling, G-6 staging, csv_import 422/unstageable, §5.5 blocks + G-18 save_model, §8.1/§8.2 plot sets, §8.3 stats/summary, §13.4 manifest, exit matrix 0-4; hermetic stub HTTP)
 │   ├── test_experiment_config_schemas.py   # Drift gate (Wave 3.5): sibling conf/experiments/*.yaml ↔ driver load_config + AST-extracted app Settings fields (CI/force-local gated; always-on extractor self-check)
 │   ├── test_experiment_suite_yamls.py      # Drift gate (R-6): every util/experiments/suites/**/*.yaml passes run_suite.load_suite + oversize cascor suites (pool >= 16 OR cap >= 64) declare execution.stall_seconds (ml#1069) + wide-cap suites pin a wall budget; anti-resurrection for the ad-hoc stall shim
 │   ├── test_prompt_validator_contract.py   # Lint: prompt-validator subagent frontmatter + pinned verdict schema/fixtures
@@ -2590,6 +2593,109 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 
 ---
 
+## X7 Off-Loop Census
+
+X7 is event-loop blocking in juniper-canopy: synchronous retrying `requests` I/O inside `async def` route handlers on a **single-worker** uvicorn. While juniper-cascor is unreachable, canopy stops answering HTTP — `/v1/health` included. Measured end-to-end (design §2): **5.7 ms** healthy, **3.0 s** cascor stopped, **123.12 s** cascor hung (`SIGSTOP`), **5.1 ms** recovery with no restart.
+
+Design of record (revision 4): [`notes/JUNIPER_2026-09-03_JUNIPER-CANOPY_X7-EVENT-LOOP-BLOCKING-REMEDIATION-DESIGN.md`](../notes/JUNIPER_2026-09-03_JUNIPER-CANOPY_X7-EVENT-LOOP-BLOCKING-REMEDIATION-DESIGN.md). First labelled in [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](../notes/JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md) §6.1. Read design §§3, 5.2, 6, 7 before writing canopy code.
+
+Slice **1a** (off-loop discipline) closes X7 **alone**. Slices 1c/1d are load reduction and honesty. Acceptance is mechanical: an AST scan of un-offloaded blocking calls in async handlers returns **0**. Splitting by mechanism is exhaustive; "core now, remaining paths later" is how SEC-F20 recurred as X7.
+
+### Authority vs exploratory sibling
+
+| Surface | Role | Pre-fix count |
+|---------|------|--------------------|
+| Canopy gate `src/tests/regression/test_x7_off_loop_discipline.py` | **Authority for `main.py` — and only for `main.py`.** | **52** blocking, `UNRESOLVED 0` |
+| Canopy `util/ad-hoc/2026-09-04_async_blocking_callgraph.py` | **Authority everywhere else.** Transitive taint over canopy + both client libraries; sees calls that block *through a helper*. | the **6** the gate cannot |
+| `util/ad-hoc/2026-09-04_x7_offload_census_v2.py` (juniper-ml; v0.3.0) | Exploratory sibling. Same classification as the gate; does **not** carry its `VERIFIED_NO_IO_CALLS` exclusions. | **54** |
+| `util/ad-hoc/2026-09-04_x7_offload_census.py` (v1) | **Negative example. Do not quote its counts.** | unsound (name-matching) |
+
+**The count is 58, and slice 1a shipped it** (juniper-canopy#567, squashed at `e6c27e92`). The history is 40 → 39 → 37 → **52** → **58**; design §5.2 carries it in full, so "36" and "52" are both superseded.
+
+The 54-vs-52 delta is exactly two `backend._demo` accessors (`get_network`, `get_current_state`), read and confirmed in-process. **The 52-vs-58 delta is the one that matters**: six sites the gate is *structurally* unable to see, not six it happened to miss. `_extract_meta_params()` and `_seed_training_state()` are bare module functions in `main.py` whose **bodies** hold `backend.get_status()` — at their call sites there is no receiver to resolve, so a receiver-resolving scan reports a clean 0 over calls that block identically; `create_snapshot` called the first one twice. Four more live outside `main.py`, which the gate does not read at all: adapter `connect()` and `_relay_loop()`, and `service_backend.initialize()`'s two calls — the latter on a **request** path, since `_swap_backend` awaits `initialize()` for a runtime model change.
+
+The gate has since been extended to resolve module-level sync helpers transitively (`HELPER` bucket) and now reads 0 legitimately for `main.py`; the four sites outside it are guarded by the call-graph instrument instead. **Run that instrument when touching the adapter** — a green gate is not by itself proof that 1a is intact.
+
+### Why `ruff --select ASYNC` is green on the bug
+
+Canopy's pre-commit hook runs `ruff --select ASYNC` ("Async-route audit (BUG-JD-10 class)"). Verified against 35–40 live sites: **"All checks passed!"**. Ruff's `ASYNC2xx` rules match a hardcoded callee list; `backend.get_status()` is an opaque method call. **No ruff configuration can see this defect.** A second name-matching census would license the same complacency — that is why v1 is retained unfixed.
+
+### v1 vs v2
+
+**v1 matches receiver names.** The set is `backend`, `_adapter`, `adapter`, `_client`, `client`. In `main.py` the bare name `client` is bound to the cascor client, the redis client, the cassandra client, **and** an `httpx.AsyncClient`. It therefore reports `client.stream` at `main.py:1646` as blocking when that receiver is an awaited async client.
+
+v1 is **closure-aware** (bare-attribute `to_thread(backend.get_status)` and named closures) — that part is correct. A naive lexical scan is not (50 unguarded / 0 guarded on this codebase).
+
+**v2 resolves assignment provenance** inside the enclosing handler, then classifies:
+
+| Bucket | Meaning | Counted as blocking? |
+|--------|---------|----------------------|
+| `ASYNC` | Bound from `httpx.AsyncClient`; calls are awaited | no |
+| `CASCOR` | Module-level `backend` or a chain rooted at it | yes |
+| `OTHER` | Other sync factories (`get_redis_client`, `get_cassandra_client`) — same mechanism, different upstream | yes (in scope) |
+| `LOCAL` | `DataAdapter` — no network I/O (CPU only) | no |
+| `UNRESOLVED` | Provenance not determined. Reported separately; never silently included or excluded | yes, if the receiver name is `client` / `adapter` / `_adapter` / `_client` |
+
+`UNRESOLVED` fails the canopy gate on purpose. Adjudicate new receivers into the tables at the top of the test; never widen a blanket rule.
+
+### The unsound exemption — do not reintroduce
+
+The slice-1a gate (and v2 before v0.3.0) used an **expression-based, module-global** offload exemption: any call whose expression appeared handed to `to_thread` / `run_in_executor` *anywhere* in `main.py` was skipped *everywhere*.
+
+Because `main.py:3574` offloads `backend.get_status`, every **other** `backend.get_status()` was invisible — including `health_check()`, `health_check_deprecated()`, and `readiness_probe()`, the three endpoints X7 is **defined by**. It degraded as work progressed: offloading one site drove the count 37 → 35 because its cassandra twin shares the expression and vanished un-fixed.
+
+| | reported (unsound) | reality |
+|---|--------------------|---------|
+| distinct expressions among the 37 | 31 | — |
+| edits to reach a green gate | **31** | ~21 sites still blocking |
+
+A gate that certifies a partial fix as complete is the failure slice 1a exists to prevent. Fixed in canopy `d33ab0a` and v2 v0.3.0: exemption is **site-local only** (calls inside a nested def that is itself offloaded). Do not match by expression across sites.
+
+v1 still has `if call in offloaded` against a **module-global** name set — another reason not to trust it.
+
+### Scope limit (both gate and v2)
+
+Both read `main.py` only. Design §5.2 also puts the metrics relay's inline `extract_network_topology()` in slice 1a (`cascor_service_adapter.py:755-763`; measured **123 s blocked per 183 s** with no user present). It is a `self`-method with internal I/O and is invisible to a receiver-based scan. A green gate is not proof of completeness.
+
+### How to run
+
+The census scripts hardcode `CANOPY_MAIN = Path("/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py")`. On any other host, edit that path (or symlink) before running. They are read-only static AST walks; v2 exits `1` while blocking findings remain.
+
+```bash
+# Authority — from a juniper-canopy worktree, inside src/
+conda run -n JuniperCanopy1 python -m pytest tests/regression/test_x7_off_loop_discipline.py -q
+
+# Exploratory sibling (after juniper-ml#1631 lands; do not use v1 for a count)
+python util/ad-hoc/2026-09-04_x7_offload_census_v2.py
+```
+
+Offload pattern already used correctly ~30 times in `main.py`; exemplar at `:1239`:
+
+```python
+# X.method(a, b=c)  →  await asyncio.to_thread(X.method, a, b=c)
+await asyncio.to_thread(backend.get_status)
+```
+
+Bare `to_thread` is intentional for slice 1a (slice 1b already bounds per-call cost). Constraint C4 (bounded concurrency) is **deferred to 1d**, not satisfied by 1a. Do not imply otherwise in a PR body. Design §4.2 refutes unbounded offload partly on a measured 3 → 42 upstream amplification with the executor at 20/20.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Census / gate count dropped after offloading one site, twin still blocking | Module-global expression exemption — exemption must be site-local |
+| `ruff --select ASYNC` is green | Expected. Opaque `backend.*` calls are invisible. Trust the gate. |
+| v1 reports an awaited `httpx` call as blocking | Name-matching: `client` is overloaded. Use v2 or the gate. |
+| v2 is 54, gate is 52 | Pre-fix figures. Two `backend._demo` accessors excluded by exact expression in the gate only |
+| Gate is 0 — is 1a intact? | Not on its own. The gate reads `main.py`. Run `juniper-canopy/util/ad-hoc/2026-09-04_async_blocking_callgraph.py` for the adapter and `service_backend` |
+| A doc says 36, or 52 | Both superseded. The count is **58** (juniper-canopy#567); design §5.2 carries the history |
+| `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded host path. Point it at your juniper-canopy `src/main.py` |
+| Health still hangs after offloading "the hot handlers" | One un-offloaded handler reinstates the full outage. Exhaustive over the mechanism. |
+| Passing `timeout=30, retries=3` "to bound it" | Those **are** the library defaults — a literal no-op. Slice 1b is `retries=0`. |
+
+Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § X7 off-loop census.
+
+---
+
 ## Shared-Package CI Workflows
 
 Each in-repo published sub-package has its own subdirectory CI at `.github/workflows/ci-<suffix>.yml`. These are **distinct** from the meta `ci.yml` and the `publish-*.yml` publishers: they are the only always-on gate for that package's pytest/coverage/wheel smoke.
@@ -2999,6 +3105,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
@@ -3346,6 +3453,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-08-24
-**Version:** 0.6.15
+**Last Updated:** 2026-09-04
+**Version:** 0.6.22
 **Maintainer:** Paul Calnon

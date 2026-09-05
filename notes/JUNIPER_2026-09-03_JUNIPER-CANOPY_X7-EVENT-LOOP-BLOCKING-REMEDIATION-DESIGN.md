@@ -6,6 +6,7 @@
 - **Status**: **Revision 4** — root cause settled; §§5-8 restructured onto **four exhaustive mechanism slices**, of which **1a closes X7 alone**. Ready to implement 1b then 1a; 1c/1d follow.
 - **Defect**: X7, first labelled in [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md) §6.1
 - **Evidence**: `reports/2026-09-02_canopy-selection-deadlock/` (X7 lanes: `x7_laneA{1,2,3}.md`, `x7_fix_F{1,2,3,4}.md`, `x7_laneB{1,2}.md`)
+- **Operator surface**: [`docs/REFERENCE.md` § X7 Off-Loop Census](../docs/REFERENCE.md#x7-off-loop-census). The canopy slice-1a gate is authority **for `main.py` only** — four of the sites live outside it. The count is **58**, shipped as juniper-canopy#567; §5.2 below carries the full history (40 → 39 → 37 → 52 → 58).
 
 ---
 

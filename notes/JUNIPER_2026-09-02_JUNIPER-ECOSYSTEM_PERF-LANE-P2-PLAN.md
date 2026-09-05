@@ -57,6 +57,34 @@ is sized S/M rather than L.
 Note the `basis` string is honest and matters: `p50`/`p95` are per-poll means, not true per-step
 quantiles. The gate uses `total_steps` and `overall_mean_seconds`, both of which are exact.
 
+> **CORRECTED 2026-09-04 — §1.2 below overstated the gap, and item 3.1 has now ANSWERED its open
+> question with a "no".** The claim that *"recurrence timing exists only as Prometheus gauges"* is
+> **wrong**: the driver already records `timings.train` and `timings.crossval` in every recurrence
+> manifest (`_phase("train", …)`), and `stats.json` already carries them under `outcome.timings`.
+> They are driver-measured and Prometheus-independent, and — unlike cascor's `drive` — carry **no
+> quantization**, because `POST /v1/train` is synchronous: the response *is* completion, so there is
+> no poll loop. The real gap was narrower: `read_run_metrics` knew only the cascor histogram, so the
+> reader and comparator could not consume a recurrence run at all. Fixed.
+>
+> **The open question — is `n_epochs` a usable work-count analogue? — is answered NO**, from a survey
+> of 36 real recurrence runs rather than from repeats:
+>
+> | candidate | measures | verdict |
+> |---|---|---|
+> | `n_epochs` | iterations to convergence | **degenerate** — exactly two values across 36 runs, **1** (28, "converged") and **200** (2, "max_epochs"), tracking the *readout type*. Invariant to `d` and `n_steps`, the two dimensions PF-5 and PF-6 exist to vary. |
+> | `dataset.n_windows` | input size | varies (349 / 1346 / 1574 / 3149) but is fixed by the config. A code change doing redundant work does not move it. |
+> | `timings.train` | duration | this is the **speed** half, not work. |
+>
+> cascor's `step_count` measures work **done**; `n_windows` measures work **asked for**. So the split
+> gate's WORK half **has no recurrence equivalent**, and PF-5/6/7 can be **reported but not gated**
+> without new instrumentation inside juniper-recurrence itself.
+>
+> The tooling now says so rather than mis-gating: `read_run_metrics` returns `work_countable: False`
+> with a reason, `summarise` keeps that as a **third state** distinct from "counted and matched",
+> `make_baseline` **refuses** to bless such a run (a baseline exists to support the work gate; a
+> speed-only reference would invite exactly the comparison the drift floor rules out), and
+> `compare_baseline` refuses with the same explanation.
+
 ### 1.2 The single largest gap: recurrence has no timing surface at all
 
 `stats_summary.py:246-253` builds the recurrence block from `final_metrics`, `n_epochs`,
@@ -271,7 +299,7 @@ PF-1 has now run repeatedly. **PF-2, PF-3, PF-5, PF-6 and PF-7 still have not.**
 |-----|------|------|------|------------|
 | 2.1 | Execute **PF-2** (cascor dataset-size scaling) and file evidence | juniper-ml | S | 0.3 |
 | 2.2 | Execute **PF-3** (candidate-pool × process scaling). Largest host-time cost in the lane: a 4×3 matrix at 2000 s driver budget. Needs an explicit host-time approval and a quiet window. | juniper-ml | M | 0.3 |
-| 2.3 | Execute **PF-5 / PF-6 / PF-7** (recurrence) — **speed results are not interpretable until 3.1** | juniper-ml | M | 3.1 |
+| 2.3 | Execute **PF-5 / PF-6 / PF-7** (recurrence) — **unblocked by 3.1, but REPORT-ONLY.** Recurrence has no work counter, so these scenarios can never be gated; their value is the scaling *curves* (fit time vs `d`, vs `n_steps`, per readout rung), not a pass/fail. Do not cut a baseline from them — `make_baseline` refuses, deliberately. | juniper-ml | M | 3.1 (done) |
 | 2.4 | **PF-4 — establish** a cascor micro-level *timing* baseline. `baseline_20260526.json` holds 10 entries with **zero** timing data, and `test_baselines.py` defines three memory tolerances and no timing tolerance. PF-4's first task is creating the reference, not comparing against one. | juniper-cascor | M | 0.1 |
 | 2.5 | **Design item, owner-facing**: PF-4's *comparison* semantics must be re-derived. A stored baseline is by construction a different run and therefore inherits the 13–20.5% drift floor of §5 and §8.4 of the instrument-resolution results. Options: gate PF-4 on operation *counts* rather than durations (the micro analogue of the split gate), accept a ≥20% timing tolerance, or keep PF-4 report-only. **Do not build 2.4's comparator before this is answered.** | juniper-cascor | S | 2.4 |
 
@@ -279,7 +307,7 @@ PF-1 has now run repeatedly. **PF-2, PF-3, PF-5, PF-6 and PF-7 still have not.**
 
 | #   | Item | Repo | Size | Depends on |
 |-----|------|------|------|------------|
-| 3.1 | **Recurrence run-tier timing into `stats.json`.** `stats_summary.py:246-253` emits no duration field. The driver already receives train/crossval payloads; surface a duration and a work-count candidate (`n_epochs`, plus fold count for crossval) in the recurrence stats block, and **measure across repeats whether the work count is invariant** — early stopping may make it vary, which would mean recurrence has no work-gate analogue at all. | juniper-ml | M | 0.1 |
+| 3.1 | **DONE 2026-09-04 — and its open question answered NO.** The timings already existed (`timings.train` / `timings.crossval`, driver-measured, unquantized because `/v1/train` is synchronous); the gap was that `read_run_metrics` could not read a recurrence run. Now it can. **`n_epochs` is NOT a work-count analogue** — two values across 36 runs (1 / 200) by readout type, invariant to `d` and `n_steps`; `n_windows` is input size. So **PF-5/6/7 can be reported but never gated**, and the tooling refuses rather than mis-gating. Correction banner above §1.2 of this document. **Recurrence run-tier timing into `stats.json`.** `stats_summary.py:246-253` emits no duration field. The driver already receives train/crossval payloads; surface a duration and a work-count candidate (`n_epochs`, plus fold count for crossval) in the recurrence stats block, and **measure across repeats whether the work count is invariant** — early stopping may make it vary, which would mean recurrence has no work-gate analogue at all. | juniper-ml | M | 0.1 |
 | 3.2 | ~~Add a `performance` pytest marker to the recurrence app~~ — **ALREADY DONE**. Registered at `juniper-recurrence/juniper-recurrence/pyproject.toml:153` with a comment naming "G-17 / CLI-experimentation plan 12.2 item 2"; `--strict-markers` makes registration a prerequisite rather than bookkeeping, and `tests/test_markers.py` pins it. Nothing is marked yet, which is the correct state — the marker must exist before the first test can carry one. **Carried here only so it is not re-enumerated a third time.** | juniper-recurrence | — | done |
 | 3.3 | **G-17 second sub-item**: launch a recurrence run with `--grafana-bridge` and confirm recurrence timings actually appear under `environment="host-experiment"`. The panels and plumbing are believed correct; what has never happened is a bridged recurrence run. The enabler shipped in `juniper-ml#1547`; the consumer item was dropped. | juniper-ml | S | 3.1 |
 

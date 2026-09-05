@@ -35,7 +35,7 @@ from experiments import read_run_metrics as rrm  # noqa: E402  (path-invoked uti
 SERIES_HEADER = "ts_unix,fsm_status,current_epoch,current_hidden_units," "juniper_cascor_candidate_correlation,juniper_cascor_hidden_units_total," "juniper_cascor_training_loss,juniper_cascor_training_accuracy_ratio," f"{rrm.STEP_SUM_COLUMN},{rrm.STEP_COUNT_COLUMN}\n"
 
 
-def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0, 100), (63.4, 1770)), scrape=True, with_series=True) -> Path:
+def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0, 100), (63.4, 1770)), scrape=True, with_series=True, reason="early_stopped") -> Path:
     """Build a synthetic RUN_DIR. ``samples`` is an ordered list of (sum, count) poll rows."""
     run_dir = root / run_id
     (run_dir / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
@@ -45,6 +45,7 @@ def _write_run(root: Path, run_id: str, *, drive=60.0, polls=13, samples=((10.0,
         "timings": {"drive": drive, "total": drive + 3},
         "drive_loop": {"polls": polls},
         "metrics_scraped": {"grafana_bridge": True, "scrape_confirmed": scrape, "target_file_written": True},
+        "completion_reason": reason,
     }
     (run_dir / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
     if with_series:
@@ -257,3 +258,55 @@ class CliTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RecurrenceKindTest(unittest.TestCase):
+    """Recurrence has NO work counter, and the reader must say so rather than imply one.
+
+    Surveyed across 36 real runs on 2026-09-04: ``n_epochs`` takes exactly two values -- 1
+    (28 runs, "converged") and 200 (2 runs, "max_epochs") -- because it tracks the READOUT
+    TYPE, and is invariant to ``d`` and ``n_steps``, the dimensions PF-5 and PF-6 exist to
+    vary. ``n_windows`` does vary but is INPUT SIZE, fixed by config: a code change doing
+    redundant work does not move it.
+
+    So ``work_countable`` is a THIRD state, distinct from "counted and matched" and from
+    "counted and differed". Collapsing it into either would let a recurrence suite be gated
+    on something that cannot regress.
+    """
+
+    def _recurrence_run(self, root: Path, *, train=0.5, crossval=1.9, n_epochs=1, n_windows=1574) -> Path:
+        run = root / "rec"
+        (run / "artifacts" / "results").mkdir(parents=True, exist_ok=True)
+        (run / "manifest.json").write_text(
+            json.dumps({"run_id": "rec", "outcome": "succeeded", "timings": {"train": train, "crossval": crossval, "total": train + crossval}}),
+            encoding="utf-8",
+        )
+        (run / "artifacts" / "results" / "train_response.json").write_text(json.dumps({"n_epochs": n_epochs, "stopped_reason": "converged", "dataset": {"n_windows": n_windows, "lookback": 32}}), encoding="utf-8")
+        return run
+
+    def test_recurrence_run_is_detected_by_its_timings(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = rrm.read_run(self._recurrence_run(Path(tmp)))
+            self.assertEqual(row["kind"], "recurrence")
+            self.assertEqual(row["train_seconds"], 0.5)
+            self.assertEqual(row["n_windows"], 1574)
+
+    def test_recurrence_work_is_NOT_countable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = rrm.read_run(self._recurrence_run(Path(tmp)))
+            self.assertFalse(row["work_countable"])
+            self.assertIn("n_epochs", row["work_uncountable_reason"])
+
+    def test_a_cascor_run_stays_countable(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            row = rrm.read_run(_write_run(Path(tmp), "c"))
+            self.assertEqual(row["kind"], "cascor")
+            self.assertTrue(row["work_countable"])
+
+    def test_work_invariant_is_FALSE_when_work_is_not_countable(self):
+        # The third state must not read as "counted, and they matched".
+        rows = [{"work_countable": False, "kind": "recurrence"}, {"work_countable": False, "kind": "recurrence"}]
+        summary = rrm.summarise(rows)
+        self.assertFalse(summary["work_countable"])
+        self.assertFalse(summary["work_invariant"])
+        self.assertEqual(summary["kinds"], ["recurrence"])

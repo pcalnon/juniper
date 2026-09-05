@@ -28,13 +28,16 @@ What it pins
 
 from __future__ import annotations
 
+import contextlib
 import importlib.util
+import io
 import json
 import subprocess  # nosec B404 - fixed argv, no shell
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = REPO_ROOT / "util" / "soak_run_probe.py"
@@ -160,6 +163,92 @@ class EventParsing(unittest.TestCase):
         out = mod.parse_events(p)
         self.assertEqual(out["answer"], "")
         self.assertEqual(out["tool_calls"], [])
+
+
+class TerminalVerdictDoesNotGateADryRun(unittest.TestCase):
+    """The stopping rule rations billed sessions, so it must not fire on a dry run.
+
+    Regression pin for the ordering hazard that broke CI on ml#1644 with NO code
+    change: the guard ran before the --dry-run branch, so the moment three
+    non-follow rows pushed the Wilson upper bound under 0.75 the dry run began
+    exiting 2 with empty stdout.
+
+    Every member here drives either the predicate directly or `main()` with the
+    verdict STUBBED. Neither reads the live ledger, deliberately: the corpus is
+    currently INCONCLUSIVE, so any test that shells out and asserts rc==0 passes
+    whether or not the fix is present. The first version of the end-to-end member
+    did exactly that and pinned nothing -- it survived a full revert.
+    """
+
+    def test_a_terminal_verdict_refuses_a_real_run(self) -> None:
+        for verdict in ("BET-FAILING", "HOLDS-AT-0.75"):
+            with self.subTest(verdict=verdict):
+                self.assertTrue(mod.refuses_terminal_verdict(verdict, force=False, dry_run=False))
+
+    def test_a_terminal_verdict_does_not_refuse_a_dry_run(self) -> None:
+        for verdict in ("BET-FAILING", "HOLDS-AT-0.75"):
+            with self.subTest(verdict=verdict):
+                self.assertFalse(mod.refuses_terminal_verdict(verdict, force=False, dry_run=True))
+
+    def test_force_still_overrides_a_real_run(self) -> None:
+        self.assertFalse(mod.refuses_terminal_verdict("BET-FAILING", force=True, dry_run=False))
+
+    def test_a_non_terminal_verdict_never_refuses(self) -> None:
+        for verdict in ("INCONCLUSIVE", "IN-PROGRESS", ""):
+            with self.subTest(verdict=verdict):
+                self.assertFalse(mod.refuses_terminal_verdict(verdict, force=False, dry_run=False))
+
+    def _dry_run_under(self, verdict_line: str) -> tuple[int, str, str]:
+        """Drive `main()` with the ledger's verdict STUBBED, leaving dispatch real.
+
+        The verdict must be injected rather than read. An earlier version of this
+        test shelled out to the real script and asserted rc==0, which passes
+        against ANY corpus whose verdict is not terminal -- i.e. it passed with
+        the fix fully reverted, pinning nothing. The stub is what makes it a test
+        of the ordering rather than a test of today's ledger.
+
+        `_py` is patched selectively: the ledger call is faked, dispatch still
+        runs for real, so the dry-run branch is exercised end to end.
+        """
+        real_py = mod._py
+
+        def fake_py(*args, **kwargs):
+            if args and args[0] == str(mod.LEDGER_TOOL):
+                return subprocess.CompletedProcess(args=list(args), returncode=0, stdout=verdict_line, stderr="")
+            return real_py(*args, **kwargs)
+
+        out, err = io.StringIO(), io.StringIO()
+        with mock.patch.object(mod, "_py", fake_py), mock.patch.object(sys, "argv", ["soak_run_probe.py", "--dry-run"]), contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = mod.main()
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_dry_run_survives_a_terminal_verdict_end_to_end(self) -> None:
+        """A terminal verdict must not stop the dry run reaching its own branch."""
+        rc, out, err = self._dry_run_under("BET-FAILING  seeded=43/35 rate=60.5% ci=[0.456, 0.736]\n")
+        self.assertEqual(rc, 0, f"dry run refused under a terminal verdict; stderr={err!r}")
+        self.assertIn("priming", out.lower())
+
+    def test_dry_run_under_a_terminal_verdict_still_reports_it(self) -> None:
+        """Proceeding is not the same as concealing.
+
+        The dry run is exempt from the stopping rule, so it must SAY that a real
+        run would refuse -- otherwise the operator reads a clean dry run and
+        learns nothing about the state. Pinned because deleting the notice leaves
+        every other test in this file green.
+        """
+        rc, out, err = self._dry_run_under("BET-FAILING  seeded=43/35 rate=60.5%\n")
+        # rc and the absence of REFUSING are what separate the NOTE from the guard's
+        # own message -- that message ALSO names the verdict and --force, so asserting
+        # only on those two strings passes against the unfixed script.
+        self.assertEqual(rc, 0)
+        self.assertNotIn("REFUSING", err)
+        self.assertIn("BET-FAILING", err)
+        self.assertIn("--force", err)
+        self.assertNotIn("BET-FAILING", out, "verdict chatter must not pollute the scorer's stdout")
+
+    def test_a_non_terminal_verdict_produces_no_notice(self) -> None:
+        _, _, err = self._dry_run_under("INCONCLUSIVE  seeded=40/35 rate=65.0%\n")
+        self.assertNotIn("terminal", err.lower())
 
 
 if __name__ == "__main__":
