@@ -58,8 +58,31 @@ END = re.compile(r"^>{7} ")
 KEY_CODE = re.compile(r"`([^`]+)`")
 KEY_FILE = re.compile(r"([A-Za-z0-9_./-]+\.(?:py|md|ya?ml|bash|sh|toml|json))")
 
+# Document header churn. The fleet bot pre-allocates a UNIQUE doc version per PR, so
+# every pair of docs PRs collides on these lines -- and the branch's value is ALWAYS
+# stale by merge time, because each landed sibling advances it again. They are therefore
+# never carried from the branch side; HEAD's value wins outright. Carrying one forward
+# silently reverts however many versions landed in between.
+NEUTRAL_LINE_RE = re.compile(
+    r"^\s*\*\*(Version|Status|Last Updated|Author|License|Project|Sub-Project)[:*]",
+    re.IGNORECASE,
+)
+
 
 def key_of(line: str) -> str | None:
+    # A MARKDOWN TABLE ROW's identity is its FIRST CELL, not any code span in the line.
+    # Reading the first code span instead picks something out of the description column,
+    # so two rows describing the SAME document get different keys and the resolver
+    # duplicates one -- observed live on docs/DOCUMENTATION_OVERVIEW.md, where a stale
+    # branch carried the pre-#1753 duplicates and this rule is the only thing that
+    # collapses them.
+    s = line.strip()
+    if s.startswith("|"):
+        cells = [c.strip() for c in s.split("|")]
+        for c in cells:
+            if c:
+                return c.strip("*` ").strip()
+        return None
     m = KEY_CODE.search(line)
     if m:
         return m.group(1).strip()
@@ -100,6 +123,19 @@ def resolve(path: Path, dry_run: bool) -> int:
             return 1
         i += 1
 
+        # Neutral header lines are dropped from the BRANCH side unconditionally, before
+        # any key logic runs. They carry no information that survives consolidation, and
+        # attaching them to a following keyed line (the comment-block rule below) would
+        # smuggle a stale version number in with a legitimate new row.
+        theirs = [t for t in theirs if not NEUTRAL_LINE_RE.match(t)]
+
+        # HEAD side empty: the branch is adding where main has nothing. Nothing to
+        # reconcile -- take the addition whole.
+        if not any(o.strip() for o in ours):
+            print(f"  hunk {hunks}: HEAD side empty — taking {len(theirs)} branch line(s) whole")
+            out.extend(theirs)
+            continue
+
         ours_keys = {k for k in (key_of(x) for x in ours) if k}
         added: list[str] = []
         # A branch-side row is not always ONE line. In `.github/workflows/ci.yml` each
@@ -114,9 +150,13 @@ def resolve(path: Path, dry_run: bool) -> int:
             if k is None:
                 pending.append(t)
                 continue
+            # Dedupe against HEAD *and* against what this hunk has already added: a
+            # stale branch can carry the same row twice (the pre-#1753 duplication),
+            # and adding both re-introduces exactly what main just collapsed.
             if k not in ours_keys:
                 added.extend(pending)
                 added.append(t)
+                ours_keys.add(k)
             pending = []
         if any(p.strip() for p in pending):
             print(f"FATAL: branch-side line(s) with no extractable key, and no keyed "
