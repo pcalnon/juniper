@@ -43,6 +43,7 @@
 - [Suite Report Gate Inputs](#suite-report-gate-inputs)
 - [CSV Import Byte Cap](#csv-import-byte-cap)
 - [Snapshot Sidecar Chain](#snapshot-sidecar-chain)
+- [Suite Driver](#suite-driver)
 - [Run lister / pruner (`list_runs.py`)](#run-lister--pruner-list_runspy)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [P4 Campaign Suites](#p4-campaign-suites)
@@ -3772,6 +3773,8 @@ After a suite finishes, read the ratified metrics with `util/experiments/read_ru
 
 Multi-cell campaigns go through `util/experiments/run_suite.py`. After #1643 the suite report carries the ratified gate inputs — see [Suite Report Gate Inputs](#suite-report-gate-inputs).
 
+Multi-cell campaigns use `util/experiments/run_suite.py` (Wave 7.1 / 7.5) — operator contract: [Suite Driver](#suite-driver).
+
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
 This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
@@ -4528,6 +4531,122 @@ Cells with no `run_dir` in `registry.jsonl` are skipped (empty gate columns), wh
 | Trusting `config_sha256` as "same workload" | It hashes the whole cell YAML including the cosmetic description. PF-1's five repeats all differ. Use the fingerprint printed in **Gate inputs**. |
 
 Coverage: `tests/test_run_suite.py` (`GateInputsInAggregateTest`, `ComparisonReportingTest`).
+
+---
+
+## Suite Driver
+
+`util/experiments/run_suite.py` is the **multi-cell** CLI experimentation driver (plan Wave 7.1 sequential + Wave 7.5 bounded-parallel). It expands a suite YAML into an ordered cell list, materialises each cell as a standalone experiment YAML, then runs **per-cell** `experiment_stack.bash --up` → `run_experiment.py` → `--down`. Design-of-record: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md) Wave 7. Shipped suites live under `util/experiments/suites/**` and are gated by `tests/test_experiment_suite_yamls.py` (R-6).
+
+This is **not** a replacement for the per-run launcher, **not** `list_runs.py` (directory-truth over `RUN_DIR`s), and **not** the standalone Q-8 baseline writer / comparator.
+
+```bash
+# Preview expansion + the exact --up / drive / --down lines (writes nothing)
+python util/experiments/run_suite.py --suite util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml --dry-run
+
+# Live suite (honours JUNIPER_EXP_RUN_ROOT; default ~/.local/state/juniper-experiments)
+python util/experiments/run_suite.py --suite path/to/suite.yaml
+
+# Resume: skip cells whose registry outcome is already succeeded
+python util/experiments/run_suite.py --suite path/to/suite.yaml --resume SUITE_ID
+
+# Execute a named subset (unknown ids exit 2)
+python util/experiments/run_suite.py --suite path/to/suite.yaml --only c000-abcd1234
+```
+
+`--dry-run` prints the **full** expansion (it does not honour `--only`) and creates neither `SUITE_DIR` nor `$JUNIPER_EXP_RUN_ROOT/index.jsonl`.
+
+### Suite YAML
+
+`schema_version` must be `1`. Unknown top-level / `suite:` / `execution:` keys are exit `2` (the `stall_second` / `max_wall_second` typo class).
+
+| Block | Required keys | Notes |
+|-------|---------------|-------|
+| `suite` | `name`, `app` (`cascor` \| `recurrence`), non-empty `base_config` list | `seed_policy`: `fixed` (default) or `per_cell` |
+| `execution` | none | `mode` `sequential` (default) \| `parallel`; `max_parallel` ≥ 1; `continue_on_failure` default **true**; `per_run_timeout_seconds` default `3600` |
+| `matrix` | dotted path → non-empty list | Cartesian product across `base_config` entries |
+| `exclude` | non-empty mappings | Drop a combo when **every** key matches |
+| `include` | mappings with `overrides` | Appended after the product; optional `name` / `config` |
+| `outputs.suite_dir` | optional | Absolute path wins over `$JUNIPER_EXP_RUN_ROOT/suites/<SUITE_ID>` |
+
+`cell_id` is `c{index:03d}-{sha8}` of the **relative** `base_config` string plus `json.dumps(overrides, sort_keys=True)` — stable between the canonical checkout and a `JUNIPER_EXP_PROJECT_DIR` rebase. Zero cells after exclude is exit `2`.
+
+`seed_policy: per_cell` sets `experiment.seed` and, when present, `dataset.params.seed` to `base_seed + cell.index`. `fixed` leaves the base YAML seeds alone. Each cell also gets `experiment.name = "{suite.name}-{cell_id}"`.
+
+`JUNIPER_EXP_PROJECT_DIR`, when set, rebases a sibling `base_config` from its first `juniper-*` component **even if the literal relative walk already resolves** (mixed-tree class: worktree CODE + primary CONFIG). A stale / missing override falls back to the literal.
+
+### Budget flags vs the subprocess timeout
+
+| Suite key | Forwarded to the driver? | Default when absent |
+|-----------|--------------------------|---------------------|
+| `execution.stall_seconds` | `--stall-seconds` | Flag omitted — driver keeps `120` |
+| `execution.max_wall_seconds` | `--max-wall-seconds` | Flag omitted — driver keeps YAML / `3600` |
+| `execution.per_run_timeout_seconds` | **No** — kills the driver from outside | `3600` |
+
+Size `per_run_timeout_seconds` **above** the wall budget. The outer timeout records `timed_out` with no honest driver `manifest.json`. A dotted `outputs.max_wall_seconds` matrix override is also accepted by the R-6 gate (E-I uses that form). Oversize cascor suites (`candidate_pool_size >= 16` **or** `max_hidden_units >= 64`) must declare a stall window above the driver's default — otherwise a healthy candidate phase is marked `stalled` at ~130 s.
+
+### Parallel cascor floor (Q-6 / H-7)
+
+`execution.mode: parallel` with `max_parallel > 1` and `app: cascor` is gated on the tree that will actually **launch**, not `importlib.metadata.version("juniper-cascor")`. Resolution mirrors `experiment_stack.bash`: `JUNIPER_EXP_CASCOR_SRC_DIR` → `JUNIPER_EXP_PROJECT_DIR/juniper-cascor` → ancestor probe for a `juniper-cascor/pyproject.toml` sibling.
+
+Floor is `CASCOR_PARALLEL_FLOOR = (0, 10, 0)` (first release with `JUNIPER_CASCOR_LOG_DIR`, cascor#523). Below that, or if the version **cannot be read**, `load_suite` refuses (exit `2`). Sequential cascor and parallel recurrence are never gated.
+
+Parallel cells also get the H-11 budget (`thread_budget_env`): `split = max(1, nproc // (2 * max_parallel))`. Cascor pins BLAS at `2` and sets `CASCOR_NUM_PROCESSES=split`; recurrence sets the BLAS vars to `split`. Sequential rows record `thread_budget: null`. `continue_on_failure: false` stops **submitting** after the first failure; already-running parallel cells drain.
+
+### Resume, `--only`, and exit codes
+
+`--resume SUITE_ID` skips a cell only when `registry.jsonl` already has `outcome == "succeeded"`. Failed / stalled / timed_out cells **re-run**. The argparse help saying "terminal" is looser than the code.
+
+When `outputs.suite_dir` is set, that path is the suite dir and `--resume` is only the id written onto new registry rows. Otherwise the dir is `$JUNIPER_EXP_RUN_ROOT/suites/<SUITE_ID>` (`SUITE_ID` is `--resume` or `{name}-{UTC}`).
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every cell in the **full expansion** has `outcome == succeeded` in the registry |
+| `1` | Suite finished with failed / not-run cells, or a cell failed |
+| `2` | Suite YAML / `--only` / `--resume` dir / materialise validation |
+
+`--only` still aggregates the full expansion. Unselected cells that are not already `succeeded` count as not-run, so a partial `--only` exits `1` even when every selected cell succeeded. Resume a previous suite (or `--only` the entire expansion) when you need exit `0`.
+
+Each executed cell appends `SUITE_DIR/registry.jsonl` and `$JUNIPER_EXP_RUN_ROOT/index.jsonl`. `list_runs.py` does **not** read that index — it scans `RUN_DIR` names.
+
+### Grafana bridge and snapshot provenance
+
+`JUNIPER_SUITE_GRAFANA_BRIDGE` is an **env toggle**, not a suite key: `1` / `true` / `yes` / `on` add `--grafana-bridge` to every `--up`. `0` / empty / `false` / `no` do not. A suite key would change every cell's `config_sha256` between a bridged and an unbridged run of the same scenario (PF-1 comparability). Off by default — without it `--status` reports UNSCRAPED.
+
+The suite is the only layer that knows both identities. Every `--up` gets `--experiment <cell_id>` plus `JUNIPER_CASCOR_CELL_ID` and, when present, `JUNIPER_CASCOR_EXPERIMENT=<suite.name>` so snapshots record the cell **and** the suite.
+
+### What this section does not own
+
+After the last cell, `aggregate` writes `aggregate.csv` + `REPORT.md`. Those files also carry perf-lane gate-input columns (`step_count` / `mean_step_seconds` beside de-ratified `wall_seconds`) and an optional `--compare-baseline TAG` block. That contract is a **separate** operator surface (in-flight docs #1649) and is reporting-only: a FAIL verdict does **not** change this driver's exit code.
+
+Coverage: `tests/test_run_suite.py` (expansion, project-dir override, cascor parallel floor, grafana toggle, resume, `--only`, both Q-2 budget flags, H-11 budget, provenance env).
+
+### Environment overrides
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `JUNIPER_EXP_RUN_ROOT` | `~/.local/state/juniper-experiments` | Run root **and** default `suites/` parent. Honoured here (unlike `list_runs.py`'s hardcoded default). |
+| `JUNIPER_EXP_PROJECT_DIR` | unset | Rebase sibling `base_config` paths; also the cascor-tree probe for the parallel floor |
+| `JUNIPER_EXP_CASCOR_SRC_DIR` | unset | Cascor `src/` of the tree that will launch (version floor). Not `importlib.metadata`. |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset / off | Opt-in `--grafana-bridge` on every `--up` |
+| `JUNIPER_SUITE_LAUNCHER` / `JUNIPER_SUITE_DRIVER` / `JUNIPER_SUITE_PYTHON` | in-tree paths / this interpreter | Test seams; operators should leave them unset |
+
+### Troubleshooting
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Exit `2` `unknown execution: keys` | Typo (`stall_second`, `max_wall_second`) — the allow-list is exact. |
+| Exit `2` cascor parallel / "could not be read" | Point `JUNIPER_EXP_CASCOR_SRC_DIR` at a tree ≥ `0.10.0`, or use `mode: sequential`. An unreadable version refuses rather than assuming. |
+| Healthy pool ≥ 16 marked `stalled` at ~130 s | Candidate phase does not advance `current_epoch`. Set `execution.stall_seconds` (P4 E-A). |
+| Cap-128 cell `timed_out` at 3600 s | Inherited `spiral-baseline` wall. Set `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I measured 4243.6 s). |
+| `--resume` re-ran a failed cell | Expected — only `succeeded` is skipped. |
+| `--only` one cell, exit `1`, cell succeeded | Aggregate scores the full expansion; unselected cells are not-run. |
+| `--dry-run` still listed cells you `--only`'d out | Dry-run prints the full product. |
+| Bridged vs unbridged PF-1 hashes differ | Do not put the bridge in the suite YAML. Use `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
+| Worktree ran worktree cascor against primary YAML | Set `JUNIPER_EXP_PROJECT_DIR` — the override wins over a resolving literal. |
+| Snapshots have a cell id but no suite name | Pre-provenance run. Current `--up` exports `JUNIPER_CASCOR_EXPERIMENT`. |
+| `list_runs.py` does not show the suite | It ignores `index.jsonl` and `suites/`. Look under `$JUNIPER_EXP_RUN_ROOT/suites/<SUITE_ID>/`. |
+| `--compare-baseline` FAIL but suite exit `0` | Reporting-only — see docs #1649. |
 
 ---
 
@@ -6026,6 +6145,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.36  | 2026-09-04 | Equities symbol-cap operator surface (`APD-DATA-018` equities half): per-request cost, silent `max_symbols` slice at `generator.py:286`, default 503-ticker universe is ~67× over the 30 s budget |
 | 0.6.37  | 2026-09-04 | Canopy E2E topology driver: `STEPS` is the authority; M-06/M-07/M-12 on `main` can PASS the easier half of an `OR` / display-only / empty-space gesture |
 | 0.6.38  | 2026-09-04 | Canopy E2E topology driver after #1672: M-06/M-07 are AND predicates; M-12 scores Clear selection; second-instance `2026-09-04_canopy_verify_instance.bash` is on `main`. Supersedes the 0.6.37 draft in #1674 |
+| 0.6.40  | 2026-09-04 | Suite driver operator surface: `run_suite.py` expansion / resume / `--only` exit, cascor parallel floor, Grafana env toggle, Q-2 flag forwarding. Distinct from gate-input docs #1649 |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
