@@ -106,6 +106,31 @@ DISPATCH = ROOT / "util" / "soak_next_probe.py"
 LEDGER_TOOL = ROOT / "util" / "soak_ledger.py"
 RUNS = ROOT / "reports" / "soak" / "runs"
 DEFAULT_TIMEOUT = 900
+TERMINAL_VERDICTS = ("BET-FAILING", "HOLDS-AT-")
+
+
+def verdict_is_terminal(verdict: str) -> bool:
+    """Has the soak reached an answer further runs cannot change?
+
+    The single definition. Both callers below go through it, so a later change
+    here -- normalisation, a new terminal name -- cannot reach one and miss the
+    other.
+    """
+    return any(verdict.startswith(t) for t in TERMINAL_VERDICTS)
+
+
+def refuses_terminal_verdict(verdict: str, *, force: bool, dry_run: bool) -> bool:
+    """Should this invocation be refused because the soak already has its answer?
+
+    Split out of `main` so the ordering hazard below is testable without a live
+    ledger. The rule rations BILLED SESSIONS, so the two exemptions are not
+    symmetric conveniences: `force` is a deliberate operator override, while
+    `dry_run` spends nothing at all and therefore was never in scope for a
+    spend control.
+    """
+    if force or dry_run:
+        return False
+    return verdict_is_terminal(verdict)
 
 
 def resolve_claude() -> str:
@@ -258,14 +283,27 @@ def main() -> int:
     # including after the soak has already reached a terminal answer, which is
     # spend that cannot change a conclusion. Adversarial review raised this as a
     # blocking gap in the unattended (systemd) path specifically.
-    terminal = ("BET-FAILING", "HOLDS-AT-")
+    # A DRY RUN IS EXEMPT, and that is not a loosening. This rule rations billed
+    # sessions; --dry-run spends none, it only describes what a real run would do.
+    # Gating it here meant that the moment the verdict turned terminal, --dry-run
+    # exited 2 with EMPTY STDOUT -- the identical failure the comment under the
+    # dry-run branch below already records ("A dry run must not depend on the thing
+    # it is only describing"), reached through the verdict instead of the binary.
+    # It broke the two DryRunDoesNotLeakTheTask tests on every Python in CI, and
+    # would have broken them on main as soon as any 3 non-follow rows crossed the
+    # 0.75 boundary -- with no code change at all.
     st = _py(str(LEDGER_TOOL), "status")
     verdict = (st.stdout.split() or [""])[0]
-    if any(verdict.startswith(t) for t in terminal) and not args.force:
+    if refuses_terminal_verdict(verdict, force=args.force, dry_run=args.dry_run):
         print(f"REFUSING: soak verdict is {verdict} -- terminal. Further runs cannot "
               f"change it and each one spends a session.\nPass --force to override "
               f"(e.g. to re-baseline after a deliberate intervention).", file=sys.stderr)
         return 2
+    if args.dry_run and verdict_is_terminal(verdict):
+        # Describe, but do not hide the state a real run would refuse on.
+        print(f"NOTE: soak verdict is {verdict} -- terminal. This dry run proceeds "
+              f"(it spends no session); a real run would refuse without --force.",
+              file=sys.stderr)
 
     probe_id, task = dispatch(args.probe_id)
     session_id = str(uuid.uuid4())
