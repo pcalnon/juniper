@@ -47,7 +47,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
 import subprocess  # nosec B404 -- fixed argv gh/git invocations, no shell
 import sys
