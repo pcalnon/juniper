@@ -39,6 +39,7 @@
 - [Perf-Lane Work Gate](#perf-lane-work-gate)
 - [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines)
 - [Perf-Lane Split Comparator](#perf-lane-split-comparator)
+- [Suite Report Gate Inputs](#suite-report-gate-inputs)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [P4 Campaign Suites](#p4-campaign-suites)
 - [X7 Off-Loop Census](#x7-off-loop-census)
@@ -2415,6 +2416,7 @@ Review catch on [juniper-ml#1612](https://github.com/pcalnon/juniper-ml/pull/161
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`: `load_suite` plus oversize-stall / wall-pin / timeout-ordering. Operator surface: [P4 Campaign Suites](#p4-campaign-suites).
+- `tests/test_run_suite.py` -- Behavioral suite-driver coverage, including P2 item 1.4 (`GateInputsInAggregateTest` / `ComparisonReportingTest`): `aggregate.csv` must carry both gate inputs beside `wall_seconds`; `REPORT.md` must say `wall_seconds` is DE-RATIFIED and print work-invariant / single-workload; `--compare-baseline` is reporting-only (missing tag and FAIL verdict still exit 0). Operator surface: [Suite Report Gate Inputs](#suite-report-gate-inputs).
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
   Fourth contract: `execution.per_run_timeout_seconds` must sit **above** the wall budget (`>` not `>=`) so the driver writes the honest manifest — `perf/pf5` shipped 900/900 and was raised to 1800. Operator surfaces: [§ PF Scenario Suites](#pf-scenario-suites) and [P4 Campaign Suites](#p4-campaign-suites).
 - `tests/test_memory_index_check.py` -- Hermetic gate for `util/memory_index_check.py` (`util/` is outside every pre-commit Python hook, so this suite IS the gate).
@@ -3470,6 +3472,8 @@ Related: per-PR advisory screens live in `ci.yml`'s standalone `sequence-safety`
 
 After a suite finishes, read the ratified metrics with `util/experiments/read_run_metrics.py` and bless a named baseline with `util/experiments/make_baseline.py` — see [Perf-lane metrics and baselines](#perf-lane-metrics-and-baselines).
 
+Multi-cell campaigns go through `util/experiments/run_suite.py`. After #1643 the suite report carries the ratified gate inputs — see [Suite Report Gate Inputs](#suite-report-gate-inputs).
+
 Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
 
 This is **not** the isolated E2E trio (`util/isolated_stack.bash` on `8101`/`8202`/`8051`) and **not** the host stack (`plant_all` / `8100`/`8201`/`8050`).
@@ -4116,6 +4120,77 @@ A waiver blesses a WORK change, never an invalid comparison. Passing it on a REF
 | Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
 
 Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
+
+---
+
+## Suite Report Gate Inputs
+
+`util/experiments/run_suite.py` writes `SUITE_DIR/aggregate.csv` + `REPORT.md` after every suite. Until juniper-ml#1643 (perf-lane P2 item 1.4) the aggregate carried **`wall_seconds` and nothing else** — and `wall_seconds` is **de-ratified**: it absorbs plot rendering and stack bring-up, and enabling the Grafana bridge alone moves it ~5%. A reader who opened the CSV was analysing the wrong quantity with nothing flagging it.
+
+Design of record: [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) item 1.4. The two ratified inputs come from `util/experiments/read_run_metrics.py` (`step_count` = WORK, `mean_step_seconds` = SPEED). The split comparator lives in `util/experiments/compare_baseline.py`.
+
+### What the report now carries
+
+| Surface | What you get |
+|---------|--------------|
+| `aggregate.csv` | `step_count` and `mean_step_seconds` sit **next to** `wall_seconds`. The de-ratified column stays for continuity; it is no longer the only number. |
+| `REPORT.md` cell table | `step_count`, mean step **in milliseconds** (`mean_step_seconds * 1000`), then wall (s). CSV stays in seconds. |
+| `REPORT.md` **Gate inputs** | States `wall_seconds` is DE-RATIFIED, then two suite-level verdicts (computed independently, not via `summarise()`). |
+| `REPORT.md` **Baseline comparison** | Only when `--compare-baseline TAG` is passed. The text is `compare_baseline.render(...)`. |
+
+Suite-level verdicts:
+
+- **work invariant HOLDS** when every *measured* `step_count` is the same; **BROKEN** when they differ (the report then says these cells are **not repeats** and a baseline must not be cut from them). Unmeasured cells are omitted from the set — an empty set prints `step_count not measured`.
+- **single workload yes** when every computed `workload_fingerprint` is the same; **NO** otherwise. Fingerprints are the first 12 hex chars plus `...`. The fingerprint hashes the materialised cell YAML with cosmetic `experiment.description` / `experiment.name` stripped (`config_sha256` cannot serve: PF-1's five repeats differ only by "repeat N" and would all look different).
+
+Verified live after #1643 against the recalibrated PF-1 suite: every row `step_count` 1770, `work invariant: HOLDS`, `single workload: yes`, PASS against `pf1-2026-09-04`.
+
+### `--compare-baseline` is reporting only
+
+```bash
+python util/experiments/run_suite.py --suite util/experiments/suites/perf/<file>.yaml --compare-baseline pf1-2026-09-04
+```
+
+The flag compares the just-written suite against `JUNIPER_EXP_RUN_ROOT/baselines/<TAG>/` (default root `~/.local/state/juniper-experiments`) and pastes the verdict under `## Baseline comparison`.
+
+**The suite's own exit code does not change with the verdict.** Wiring a FAIL to `run_suite`'s status would silently make the run tier a CI gate — and §6 of the P1 design ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md)) records that as a **separate owner decision, still open**.
+
+`test_a_failing_verdict_does_NOT_change_the_suite_exit_code` pins it: a FAIL verdict still exits 0, the verdict is still visible, and the report says so in the text. If that test ever fails, someone has made the gating decision by accident.
+
+`run_suite` exit codes stay the cell-outcome contract:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every executed cell succeeded (a FAIL/REFUSED/missing-baseline comparison does **not** override this) |
+| `1` | Suite completed with failed / other-than-succeeded cells |
+| `2` | Misuse / suite-validation error |
+
+A missing tag is **not** fatal: `_run_comparison` catches `CompareError` and writes `comparison could not run: …`. Without the flag there is no `## Baseline comparison` section. To get the comparator's own exit codes (0 PASS/WAIVED, 1 FAIL, 2 REFUSED), run `compare_baseline.py` directly.
+
+### Import failure is loud on purpose
+
+`_gate_metrics` / `_run_comparison` import the sibling modules **without** `try/except ImportError`. The first draft swallowed the error; under the test harness the imports *did* fail, and the feature degraded to blank `step_count` columns plus `work invariant: BROKEN -- step_count not measured` — indistinguishable from a genuinely broken suite.
+
+Two pins keep that from returning:
+
+1. `util/` is inserted on `sys.path` at module import so the siblings resolve whether `run_suite.py` is executed as a script (`sys.path[0] = util/experiments`) or imported as a module.
+2. A missing sibling is a packaging bug and must raise, not blank the columns.
+
+Cells with no `run_dir` in `registry.jsonl` are skipped (empty gate columns), which is a missing-run fact, not an import failure.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| CSV / report only show `wall_seconds` as the useful number | Pre-#1643 artifact. Re-run the suite on a tree that has item 1.4, or read `read_run_metrics.py` against each `run_dir`. |
+| `work invariant: BROKEN -- step_count not measured` | Either the cells truly have no step totals, **or** (pre-fix) a swallowed `ImportError`. On current main a missing sibling **raises** — if you still see this wording, the runs were not measured. |
+| `--compare-baseline` FAIL / REFUSED but suite exits 0 | Expected. Read `REPORT.md`; run `compare_baseline.py` if you need its exit code. |
+| `comparison could not run: no baseline 'TAG'` | Tag is missing under `JUNIPER_EXP_RUN_ROOT/baselines/`. Cut one with `make_baseline.py` first. |
+| Mean-step column looks 1000× too large vs the CSV | Report table is **milliseconds**; `aggregate.csv` is **seconds**. |
+| `single workload: NO` on a suite of "repeats" | Fingerprint strips only `experiment.description` / `name`. A seed change, or leftover `output_epochs` / budget drift, is a different workload. Do not cut a baseline from it. |
+| Trusting `config_sha256` as "same workload" | It hashes the whole cell YAML including the cosmetic description. PF-1's five repeats all differ. Use the fingerprint printed in **Gate inputs**. |
+
+Coverage: `tests/test_run_suite.py` (`GateInputsInAggregateTest`, `ComparisonReportingTest`).
 
 ---
 
@@ -5161,6 +5236,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
 | 0.6.24  | 2026-09-04 | Worktree in-use probe: cwd-only liveness is not enough (open fd is STRONG); WEAK cmdline must not set the exit code (self/parent argv); sibling prefix; empty argv exits 2 |
+| 0.6.28  | 2026-09-04 | Suite report gate inputs (P2 1.4 / #1643): `aggregate.csv` carries `step_count` + `mean_step_seconds` beside de-ratified `wall_seconds`; `REPORT.md` **Gate inputs** + reporting-only `--compare-baseline` (FAIL does not change suite exit). Skipped 0.6.16–0.6.27 (in-flight sibling docs PRs) |
 | 0.6.15   | 2026-08-24 | Scheduled Duplicati backup lane (#1292): `systemd --user` timer, copy-not-symlink installer, fail-closed dest/tmpfs/passphrase guards, skip-escalation, `--no-auto-compact` |
 | 0.6.1   | 2026-08-05 | Experiment Stack: `do_up` partial-failure → `teardown_run` + F-6 pidfile-refuse → kill-by-port operator guidance (code on main; refuse coverage open juniper-ml#923)       |
 | 0.6.0   | 2026-05-23 | Floor-bumped `[clients]` / `[worker]` / `[servers]` extras to today's ecosystem release wave (cascor/canopy 0.5.0, cascor-client/cascor-worker 0.4.0, data-client 0.4.1) |
