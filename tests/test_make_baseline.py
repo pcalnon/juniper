@@ -305,10 +305,6 @@ class CliTest(unittest.TestCase):
             self.assertEqual(payload["metric_contract"]["work"].split(" --")[0], "step_count")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class RecurrenceRefusalTest(unittest.TestCase):
     """A baseline supports the WORK gate, so a run with no work counter cannot back one.
 
@@ -352,3 +348,7 @@ class RecurrenceRefusalTest(unittest.TestCase):
             message = str(ctx.exception)
             self.assertIn("n_epochs", message)
             self.assertIn("Report these runs instead", message)
+
+
+if __name__ == "__main__":
+    unittest.main()
