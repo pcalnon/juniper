@@ -160,6 +160,7 @@ python3 -m unittest -v tests/test_ruleset_context_audit.py
 python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
 python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
 python3 -m unittest -v tests/test_e2e_append_statuses.py
+python3 -m unittest -v tests/test_recurrence_kind_edges.py
 python3 -m unittest -v tests/test_compare_baseline_defects.py
 python3 -m unittest -v tests/test_work_countable_contract.py
 python3 -m unittest -v tests/test_termination_branch_precondition.py
