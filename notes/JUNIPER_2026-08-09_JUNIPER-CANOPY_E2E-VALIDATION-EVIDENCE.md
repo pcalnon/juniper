@@ -712,6 +712,14 @@ writer addressing the same store instance?* — and the F-039 topoprobe's report
 that had to be discharged before its verdict could be read. Both are now settled, and settling them
 turned up a defect in the re-drive instrument itself.
 
+**What was SERVING, not merely checked out.** Everything below was measured against a dedicated leg on
+`:8052` launched from the probe worktree at canopy **`8a43a33`** and running the topoprobe-instrumented
+`dashboard_manager.py`; the shared `:8050` leg was untouched. Naming the serving commit rather than the
+checkout is deliberate — a long-running leg serves the code it *imported*, and reading a merged fix into
+a process that predates it cost this arc a whole row census once already. Every `file:line` cited below
+was re-verified against canopy main **`785fb64`** after teardown and still resolves to the same
+statement, so the citations do not depend on which of the two commits the reader has to hand.
+
 **A. THE DUPLICATE-INSTANCE HYPOTHESIS IS REFUTED — from the one vantage point that can see it.**
 `state.paths.strs` maps one id to one path, so it cannot *represent* a duplicate; asking it this
 question was always going to return a confident non-answer. Dash serves the layout tree as JSON from
