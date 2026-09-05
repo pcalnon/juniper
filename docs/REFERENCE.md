@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.58
 **Status:** Active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -17,6 +17,7 @@
 - [HTTP Client Base-URL Contract](#http-client-base-url-contract)
 - [Host Orchestration Utilities](#host-orchestration-utilities)
 - [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane)
+- [Juniper Project-Tree Backup](#juniper-project-tree-backup)
 - [Editable Install Drift Check](#editable-install-drift-check)
 - [Pytest Orphan Reaper](#pytest-orphan-reaper)
 - [Environment Floor Drift Check](#environment-floor-drift-check)
@@ -482,7 +483,7 @@ Troubleshooting:
 
 ## Scheduled Duplicati Backup Lane
 
-Host-level `$HOME` backup under `systemd --user`, independent of the GNOME tray instance and of Duplicati's own scheduler (the server DB `Schedule` table was empty when this lane shipped). Merged in [juniper-ml#1292](https://github.com/pcalnon/juniper-ml/pull/1292). This is **not** `util/juniper-backup.bash` (that script `tar | gpg -e` encrypts the Juniper *project tree* to an external drive with asymmetric YubiKey recipients).
+Host-level `$HOME` backup under `systemd --user`, independent of the GNOME tray instance and of Duplicati's own scheduler (the server DB `Schedule` table was empty when this lane shipped). Merged in [juniper-ml#1292](https://github.com/pcalnon/juniper-ml/pull/1292). This is **not** `util/juniper-backup.bash` — that script is the project-tree / external-media leg. Operator surface: [Juniper Project-Tree Backup](#juniper-project-tree-backup).
 
 The 2026-07-13 archive damage went undetected for six weeks because the only runner was a gnome-shell-launched scope under a user manager with `Linger=no`: it died at logout and nothing said so. This lane is the replacement.
 
@@ -572,6 +573,7 @@ Do **not** read `DUPLICATI_STALE_DAYS` as "N consecutive skips are allowed." The
 - Archive damage findings: [`notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md`](../notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md)
 - GPGFlushError investigation (open; not a reason to drop `--no-auto-compact`): [`notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md`](../notes/JUNIPER_2026-08-24_JUNIPER-ECOSYSTEM_DUPLICATI-GPG-FLUSH-FAILURE-INVESTIGATION.md)
 - `notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_DUPLICATI-DB-RESTORE-RUNBOOK.md` is **withdrawn** — restoring the archived job DB reproduces the wedge. Do not execute it.
+- Project-tree / external-media archives: [Juniper Project-Tree Backup](#juniper-project-tree-backup) (`util/juniper-backup.bash`).
 
 Troubleshooting:
 
@@ -586,6 +588,86 @@ Troubleshooting:
 | Two runners / web UI plus timer | Guard 4/5: wait, or stop the other holder of `DBPATH`; do not `pgrep -f` to decide |
 | Failed run, no desktop popup | Reporter still wrote `failures.log`; `notify-send` is best-effort under linger with no session bus |
 | Partial fileset / killed run | The unit sets `TimeoutStartSec=infinity` so systemd will not SIGTERM a long healthy run. An abrupt `kill -9` mid-WAL is the class the [archive-damage findings](../notes/JUNIPER_2026-08-23_JUNIPER-ECOSYSTEM_DUPLICATI-ARCHIVE-DAMAGE-FINDINGS.md) warn against — TERM, then wait. |
+
+---
+
+## Juniper Project-Tree Backup
+
+[`util/juniper-backup.bash`](../util/juniper-backup.bash) archives **each Juniper application repo** as its own bzip2 + OpenPGP file, builds the ciphertext **once**, and copies that finished file onto every attached configured drive. It is the project-tree / external-media leg. It is **not** the Duplicati `$HOME` lane ([Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane)).
+
+A coherent restore takes **every** archive that shares one UUID (one run). The timestamp records when the backup **ran**, not what the tree contains — label a `--source` of a restored snapshot.
+
+### Usage
+
+```bash
+util/juniper-backup.bash --dry-run
+util/juniper-backup.bash
+util/juniper-backup.bash --source ~/juniper-restore-2026-02-27 --label snapshot-2026-02-27 \
+    --repos "juniper-cascor juniper-data JuniperLegacy"
+util/juniper-backup.bash --dest /path/to/writable-dir
+```
+
+| Flag | Contract |
+|------|----------|
+| `--dry-run` | Preview only. Writes nothing. **Must** `exit 0` before the build loop (a prior revision fell through and wrote real archives while printing COMPLETE). |
+| `--source DIR` | Parent whose children are repos. Default `$HOME/Development/python/Juniper`. |
+| `--dest DIR` | One writable directory; skips `MEDIA_NAMES` fan-out. Not mount-checked — an explicit path is the caller's decision. |
+| `--repos "LIST"` | Space-separated leaf names. Each must match `[A-Za-z0-9._-]+` (blocks `../`). Empty list is exit 2. |
+| `--label TEXT` | Same charset. Inserted into every filename. Use when `--source` is a restored tree. |
+
+Default `APPLICATION_REPOS`: `juniper-canopy`, `juniper-cascor`, `juniper-cascor-client`, `juniper-cascor-worker`, `juniper-data`, `juniper-data-client`, `juniper-deploy`, `juniper-ml`, `juniper-recurrence`, `juniper-slacker`. A missing leaf is a WARNING skip; zero found is FATAL. `juniper-legacy` is **not** in the default list.
+
+### Restore
+
+Archives are named `Juniper[_<label>]_<repo>_<uuid>_<stamp>.tbz2.gpg`. The compressor is **bzip2** (`TAR_COMPRESS_FLAG=-j` / `TAR_EXT=tbz2`). An earlier revision named them `.tgz` while writing bzip2, so the documented gzip restore failed on every archive it produced.
+
+```bash
+gpg -d Juniper_<repo>_<uuid>_<stamp>.tbz2.gpg | tar -xjf -
+# list-only:
+gpg -d FILE.tbz2.gpg | tar -tjf -
+```
+
+Use `-xjf`, not `-xzf`. Encryption is asymmetric (`gpg -r <uid> -e`) to the two `ENCRYPT_KEYS` UIDs in the script. **No YubiKey is needed to write**; any one recipient can decrypt. You cannot retro-fit a recipient onto an archive already written.
+
+### Exit codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Every configured device holds a verified archive of every found repo, or `--dry-run` previewed |
+| `1` | Fatal — nothing written (bad source, no usable dest, missing recipient, empty repo list, build/verify failed) |
+| `2` | Misuse (unknown flag, empty `--repos`, illegal `--label` / repo name) |
+| `4` | PARTIAL — cross-repo `TOTAL_WRITTEN < TOTAL_EXPECTED`. Visible to cron. Already-verified copies stay. |
+
+### Contract (verified against `util/juniper-backup.bash` on `origin/main`)
+
+- **Streamed, not staged.** `tar | gpg` with `set -o pipefail`. No plaintext scratch copy. `gpg --compress-algo=none -z 0` because tar already bzip2'd.
+- **Build once, replicate.** First usable `MEDIA_NAMES` entry (or `--dest`) is the build device; the rest get `cp` of the ciphertext. Destinations are derived per iteration (`target_dir_for`) so a loop cannot rewrite the first drive.
+- **`--dry-run` exits before the build loop.** The preview is rendered from `TAR_COMPRESS_FLAG` / `TAR_EXT` / `GPG_RECIPIENT_ARGS`, not a hardcoded `tar -czf`.
+- **Unattended verify is OpenPGP structure only.** `gpg --list-packets --list-only` plus a `:pubkey enc packet:` count matching `${#ENCRYPT_KEYS[@]}`. That path does **not** prove the tar is intact.
+  Pipeline byte-for-byte: [`util/ad-hoc/2026-08-26_backup_restore_drill.bash`](../util/ad-hoc/2026-08-26_backup_restore_drill.bash) (PASSES).
+  The YubiKey decrypt of a real archive is recorded closed in [`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md`](../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_SNAPSHOT-LIFECYCLE-MANAGEMENT-DESIGN.md) §6.4.2 q3 (2026-08-28); `verify_archive` still cannot do that half.
+- **Exclude patterns are relative and top-level.** `--exclude=<leaf>/<name>` from the same `PROJECT_DIR` for both `du` and `tar`.
+  Absolute or quote-baked patterns were shellcheck-clean and matched nothing (`du` ~205 MB vs `tar` ~103 GB).
+  Repro: [`util/ad-hoc/2026-08-28_exclude_arg_repro.bash`](../util/ad-hoc/2026-08-28_exclude_arg_repro.bash).
+- **`cascor-snapshots` is archived by default.** `EXCLUDE_CASCOR_SNAPSHOTS` defaults to the script's `FALSE` (`1`). The script's `TRUE` is `0`. Set `EXCLUDE_CASCOR_SNAPSHOTS=0` to drop the corpus; setting `1` does **not** mean "yes, exclude".
+- **Mount check is the mount root.** `mountpoint -q` on `/media/<user>/<MEDIA_NAME>`, not on `BACKUP_DIR`. An unmounted path is an empty dir on `/` and would fill the system disk.
+- **One missing drive degrades; zero usable is fatal.**
+- **Free-space floor is the uncompressed source**, not half. This tree is mostly already-compressed `.h5` / `.npz` / `.gpg`.
+- **Cross-repo totals decide COMPLETE.** Per-repo counters used to reset each iteration and print COMPLETE over a missing archive.
+- **`cleanup_partial` removes only `IN_PROGRESS`.** Verified copies on earlier devices stay.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| `tar` cannot extract a `.tbz2.gpg` | Used `-xzf`. Use `-xjf`. |
+| `--dry-run` created archives | Script must `exit 0` after the preview. Current `origin/main` does. |
+| `FATAL: gpg recipient not found` | Both `ENCRYPT_KEYS` UIDs must resolve in the local keyring **before** tar starts. |
+| `SKIP … is not a mount point` | Drive not attached. Attach it, or pass `--dest DIR`. |
+| Exit `4` PARTIAL | A copy/verify failed. Already-verified archives stay. Re-run makes a **new** UUID. |
+| Archive huge / includes `data/` `venv/` | Exclude flags inert (quoted or absolute). Confirm `--dry-run` `tar args:` shows `--exclude=<leaf>/<name>`. |
+| Backup of a restored tree looks like today's | Timestamp is when the backup ran. Pass `--label`. |
+| `cascor-snapshots` missing from the archive | `EXCLUDE_CASCOR_SNAPSHOTS=0` (the script's `TRUE`). Default `1` includes the corpus. |
 
 ---
 
@@ -1471,6 +1553,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Installer **copies** (never symlinks) the runner, OnFailure reporter, and three user units; does **not** `enable --now` the timer.
   - Runner fail-closes on empty/short passphrase, unmounted dest, wrong-filesystem dest, and tmpfs `--tempdir`; `flock` / DB-open holders `skip_or_fail` (a skip overwrites `result=OK`, so the next skip always escalates).
   - `--no-auto-compact=true` is load-bearing. Distinct from `util/juniper-backup.bash` (project-tree `tar | gpg -e`). Operator surface: [`docs/REFERENCE.md` § Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
+- `util/juniper-backup.bash` -- Per-repo project-tree archive to attached external media: `tar -cjf` (bzip2) piped into `gpg -e` (asymmetric, two `ENCRYPT_KEYS`). Build once, copy ciphertext. `--dry-run` writes nothing. Restore is `gpg -d FILE | tar -xjf -` (not `-xzf`). Exit 0/1/2/4. Unattended verify is `--list-packets` only. Operator surface: [Juniper Project-Tree Backup](#juniper-project-tree-backup).
 - `util/reap_pytest_orphans.bash` -- Safely reaps orphaned Juniper pytest multiprocessing children (`--dry-run` / `--verbose`).
   - Candidate awk gate: current-user + `/python/` + (`JuniperC[a-z0-9]+` conda path or `Juniper/worktrees/`); empty set exits 0 with "No Juniper python processes found."
   - Orphan when ppid is `1`, user `systemd --user`, or parent gone; live parents KEEP. `SKIPPED` on ps→gone race or missing `PPid:` (never kill).
@@ -1888,6 +1971,7 @@ juniper-ml/
     ├── prune_git_branches_without_working_dirs.bash  # Branch hygiene
     ├── juniper_plant_all.bash            # Starts all Juniper ecosystem services
     ├── juniper_chop_all.bash             # Stops all Juniper ecosystem services
+    ├── juniper-backup.bash               # Per-repo project-tree archive (tar -cjf | gpg -e); build-once, copy ciphertext. Operator surface: Juniper Project-Tree Backup
     ├── snapshot_index.py                 # Snapshot archive index + query (design §6.2, delivers R2): --scan builds an append-only snapshots_index.jsonl per snapshot root; queries filter on the D-C provenance (--experiment/--cell-id/--run-id), tier and attribution. `dataset_id` is DERIVED, not stored — it is content-addressed on a generator version only known from a live juniper-data query after bring-up, so `--resolve-datasets` (implied by `--dataset-id`) joins run_id -> <RUN_ROOT>/<run_id>/manifest.json instead; opt-in because it reads outside the snapshot root. READ-ONLY BY CONSTRUCTION — no prune/delete path, because retention is §6.4 and gated on this index existing; an AST test enforces it. Records which groups a file belongs to rather than judging validity, so cascor retains sole ownership of the format policy (--verify opts into cascor's own verifier).
     ├── snapshot_classify.py             # Snapshot classifier over the §6.2 index (handoff 2026-08-22 §2.4). STAGED because the five categories cost between a second and CPU-days: `--stage index` (~1s) settles categories 4/5; `--stage load` asks cascor's OWN `load_network_result` and settles category 1 (~15 min, 27.9k files); `--stage train` is deliberately unimplemented (item 3) and refuses without a scratch $JUNIPER_CASCOR_SNAPSHOTS_DIR, because `train_output_layer` calls `create_snapshot()` unconditionally and would grow the archive under study. Emits TWO axes — `category` (must we reconstruct this snapshot's metadata?) and `health` (what can the artifact do?) — because the owner's five categories are not a partition and a literal first-match reading leaves category 5 unreachable. Reports `iterations_lower_bound` from arch.num_hidden_units, never an epoch count (meta.current_epoch is INERT: nonzero in 0 of the 28,040 archive files censused 2026-08-26, with best_value_loss inf in 27,907 of them — but NOT `snapshot_counter`, nonzero in 13,001 of 28,040, which the docstring no longer calls dead and which a regression test now pins as live-but-still-not-the-bound; the archive-vs-current split is a WRITER-PATH split, not a serializer-version one — 28,034 archive files are already serializer_version 2.0.0, and `current_epoch` present ⟺ best_value_loss inf holds without exception across all 30,948 files measured; re-derive with `util/ad-hoc/2026-08-26_snapshot_meta_field_survey.py`). Writes only a derived, replace-not-append snapshots_classification.jsonl sidecar, read back by `--from-sidecar` in ~0.5s (without it the tool could WRITE a verdict it could not READ -- only the load stage sets `fails_to_load`, so a later `--category fails_to_load` re-derived from the index and reported "no matching snapshots" against a sidecar holding 526 of them). READ-ONLY over snapshots, AST-enforced, with no prune path because retention is §6.4 and gated on this output
     ├── snapshot_attribute.py            # Dataset attribution over the classification sidecar (handoff §3.2): which dataset was each snapshot trained on? Scores every shape-compatible juniper-data 2-D classification generator (spiral/xor/gaussian/circles/moon/checkerboard) with a PERMUTATION-CORRECTED accuracy — one-hot column order is an arbitrary convention, so a network that learned a set with swapped columns scores 1-p and raw accuracy reads it as below chance. Gated against an UNTRAINED-NETWORK NULL per (input, output) shape, because 'beats chance' is not evidence here: an untrained net already beats chance on Gaussian by +0.408 (up to a perfect 1.000), so Gaussian is structurally unattributable. The floor is the null's observed MAX, not p95 — zero-hidden-unit linear models scored ~0.624 on checkerboard, inside the tail a 120-sample null cannot characterize. SECOND FLOOR (schema v2): that untrained null only answers 'did this learn anything?', so a cross-dataset empirical floor built from snapshots attributed ELSEWHERE answers 'did it learn THIS rather than something else?', and a candidate must clear BOTH; a snapshot is excluded from the bar it is judged against, since one that tops a rival's floor with its own score would suppress that rival. `--no-cross-dataset-floor` restores the single-floor behaviour. DATASET INSTANCE IS PINNED: 5 of the 6 generators declare `seed: int | None = Field(default=None)`, so building them from bare defaults REDREW the data on every call and attribution was not reproducible — two `load_datasets` calls in one process returned different arrays for checkerboard/circles/gaussian/moon/xor, and a rebuild moved moon's count 0 → 6 (its score shifted 1.000 → 0.995, flipping one snapshot's first-pass winner, removing it from moon's reference class, dropping moon's cross floor 1.000 → 0.850). `seeded_params` supplies `DATASET_SEED` only where a generator declares none, so spiral keeps the exact instance every prior analysis used; `--dataset-seed` overrides, and changing it redefines the canonical instance. Verdicts: attributed/ambiguous/indeterminate; on the 27,689-row seeded rebuild, 124 single-floor attributions become **108** under both floors (xor 94, circles 7, spiral 4, moon 3) plus 8 ambiguous, 0 with zero hidden units. Validated by a 4/4 positive control. A capacity-matched null was measured and is NOT the fix — it withdrew only 3, because ~100 random cascade units inject noise columns and push the score toward chance, making the matched floor LOWER than the zero-unit one (notes/JUNIPER_2026-08-24_JUNIPER-CASCOR_ATTRIBUTION-NULL-MODEL-FINDINGS.md). READ-ONLY; --write refuses --sample/--min-hidden so the sidecar can never silently cover a subset
@@ -3104,6 +3188,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.58  | 2026-09-05 | Juniper project-tree backup: `util/juniper-backup.bash` per-repo `.tbz2.gpg` (bzip2, restore `-xjf`), build-once / copy ciphertext, `--dry-run` must not write, unattended verify is `--list-packets` only, `EXCLUDE_CASCOR_SNAPSHOTS` TRUE is `0` |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3442,7 +3527,7 @@ These variables are consumed by Juniper packages documented in this repository. 
 > `CASCOR_SERVICE_URL` defaults to the cascor service/container port (`8200`). The host-level stack and `util/get_cascor_*.bash` helpers target the host-facing port (`8201`) unless overridden.
 > REST constructor `base_url` values are normalised as of the GitHub-main clients documented in [HTTP Client Base-URL Contract](#http-client-base-url-contract); those env vars are **not** themselves passed through `_normalize_url` unless the caller feeds them into the constructor.
 
-Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), and the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane).
+Local orchestration scripts in `util/` also read the host-stack variables documented in [Host Orchestration Utilities](#host-orchestration-utilities), the E2E overrides in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities), the per-run experiment overrides in [Experiment Stack Utilities](#experiment-stack-utilities), the Duplicati lane overrides in [Scheduled Duplicati Backup Lane](#scheduled-duplicati-backup-lane), and `EXCLUDE_CASCOR_SNAPSHOTS` on [Juniper Project-Tree Backup](#juniper-project-tree-backup) (script `TRUE` is `0`).
 
 `JUNIPER_CASCOR_SNAPSHOTS_DIR` is **dual-use**: cascor's snapshot write directory **and** `snapshot_index.default_root()`.
 Experiment `--up` may redirect it to `$RUN_DIR/snapshots` (W-6). The attribution sidecar chain must **not** — pass `--root` instead.
@@ -3452,6 +3537,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Last Updated:** 2026-09-05
+**Version:** 0.6.58
 **Maintainer:** Paul Calnon

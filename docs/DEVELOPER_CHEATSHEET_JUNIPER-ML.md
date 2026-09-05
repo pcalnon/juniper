@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
-**Date**: 2026-09-04
+**Version**: 1.0.70
+**Date**: 2026-09-05
 **Project**: juniper-ml
 
 ---
@@ -32,6 +32,9 @@
 | `util/install_duplicati_timer.bash`                    | Install (copy, not symlink) the `systemd --user` Duplicati backup lane; does **not** enable the timer |
 | `systemctl --user enable --now duplicati-backup.timer` | Enable the overnight timer **after** a first full backup and a restore drill |
 | `systemctl --user list-timers duplicati-backup.timer`  | Confirm the next `duplicati-backup.timer` fire time |
+| `util/juniper-backup.bash --dry-run`                   | Preview per-repo `.tbz2.gpg` archives (writes nothing) |
+| `util/juniper-backup.bash`                             | Build-once, replicate ciphertext to every attached configured drive |
+| `gpg -d ARCHIVE.tbz2.gpg \| tar -xjf -`                | Restore one repo archive (bzip2; needs a recipient YubiKey) |
 | `util/experiment_stack.bash --dry-run --up --cascor`   | Preview a per-run experiment stack (ports 8110–8289; no side effects) |
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
@@ -534,6 +537,9 @@ Linger must be `yes`; `~/.config/duplicati-backup/env` must be mode `600` with `
 A skip overwrites `result=OK`, so the next skip always escalates. Distinct from `util/juniper-backup.bash`.
 Full contract: [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane).
 
+Tip: `util/juniper-backup.bash` writes per-repo `.tbz2.gpg` (bzip2). Restore with `gpg -d FILE | tar -xjf -`, not `-xzf`. `--dry-run` must exit without writing. Exit 4 is PARTIAL (already-verified copies stay). Unattended verify is `--list-packets` only — it does not prove the tar is intact. Distinct from the Duplicati `$HOME` lane.
+Full contract: [REFERENCE — Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup).
+
 Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`.
 Prefer heal PRs first (title/branch tokens `restore`/`heal`/`repair`/`fix-first` sort ahead of colliding
 feat PRs); never treat script exit `0` as “all clean” — read each `verdict`. Symbol screen matches
@@ -629,6 +635,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Duplicati timer silent after logout | Linger was `no` — the original failure class. Confirm `list-timers duplicati-backup.timer` |
 | Duplicati `FATAL` unmounted dest / tmpfs tempdir | Mount the backup volume; point `DUPLICATI_TEMP_DIR` at any disk-backed path (the runner refuses a RAM-backed one outright, and `/tmp` is tmpfs here) |
 | Duplicati skip then next run escalates | Expected — skip overwrites `result=OK`. Inspect `~/.local/state/duplicati/{last-run.status,failures.log}` |
+| `juniper-backup` restore `tar` fails | Use `-xjf`, not `-xzf`. Archives are bzip2 (`.tbz2.gpg`). |
+| `juniper-backup` exit 4 PARTIAL | A device/copy failed; already-verified archives stay. Re-run makes a new UUID. |
+| `juniper-backup` `FATAL: gpg recipient not found` | Both `ENCRYPT_KEYS` UIDs must resolve in the local keyring before tar starts. |
+| `juniper-backup` `SKIP … is not a mount point` | Drive unattached (would fill `/`). Attach it, or pass `--dest DIR`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
@@ -723,12 +733,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` (restore `-xjf`); not the Duplicati `$HOME` lane
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Last Updated:** 2026-09-05
+**Version:** 1.0.70
 **Maintainer:** Paul Calnon
