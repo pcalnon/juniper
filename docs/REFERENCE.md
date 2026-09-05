@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.60
 **Status:** Active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -22,6 +22,7 @@
 - [Environment Floor Drift Check](#environment-floor-drift-check)
 - [Agent Suite Doctor](#agent-suite-doctor)
 - [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities)
+- [Canopy E2E Unfilled-Rows Ledger](#canopy-e2e-unfilled-rows-ledger)
 - [Fleet Triage and Sequence Safety](#fleet-triage-and-sequence-safety)
 - [Post-Merge Main Verification](#post-merge-main-verification)
 - [Experiment Stack Utilities](#experiment-stack-utilities)
@@ -970,6 +971,64 @@ Do **not** point isolated ports at the host stack or run `--up` on ports `plant_
 
 ---
 
+## Canopy E2E Unfilled-Rows Ledger
+
+`util/ad-hoc/e2e_unfilled_rows.py` answers "which click-by-click matrix rows still need a status cell?" by reading **the matrix and nothing else**. The matrix is the ledger. Plan a re-drive from this output, not from the verdict-file estimator.
+
+Segment 15's first handoff draft planned from `e2e_row_coverage.py` under the ledger's headline — it would have re-driven already-`PASS` rows while dropping still-empty ones. The two tools can disagree on the same checkout.
+
+### Why the estimator is not the ledger
+
+| Surface | Path | What it reads | What "done" means |
+|---------|------|---------------|-------------------|
+| **Ledger (authority)** | `util/ad-hoc/e2e_unfilled_rows.py` | The matrix markdown only | Status cell is **not** a placeholder |
+| Estimator | `util/ad-hoc/e2e_row_coverage.py` | Matrix row-id inventory **plus** `reports/e2e/*/statuses.tsv` and `rowlog.md` | A verdict-file token expands to that row id |
+
+The estimator also over-credits compressed enumerations and treats a non-terminal `pending …` record as coverage. It is useful for "which run files mention this id?"; it is not the plan-from list.
+
+Probed on `origin/main` `8da1f87e` (2026-09-05):
+
+| | matrix rows | verdicted | remaining |
+|---|------------:|----------:|----------:|
+| Ledger | 298 | 298 | **0 UNFILLED** |
+| Estimator | 298 | 296 | **2** (`M-PARAMETERS-02`, `M-PARAMETERS-03`) |
+
+Both `M-PARAMETERS-02` and `M-PARAMETERS-03` are already `PASS` in the matrix status column. Planning from the estimator would re-drive them. The estimator also printed **129 unmatched tokens** (W-ids, finding ids, phase labels) that are not matrix rows.
+
+### Contract (verified against `e2e_unfilled_rows.py` + `e2e_matrix_fill.py`)
+
+- Default matrix: `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` (`e2e_matrix_fill.DEFAULT_MATRIX`). Override with `--matrix` or `--repo-root`.
+- Reuses the filler's `split_row` / `is_separator` / `PLACEHOLDERS` / `MATRIX_NAMESPACES` so the answer cannot drift from what `e2e_matrix_fill.py` will write.
+- **Namespaces counted:** row ids starting with `C2.` or `M-` only. W-series ids are **not** ledger rows here — they never enter the count, even if a TSV mentions them.
+- **Placeholders** (unfilled): `""`, `—`, `-`, `--`, `TBD`, `n/a`. Any other status cell counts as verdicted — including `PASS`, `FAIL`, `BLOCKED`, `SKIP`, `N/A`, and a qualified `PASS (name arm; …)`.
+- Status column is the header cell whose stripped name is `status` (case-insensitive). Row id is `cells[1]` after an escaped-pipe split (`\\|` stays inside its cell — the C2.2-04 `display:block\|none` class).
+- Grouped by the nearest preceding `###` heading. Sections with zero unfilled ids are omitted from the table; the header totals still include them.
+- **Exit 0 always** (report-only). A zero `UNFILLED` count is a measurement, not a CI gate.
+- Does **not** read `reports/e2e/**` and does **not** expand `01..06` / `01/02/03` tokens. Those are estimator / filler concerns.
+
+```bash
+python3 util/ad-hoc/e2e_unfilled_rows.py
+python3 util/ad-hoc/e2e_unfilled_rows.py --repo-root /path/to/juniper-ml
+python3 util/ad-hoc/e2e_unfilled_rows.py --matrix /path/to/other-matrix.md
+```
+
+The filler that writes status cells is `util/ad-hoc/e2e_matrix_fill.py`. This page does not replace that writer; it is the reader that agrees with it.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Estimator `remaining` is non-zero but ledger says `UNFILLED: 0` | Trust the ledger. The matrix status cell is already filled; the TSV/rowlog never recorded that id (or recorded it as a non-head token). |
+| Estimator `remaining` is zero but ledger still lists ids | Estimator over-credited a compressed range or a `pending …` record. Re-drive the ledger's list. |
+| W-ids appear in estimator `unmatched` / "remaining by group" | Not `C2.` / `M-`. The ledger ignores them. Do not invent matrix rows from TSV tokens. |
+| Status looks filled in the Evidence column but UNFILLED | Wrong column — only the `status` header cell counts. |
+| A `\\|` cell shifted every verdict left and the status cell stayed empty | Pre-`split_row` bug (C2.2-04). Confirm you are on a tree that imports `e2e_matrix_fill.split_row`. |
+| Script exits 0 with `UNFILLED: 0` and you treat that as CI-green | Exit 0 is unconditional. Read the `UNFILLED` line. |
+
+No unittest for this reader is on `origin/main` yet (open test PR #1645 does not land the pin). Do not claim hermetic coverage until that suite merges.
+
+---
+
 ## Fleet Triage and Sequence Safety
 
 Flood-remediation tooling for Cursor-fleet / third-party open PRs and for silent symbol/docs damage that ordinary lint cannot see. Two layers:
@@ -1480,6 +1539,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - Test hooks: `JUNIPER_REAP_PROC_ROOT`, `JUNIPER_REAP_KILL_CMD` (plus the two run-root vars, redirected per-test). Operator surface: [docs/REFERENCE.md § Pytest Orphan Reaper](#pytest-orphan-reaper).
 - Documentation link validator now lives in [`juniper-doc-tools/`](juniper-doc-tools/) and is published to PyPI as `juniper-doc-tools` (Wave 4 of the doc-link migration plan; install with `pip install juniper-doc-tools` and invoke via `juniper-check-doc-links`).
 - X7 off-loop census (ad-hoc; lands with juniper-ml#1631) -- exploratory sibling of the canopy slice-1a gate. **Not the authority.** Operator surface: [§ X7 Off-Loop Census](#x7-off-loop-census). Do not quote v1 counts; do not reintroduce module-global expression exemptions.
+- `util/ad-hoc/e2e_unfilled_rows.py` -- Canopy E2E **ledger** reader. Prints which `C2.` / `M-` matrix status cells are still placeholders. Reuses `e2e_matrix_fill` pipe-splitting + placeholder set. Exit 0 always. **Not** `e2e_row_coverage.py` (that diffs TSVs and can list already-`PASS` rows as remaining). Operator surface: [§ Canopy E2E Unfilled-Rows Ledger](#canopy-e2e-unfilled-rows-ledger).
 - `util/requirements_drift_check.py` -- Drift checker for the requirements snapshot at `notes/requirements/id_assignments.yaml`. Default `--mode quick` validates path resolution + structural line-range integrity for every citation; emits a human report or `--json`. Exit code 1 on any drift. Implements the spec in [the requirements next-steps doc §7](../notes/JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-NEXT-STEPS.md#7-stale--drift-detection); `--mode full` / `--mode rewrite` are reserved for future work.
 - `util/template_data_resolver.py` -- Loader + dotted `resolve()` for the custom-agent suite data layer (`prompts/agent_templates/data/*.yaml`: standing rules, anti-hallucination doctrine, conventions, ecosystem facts, known-misses ledger). Path-invoked (`python util/template_data_resolver.py conventions.handoff_threshold`) or imported; the Template Agent maps these into template slots and RUBRIC R2.5 checks injected conventions against them. Tests: `tests/test_template_data_resolver.py`.
 - `util/template_select_preview.py` -- Offline preview of the Template Agent's category selection (P2): given a task string, prints which template the Skill's `match_signals` step would pick (matched keywords + ranked runner-ups). A preview heuristic (keyword-substring scoring; `generic` fallback), not the Skill's exact judgement. `python util/template_select_preview.py "TASK" [--repo-root P] [--json] [--top N]`; exit 0 always. Tests: `tests/test_template_select_preview.py`.
@@ -3104,6 +3164,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.60  | 2026-09-05 | Canopy E2E unfilled-rows ledger: plan re-drives from `e2e_unfilled_rows.py` (matrix status cells only; `C2.` / `M-`; exit 0). `e2e_row_coverage.py` is an estimator and can list already-`PASS` rows as remaining |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
@@ -3452,6 +3513,6 @@ See [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin).
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 0.6.22
+**Last Updated:** 2026-09-05
+**Version:** 0.6.60
 **Maintainer:** Paul Calnon

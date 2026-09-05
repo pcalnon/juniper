@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
-**Date**: 2026-09-04
+**Version**: 1.0.72
+**Date**: 2026-09-05
 **Project**: juniper-ml
 
 ---
@@ -48,6 +48,7 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
+| `python3 util/ad-hoc/e2e_unfilled_rows.py` | Canopy E2E ledger: which `C2.` / `M-` matrix status cells are still placeholders |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -444,6 +445,8 @@ an awaited `httpx.AsyncClient`. Do **not** reintroduce a module-global expressio
 health endpoints X7 is defined by. Both scans read `main.py` only; the metrics relay is a named miss.
 Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census).
 
+Tip: plan canopy E2E re-drives from `python3 util/ad-hoc/e2e_unfilled_rows.py`, not `e2e_row_coverage.py`. The ledger reads matrix `status` cells (`C2.` / `M-` only; placeholders `""` / `—` / `-` / `--` / `TBD` / `n/a`). The estimator diffs TSVs and can list already-PASS rows as remaining (on `origin/main` `8da1f87e`: ledger 0 UNFILLED, estimator still names `M-PARAMETERS-02` / `03`). Exit 0 always. Full contract: [REFERENCE — Unfilled-Rows Ledger](REFERENCE.md#canopy-e2e-unfilled-rows-ledger).
+
 ---
 
 ## Environment Variables
@@ -657,6 +660,9 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | X7 census / gate count dropped but a twin still blocks | Module-global expression exemption — must be site-local. See [REFERENCE](REFERENCE.md#x7-off-loop-census). |
 | `ruff --select ASYNC` green on canopy `backend.*` | Expected. Opaque calls are invisible; trust the slice-1a gate, not ruff. |
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
+| Estimator lists remaining rows the ledger calls UNFILLED 0 | Trust the ledger — those status cells are already filled (often `PASS` with no TSV token). |
+| Estimator remaining is 0 but the ledger still lists ids | Estimator over-credited a range or a `pending …` record. Re-drive the ledger list. |
+| W-ids in estimator unmatched / remaining | Not `C2.` / `M-`. The ledger ignores them; do not invent matrix rows from TSV tokens. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
@@ -723,12 +729,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [Canopy E2E Unfilled-Rows Ledger](REFERENCE.md#canopy-e2e-unfilled-rows-ledger) -- plan re-drives from the matrix status cells, not the TSV estimator
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Last Updated:** 2026-09-05
+**Version:** 1.0.72
 **Maintainer:** Paul Calnon

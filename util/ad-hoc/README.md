@@ -93,6 +93,18 @@ Operator contract: [`docs/REFERENCE.md` § X7 Off-Loop Census](../../docs/REFERE
 
 ---
 
+## Canopy E2E unfilled-rows ledger (operational)
+
+`e2e_unfilled_rows.py` is the **ledger** reader for the click-by-click matrix. It lists `C2.` / `M-` rows whose `status` cell is still a placeholder (`""`, `—`, `-`, `--`, `TBD`, `n/a`), grouped by `###` section. It reuses `e2e_matrix_fill.py`'s escaped-pipe split and placeholder set so the answer cannot drift from what the filler will write. Exit 0 always.
+
+`e2e_row_coverage.py` is an **estimator**: it diffs matrix row ids against `reports/e2e/*/statuses.tsv` and `rowlog.md`. It can list already-`PASS` rows as remaining (observed on `origin/main` `8da1f87e`: ledger `UNFILLED: 0`, estimator still names `M-PARAMETERS-02` / `03`) and can over-credit a compressed range or a `pending …` record. Plan re-drives from the ledger.
+
+W-series tokens in verdict files are not ledger rows. `--repo-root` / `--matrix` override the default path.
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Unfilled-Rows Ledger](../../docs/REFERENCE.md#canopy-e2e-unfilled-rows-ledger).
+
+---
+
 ## What does NOT belong here
 
 - Scripts that are part of a documented build / test / release flow → `util/` proper or `scripts/`.
