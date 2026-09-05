@@ -69,6 +69,16 @@ def post_intervention(rows: list[dict]) -> list[dict]:
     return out
 
 
+def pick_next(probes: list[dict], runs: Counter) -> dict:
+    """Least post-intervention coverage first, then registry order.
+
+    Pre-intervention rows must not enter ``runs``. Pooling them here is how a
+    probe that rung 1 never touched looks already-sampled and billed sessions
+    keep landing on the already-covered ones (ledger §15.4; consensus §4.6).
+    """
+    return min(probes, key=lambda p: (runs.get(p["probe_id"], 0), probes.index(p)))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--probe-id", default=None)
@@ -99,9 +109,7 @@ def main() -> int:
             print(f"no such probe: {args.probe_id}", file=sys.stderr)
             return 2
     else:
-        # Least-covered first, then registry order, so coverage stays even
-        # without anyone choosing which fact to test next.
-        probe = min(probes, key=lambda p: (runs.get(p["probe_id"], 0), probes.index(p)))
+        probe = pick_next(probes, runs)
 
     if args.reveal:
         print(f"probe_id      : {probe['probe_id']}")
