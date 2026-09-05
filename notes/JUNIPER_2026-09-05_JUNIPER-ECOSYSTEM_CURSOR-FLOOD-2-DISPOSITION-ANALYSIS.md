@@ -114,6 +114,32 @@ every case; the *narrative* claims about individual PRs did not.
 | juniper-data #357 reverts the SEC look-ahead-leak fix, cuts `EQUITIES_FEATURE_COLUMNS` 16→10 | **FABRICATED** | main's `equities/generator.py` is **610** lines (not 753); #357's head is **625** — larger. `reindex(...).ffill()` is present in **both** (main:430, PR:445) — it *is* main's code. `dropna(subset=["filed"])`, `actions=True`, `days_since_report`, `EQUITIES_FEATURE_COLUMNS` appear in **neither** file. |
 | two `conf/soak_probes.json` anchors are missing from `REFERENCE.md` | **FALSE** | Both headings exist (`REFERENCE.md:765`, `:409`). The *instrument* was wrong: its slugifier collapsed whitespace runs (GitHub does not → `--`) and stripped underscores (GitHub keeps them). Fixed by copying `util/soak_ledger.py:_slugs` verbatim. |
 
+### §4.1 Second round — claims that failed, including several of my own
+
+The first round's failures were mostly *other* readers' claims about individual PRs. This round's
+are mostly **mine**, and they share one shape: a check that was correct, run over a population it
+could not fully see.
+
+| claim | status | what the artifact says |
+|---|---|---|
+| the consolidation deliberately **deferred** two prose lines (canopy) | **FALSE** | Both were on `main` all along, under different line *wrapping*. `2026-09-05_fleet_harvest_postmerge_verify.py` compares whole stripped lines, so a re-wrapped line reads as absent. They were **stale**, not missing — which is why canopy#588 found them. |
+| canopy#588 "retired the pending tense" | **FALSE, three times** | Pass 1 fixed 8 of ~36 and a re-grep read clean. Passes 2–4 found 15, then 13, then 2 more. Each intermediate "clean" came from a correct grep whose pattern was drawn from the instances already found. |
+| juniper-data#340 is a redundant duplicate of the merged #365 | **FALSE** | #340 drops the `or x_train.ndim >= 2` disjunct. Measured: `shape=(0,)` → main returns **2**, #340 returns **0**. Merging it is a regression, not a no-op. |
+| juniper-data#329 / #349 are "provably clean" | **TRUE AND IRRELEVANT** | Both pass all six gates while documenting **superseded security bounds** — a caller-raisable DoS cap and an unbounded universe. No gate compares the documented contract to the shipped one. |
+| canopy#587 carries the only new content of #580 | **INCOMPLETE** | #580's `CHANGELOG.md` holds one line absent from main's. Found by asking per **file**, not per PR. |
+| canopy#588's failing check "Documentation Links" is a broken link | **FALSE** | The link validator passed three ways — branch, branch+main, and CI's resolved `juniper-doc-tools` 0.1.2 in a clean venv. That job runs **four** steps; the fourth, `juniper-lint-agents-md-version`, was the failure. `AGENTS.md`'s `**Version**` is pinned to pyproject. |
+| a harvestable PR that diverges only on the three wiring files is self-contained | **NECESSARY, NOT SUFFICIENT** | The heuristic predicted 19 failures correctly without running them, then missed #1642: its diff never touches `util/ad-hoc/e2e_finding_triage.py`, yet the test drives it and main's copy differs. **A test's dependency need not appear in its own PR's diff.** |
+| the harvest triage's answer is valid | **ONLY AT THE INSTANT IT RUNS** | ml#1756, a peer session's consolidation, landed three of ml#1772's eight files while that batch sat in CI. Re-check per file against current `main` at merge time. |
+
+**The unifying rule, second statement.** Round 1 gave *"a check whose comparison unit is finer or
+coarser than the thing's identity cannot see damage to it."* Round 2 gives its sibling: **a sweep
+whose pattern is drawn from the instances already found terminates early and reports success.**
+Both are the vacuous-pass class — a correct predicate over an incomplete enumeration — and both
+are invisible from inside the check. The only defences that worked were changing the *question*
+(grep the concept, not the strings), changing the *unit* (collapse whitespace so a wrapped claim is
+one string), and getting the denominator from a **different source** (`git show <carrier> | grep -c`
+over the commit that introduced the class).
+
 **The lesson, stated once:** for machine-generated PRs, a claim about *one PR* is worth nothing
 until re-derived from the file. Two of the eight above came from adversarial agents that were
 otherwise excellent and produced findings that were both real and load-bearing. Mixed reliability
@@ -201,22 +227,58 @@ All under `util/ad-hoc/` per the script-placement rule (they analyse or modify r
 - `2026-09-05_fleet_docs_consolidate.py` — fail-closed N-branch consolidator + two-direction verify
 - `2026-09-05_fleet_docs_reinsert.py` — anchored re-insertion of deferred lines
 - `2026-09-05_fleet_close_superseded.py` — refuses to close unless the carrying PR is MERGED
+- `2026-09-05_markdown_structure_check.py` — fence balance, H2 swallowed by a fence, table headers
+  with no separator. Exits 1, so it is wireable as a gate. **Fixed in ml#1768:** it flagged every
+  H2 inside every fence, including a deliberate ` ```markdown ` example block, which meant four
+  permanent findings on a clean canopy tree and made it unwireable. Now exempts ` ```markdown ` /
+  ` ```md ` only; a bare fence is still checked, so the #1746 defect is still caught.
+- `2026-09-05_fleet_harvest_postmerge_verify.py` (ml#1766) — re-checks every line a **superseded**
+  PR added against the tree that exists *after* the carrier merges. The pre-merge two-direction
+  verify runs against a branch, and the squash of a rebased carrier is not that object.
+- `2026-09-05_fleet_harvest_triage.py` (ml#1769) — **what would this PR actually add to main?**
+  Compares blob SHAs per file and classifies NEW / DIVERGED / SAME / REDUNDANT. When 84 of 90 PRs
+  read `CONFLICT` the merge verdict has stopped discriminating; this asks the question that still
+  does. Validated against canopy#580 / #569 / #577, whose answers had been established by hand.
+- `2026-09-05_wire_harvested_test.py` (ml#1770–#1773) — registers a harvested suite in all **three**
+  hand-maintained lists (`ci.yml`, `AGENTS.md`, `docs/REFERENCE.md`). A suite added to the tree and
+  to none of them passes locally, passes review, and **never runs** — a vacuous green with the test
+  file visible in the diff.
 
 ---
 
 ## §8 Open items
 
-- **~134 drafts remain** across the four repos and the count is stable rather than falling.
-- **Harvest not yet done:** juniper-data #336 (csv_import truncation + cache key) and #357 (symbol
-  cap before cache hash); four juniper-canopy findings (X7 slice-1a gate soundness, F-CANOPY-042
-  bounds-sync, -046 rebuild consumer, -047 PNG export); juniper-data-client NPZ_SPLITS val; and the
-  `## Pointer-Follow Soak` pair (#1701 / #1705, plus #1621 / #1660 in the wider 4-way cluster).
-- **Close #330** (superseded by #336 **and** it re-opens the DoS byte cap).
-- **`startswith` blind spot** in the fleet's test corpus — no negative case where a substring match
-  would differ.
-- **Round-1 §4 decision 6** (advisory → strict → draft-only/integration-branch → full mediation)
-  pre-authorised escalation "if damage recurs". Round 2 recurred faster but produced **no damage in
-  the diffs**, so the escalation trigger is arguably unmet. Owner's call; the fleet runs on.
+**Round 2 disposition, as of the harvest round.**
+
+| repo | flood PRs | disposition |
+|---|---|---|
+| juniper-canopy | 13 | **complete** — 5 docs consolidated (#583), 1 merged, 3 harvested (#585/#587), 4 activated/merged |
+| juniper-data-client | 0 | clear |
+| juniper-data | 31 | 2 merged (#347/#351), 8 consolidated (#370), 3 to close superseded, 1 held, 17 unassessed |
+| juniper-ml | 90 | 24 harvested (#1770–#1773 + peer #1756), 22 blocked on production halves, 43 docs to consolidate |
+
+**Still open:**
+
+- **43 juniper-ml docs PRs** — `DIVERGED-ONLY`: they add no new file, only edit docs `main` already
+  has. Consolidation is the disposition; expect the same stale-claim correction burden as
+  juniper-data#370, where 20 sentences needed rewriting *before* merge.
+- **22 juniper-ml harvestable PRs whose production half is absent.** Their tests fail against
+  `main` because the module they pin has not landed. Not closeable — the test is the evidence the
+  fix is wanted — and not mergeable until the fix arrives.
+- **juniper-data #339** — documents #336's `csv_import` truncation fix. #336 is still OPEN and its
+  behaviour is not on `main`; carrying the docs would ship a contract the code does not honour.
+- **Close as superseded once carriers merge:** juniper-data #329 (by #338 in #370), #349 (by #356
+  in #370), **#340 (by the already-merged #365 — and #340 must NOT be merged: it drops the
+  `ndim >= 2` guard, so a 1-D empty array reports `n_features=0` instead of 2)**;
+  juniper-canopy #569/#577 (by #585), #580 (by #587).
+- **Wire `2026-09-05_markdown_structure_check.py` into CI.** It is gate-ready as of ml#1768 —
+  0 problems on juniper-ml `notes/`+`docs/` and on canopy `docs/`+`AGENTS.md`. Not yet wired.
+- **The consolidator's add/add union keys on the whole stripped line**, so two *variants* of one
+  table row both survive. Fixing it to key on the row's first cell is still open.
+- **Round-1 §4 decision 6** escalation trigger: round 2 again produced no damage in the diffs, but
+  it did produce **stale** diffs at scale — content that was true when written and false when
+  carried. That is a different failure than the round-1 damage the escalation ladder was written
+  for, and arguably needs its own rung. Owner's call; the fleet runs on.
 
 ---
 
@@ -231,3 +293,16 @@ juniper-data #365 (`juniper_data/core/meta.py`, `juniper_data/tests/unit/test_me
 #1726, #1727.
 **Created:** this file,
 `notes/JUNIPER_2026-09-05_JUNIPER-ECOSYSTEM_CURSOR-FLOOD-2-DISPOSITION-ANALYSIS.md`.
+
+### §9.1 Harvest round
+
+**Merged:** juniper-ml #1742, #1766, #1768; juniper-data #347, #351;
+juniper-canopy #572, #575, #583, #588.
+**Opened:** juniper-ml #1769 (`util/ad-hoc/2026-09-05_fleet_harvest_triage.py`), #1770, #1771,
+#1772, #1773 (24 harvested suites + `util/ad-hoc/2026-09-05_wire_harvested_test.py`, all wiring
+`.github/workflows/ci.yml`, `AGENTS.md`, `docs/REFERENCE.md`);
+juniper-data #370 (`docs/REFERENCE.md`, `docs/DEVELOPER_CHEATSHEET.md`, `docs/QUICK_START.md`,
+`docs/USER_MANUAL.md`, `docs/api/JUNIPER_DATA_API.md`, `docs/testing/TESTING_MANUAL.md`,
+`docs/testing/TESTING_REFERENCE.md`, `AGENTS.md`);
+juniper-canopy #585, #587, #588.
+**Changed by this PR:** this file.
