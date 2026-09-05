@@ -164,6 +164,11 @@ python3 -m unittest -v tests/test_recurrence_kind_edges.py
 python3 -m unittest -v tests/test_e2e_topology_row_predicates.py
 python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
 python3 -m unittest -v tests/test_e2e_topology_step_order.py
+python3 -m unittest -v tests/test_compare_baseline_defects.py
+python3 -m unittest -v tests/test_work_countable_contract.py
+python3 -m unittest -v tests/test_termination_branch_precondition.py
+python3 -m unittest -v tests/test_run_suite_uncountable_report.py
+python3 -m unittest -v tests/test_worktree_inuse_probe.py
 python3 -m unittest -v tests/test_register_open_set.py
 python3 -m unittest -v tests/test_register_status_crosscheck.py
 python3 -m unittest -v tests/test_soak_next_probe_split.py

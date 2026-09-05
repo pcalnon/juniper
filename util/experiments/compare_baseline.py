@@ -159,6 +159,20 @@ def compare(
         if not_succeeded:
             reasons.append(f"{Path(suite_dir).name}: candidate cells did not succeed: {not_succeeded} -- not comparable")
             continue
+        # ORDER MATTERS, and this block used to sit three checks lower. A recurrence run has
+        # no step counter at all, so EVERY cell reads `step_count is None` and the `unmeasured`
+        # branch below fired first -- telling the operator to go find step-duration data that
+        # cannot exist for this run kind. "Uncountable" is both more specific and more
+        # actionable: it says the WORK half does not apply and to report the run instead.
+        # Nothing else moves, because `work_countable` is False only for recurrence.
+        if not summary.get("work_countable", True):
+            reasons.append(
+                f"{Path(suite_dir).name}: candidate runs of kind {summary.get('kinds')} expose no countable work, so the "
+                f"WORK half of the gate does not apply. Speed alone cannot be compared here -- the host's drift floor is "
+                f"13-20.5%. Report the run rather than gating it."
+            )
+            continue
+
         unmeasured = [r["run_id"] for r in rows if r.get("step_count") is None]
         if unmeasured:
             reasons.append(
@@ -176,13 +190,6 @@ def compare(
             reasons.append(
                 f"{Path(suite_dir).name}: candidate cells ran {len(summary['workload_fingerprints'])} different workloads "
                 f"(or their identity is unknown) -- cannot compare"
-            )
-            continue
-        if not summary.get("work_countable", True):
-            reasons.append(
-                f"{Path(suite_dir).name}: candidate runs of kind {summary.get('kinds')} expose no countable work, so the "
-                f"WORK half of the gate does not apply. Speed alone cannot be compared here -- the host's drift floor is "
-                f"13-20.5%. Report the run rather than gating it."
             )
             continue
         if not summary["work_invariant"]:

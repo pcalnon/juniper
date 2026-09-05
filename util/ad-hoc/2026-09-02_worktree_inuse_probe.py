@@ -58,15 +58,22 @@ def _readlink(path: str) -> str | None:
         return None
 
 
-def _cmdline(pid: str) -> str:
+def _cmdline(pid: str, proc_root: str = "/proc") -> str:
     try:
-        with open(f"/proc/{pid}/cmdline", "rb") as fh:
+        with open(f"{proc_root}/{pid}/cmdline", "rb") as fh:
             return fh.read().replace(b"\0", b" ").decode("utf-8", "replace").strip()
     except OSError:  # PermissionError is a subclass
         return "(unreadable)"
 
 
-def probe(targets: list[Path]) -> int:
+def probe(targets: list[Path], *, proc_root: str = "/proc") -> int:
+    """Report which of ``targets`` a live process is inside. Returns the exit code.
+
+    ``proc_root`` exists so this can be tested. Hardcoding ``/proc`` made the guard
+    untestable -- a suite cannot conjure a process whose cwd is a synthetic worktree --
+    which is why a script that REFUSES a destructive cleanup shipped with zero coverage.
+    Keyword-only with the real default, so no caller changes.
+    """
     strong: list[tuple[str, str, str, str]] = []
     weak: list[tuple[str, str, str, str]] = []
     unreadable = 0
@@ -74,11 +81,11 @@ def probe(targets: list[Path]) -> int:
     # both necessarily carry the target paths in argv.
     selfpids = {str(os.getpid()), str(os.getppid())}
 
-    for entry in os.listdir("/proc"):
+    for entry in os.listdir(proc_root):
         if not entry.isdigit():
             continue
-        cmd = _cmdline(entry)
-        cwd = _readlink(f"/proc/{entry}/cwd")
+        cmd = _cmdline(entry, proc_root)
+        cwd = _readlink(f"{proc_root}/{entry}/cwd")
         if cwd is None and cmd == "(unreadable)":
             unreadable += 1
             continue
@@ -87,7 +94,7 @@ def probe(targets: list[Path]) -> int:
             t = str(target)
             if cwd and (cwd == t or cwd.startswith(t + os.sep)):
                 strong.append((entry, t, "cwd", cmd))
-            fd_dir = f"/proc/{entry}/fd"
+            fd_dir = f"{proc_root}/{entry}/fd"
             try:
                 fds = os.listdir(fd_dir)
             except OSError:  # PermissionError is a subclass
