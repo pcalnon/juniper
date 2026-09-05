@@ -706,7 +706,7 @@ fails if anyone wires a consumer without restoring a writer.
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
-**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1; found during the 2026-08-26 §6.3 topology re-drive; mechanism FIXED canopy#531 2026-08-27, verified 2026-08-28; OPEN — the 2026-09-04 re-drive covers the static branch only; the `ws-cascade-add-buffer` growth trigger the fix created is undriven).**
+**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1; found during the 2026-08-26 §6.3 topology re-drive; mechanism FIXED canopy#531 2026-08-27, verified 2026-08-28; **CLOSED 2026-09-05** — the `ws-cascade-add-buffer` growth trigger the fix created is now driven on a live cascade, twice).**
 Measured live on a fresh isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `c6cd2f0`,
 canopy `9f6fac9`) against a completed 10-unit network, with `util/ad-hoc/e2e_seg17_topology_driver.py`.
 
@@ -866,10 +866,81 @@ says plainly that the network *"was deliberately left [saturated] on 2026-09-02 
 2/40/2/944 baseline"*. So W4-10, W1-13 and M-TOPOLOGY-16 are blocked on a choice this arc made and
 can unmake — pending owner sign-off, since the fixture is held by an explicit hold.
 
-**Disposition: F-CANOPY-037 stays OPEN.** Its stated mechanism (claimed-Input starvation on a
-completed run) is credibly closed on merged main and the M-TOPOLOGY rows are re-driven; what remains
-undriven is the growth-trigger path the fix itself introduced. Closing on the static branch alone
-would be closing the symptom on the easy branch.
+**Disposition (2026-09-04): F-CANOPY-037 stays OPEN.** Its stated mechanism (claimed-Input starvation
+on a completed run) is credibly closed on merged main and the M-TOPOLOGY rows are re-driven; what
+remains undriven is the growth-trigger path the fix itself introduced. Closing on the static branch
+alone would be closing the symptom on the easy branch.
+
+---
+
+### CLOSED 2026-09-05 — the growth trigger is driven, on a live cascade, twice
+
+The owner lifted the fixture hold, so the regime this finding is actually about was finally
+exercised. `max_hidden_units` was raised by `PATCH /v1/training/params` — **the network was never
+destroyed** (`POST /v1/network` was not used; the uuid is unchanged throughout) — and training
+restarted, twice, with a browser attached and watching *before* growth began.
+
+**Probe**: `util/ad-hoc/2026-09-05_f037_growth_trigger_probe.py`, against canopy main `94220f0`.
+Growth oracle is **cascor's own** `hidden_units`, read off `:8202` — deliberately not through canopy,
+because canopy's number is the thing under test and an oracle sharing a path with its subject is not
+an oracle.
+
+| | run 1 (40 → 44) | run 2 (44 → 48) |
+|---|---|---|
+| server grew | t=18.4 s | t=17.6 s |
+| **`ws-cascade-add-buffer` `gen`** | *(not polled — see below)* | **0 → 6, `events=1`, t=17.6 s** |
+| rebuild wrote `-graph.figure` | t=12.4 s, t=38.3 s | t=65.3 s |
+| DOM reached the new count | **t=44.4 s → `44`** | **t=70.8 s → `48`** |
+| final DOM vs server | `44` = 44 ✓ | `2 / 48 / 2 / 1324`, hidden 48 ✓ |
+
+**The trigger the fix created fires.** `ws-cascade-add-buffer`'s `gen` moves `0 → 6` carrying an
+event at the exact moment cascor grows, and the rebuild follows. **The graph tracks live cascade
+growth to the correct final count in both runs.** The lag from server growth to DOM catch-up was
+**26 s** and **53 s** — an F-CANOPY-004 latency question, not the absence this finding recorded
+(0 rebuild POSTs in 9 of 11 sessions).
+
+**AN INSTRUMENT THAT WOULD HAVE GIVEN THE WRONG ANSWER, and why its number is excluded.** The probe
+also counts `/_dash-update-component` responses naming the buffer. That count is **0 in both runs**,
+and it means nothing: `ws-cascade-add-buffer` is written by a **`clientside_callback`**
+(`dashboard_manager.py:3652`), which executes in the browser and produces no callback response at
+all. A zero there is structurally guaranteed — the mirror image of browser-counting a server-side
+fetch, the error that produced a confident FAIL on M-TOPOLOGY-18. **Only the store's polled value is
+admissible for this trigger**, and it is what the table above reports. The counter is retained in
+the probe with that caveat written beside it rather than deleted, so the next reader sees why it is
+not evidence.
+
+**RESIDUALS, stated rather than buried.**
+
+- **n = 2 growth events**, one session each. The procedure's own escalator for a sample below ~5
+  applies; this closes the *stated* gap, it does not make the path well-characterised.
+- Run 1 did **not** poll the buffer — the trigger evidence rests on run 2 alone. Run 1 contributes
+  the independent fact that the DOM tracked growth.
+- Growth arrived as a **4-unit jump** at the 5 s poll granularity, and run 2's single drained event
+  may therefore cover several adds. Per-add behaviour is not resolved.
+- The DOM lag (26 s / 53 s) is unmeasured against a budget; it is recorded, not scored.
+
+**THE SHARED FIXTURE HAS CHANGED, and this is the notice.** It was **2/40/2/944** and is now
+**2/48/2/1324**, `max_hidden_units` 48, saturated again so it is stable. Every earlier row in this
+ledger and matrix quoting `2/40/2/944` was measured against the old fixture and remains valid *for
+that build and that fixture* — do not treat a new reading of `48` as a regression.
+
+The pre-change state is recoverable: snapshot **`snapshot_20260905T103912Z`** (815,937 bytes,
+`juniper.cascor` format v2, verified on disk — the creation response reports `size_bytes: 0` before
+flush, but the listing and the file agree at 815,937).
+
+**To make M-TOPOLOGY-16 (cascade-add glow) drivable again**, raise the cap and restart — the network
+is grown, not rebuilt:
+
+```bash
+curl -X PATCH -H 'Content-Type: application/json' \
+     -d '{"max_hidden_units": 52}' http://127.0.0.1:8202/v1/training/params
+curl -X POST  -H 'Content-Type: application/json' -d '{}' \
+     http://127.0.0.1:8202/v1/training/start
+```
+
+Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-05_f037_growth_1.txt` (run 1 — log
+only; the probe was stopped once growth had been captured, so it never wrote its results file)
+and `…_f037_growth_2.{txt,json}` (run 2, complete).
 
 Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-04_f037_closure_main_94220f0.{txt,json}`
 and `…_f037_m18_isolated.{txt,json}` (the control).
