@@ -593,6 +593,7 @@ Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe)
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
 | `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `util/experiment_stack.bash` (not `/tmp`); also the query-time join for `snapshot_index.py --resolve-datasets` / `--dataset-id` |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset              | `1`/`true`/`yes`/`on` adds `--grafana-bridge` to every suite `--up` (not a YAML key) |
 | `JUNIPER_EXP_LOCK_ROOT`        | `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments` | Ephemeral port lockdirs (`8110`–`8289`) |
 | `JUNIPER_EXP_PROJECT_DIR`      | parent of juniper-ml | Ecosystem root — **set in git worktrees** |
 | `JUNIPER_EXP_HEALTH_TIMEOUT`   | `90`               | Per-service health wait for experiment `--up` (cold-start sized) |
@@ -955,6 +956,11 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Context audit text exit 0 with `ERROR:` | Human mode ignores probe failures; use `--json` (exit 1) or re-run that `--repo`. |
 | Promoted check missing from Tier 1 | `advisory_predicate` must subtract the live required set (ml#1011 class). |
 | Quoted 23/200 blocking from the 2026-08-10 note | Historical. Re-run; do not strip a ruleset from a one-shot empty sample. |
+| Suite exit `2` unknown `execution:` key | Typo (`stall_second`). R-6 (`tests/test_experiment_suite_yamls.py`) catches this on shipped suites. |
+| Suite exit `2` cascor parallel | Launched cascor below 0.10.0 or version unreadable — sequential, or retarget `JUNIPER_EXP_CASCOR_SRC_DIR`. |
+| Suite cells `stalled` ~130 s then finish | Candidate-phase inert stall — set `execution.stall_seconds`; size `per_run_timeout_seconds` above the wall. |
+| `--resume` re-runs a green cell | Only `registry.jsonl` `succeeded` is skipped; missing resume dir is exit `2`. |
+| Repeats ran the smoke config | `include` does not inherit `matrix` — put the repeat axis on `matrix` (PF-1). |
 
 ## Quick Reference Tables
 
