@@ -66,10 +66,14 @@ def run(argv, cwd=None, check=False):
     return subprocess.run(argv, cwd=str(cwd) if cwd else None, capture_output=True, text=True, check=check)  # nosec B603
 
 
-def occupied(wt: Path) -> list[str]:
-    """PIDs whose cwd is inside this worktree. Gate on /proc/<pid>/cwd, never argv."""
+def occupied(wt: Path, proc_root: str | Path = "/proc") -> list[str]:
+    """PIDs whose cwd is inside this worktree. Gate on /proc/<pid>/cwd, never argv.
+
+    ``proc_root`` defaults to the live ``/proc``; tests pass a fake tree. Production
+    callers omit it, so the live path is unchanged.
+    """
     held = []
-    for entry in Path("/proc").iterdir():
+    for entry in Path(proc_root).iterdir():
         if not entry.name.isdigit():
             continue
         try:
