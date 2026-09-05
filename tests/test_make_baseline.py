@@ -198,6 +198,15 @@ class BuildRefusalTest(unittest.TestCase):
                 mb.build_baseline("t", [suite])
             self.assertIn("different workloads", str(ctx.exception))
 
+    def test_refuses_when_some_cell_identities_are_unknown(self):
+        # Mixed known + missing YAML must not bless the known fingerprint as the scenario identity.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{}, {}])
+            (suite / "cells" / "c001" / "experiment.yaml").unlink()
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("workload", str(ctx.exception).lower())
+
 
 class WriteTest(unittest.TestCase):
     def _payload(self, tmp):

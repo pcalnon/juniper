@@ -259,6 +259,33 @@ class ObservedContextAppsTest(unittest.TestCase):
         self.assertIn(15368, publishers)
         self.assertNotIn(57789, publishers)
 
+    def test_does_not_consult_main_when_pr_heads_already_published(self):
+        """PR heads already answered. Merging main's set would let 57789 sneak in.
+
+        The fallback exists so a main-only job is not mistaken for unpublished. It is
+        NOT a union: a hit on a PR head must not pick up a different app that only
+        appears on ``main``.
+        """
+        mod.gh_json = _fake(
+            {
+                "repos/o/r/pulls?state=all&sort=updated&direction=desc&per_page=8": (
+                    [{"head": {"sha": "abc"}}],
+                    None,
+                ),
+                "repos/o/r/commits/abc/check-runs?per_page=100": (
+                    self._runs(("Memory Budget", 15368, "github-actions")),
+                    None,
+                ),
+                "repos/o/r/commits/main/check-runs?per_page=100": (
+                    self._runs(("Memory Budget", 57789, "bandit")),
+                    None,
+                ),
+            }
+        )
+        publishers = mod.observed_context_apps("o", "r", "Memory Budget")
+        self.assertEqual(publishers, {15368: "github-actions"})
+        self.assertNotIn(57789, publishers)
+
 
 # Contexts for the amend-path fixture: Memory Budget unpinned, Bandit on its real app,
 # and an Actions-pinned neighbour. Rewriting Bandit to 15368 is the five-repo outage.

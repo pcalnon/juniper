@@ -161,6 +161,42 @@ class IdentityRefusalTest(unittest.TestCase):
             self.assertEqual(result["verdict"], cb.REFUSED)
             self.assertIn("not a set of repeats", " ".join(result["reasons"]))
 
+    def test_mixed_known_and_unknown_identity_is_REFUSED_not_passed(self):
+        # Dropping None before the uniqueness test would treat "1 known + 1 missing YAML" as a
+        # single workload and PASS against the known cell. Unknown on EITHER side is a refusal.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            candidate = _suite(Path(tmp), "cand")
+            (candidate / "cells" / "c001" / "experiment.yaml").unlink()
+            result = cb.compare(payload, host, [candidate])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertEqual(cb.EXIT[result["verdict"]], 2)
+            # The REFUSAL is the property; "cannot be identified" was this branch's wording.
+            # Main says "(or their identity is unknown) -- cannot compare". Asserting the
+            # verdict plus the substantive phrase keeps the discrimination without pinning
+            # prose: a comparator that PASSED here would fail on the verdict line above,
+            # whichever words it printed.
+            self.assertIn("identity is unknown", " ".join(result["reasons"]))
+            self.assertIn("cannot compare", " ".join(result["reasons"]))
+
+    def test_one_unmeasured_cell_is_REFUSED_not_passed(self):
+        # work_invariant used to drop missing step_count before testing uniqueness, so a suite
+        # with one matching cell and one missing series would PASS. make_baseline already
+        # refuses this shape; the comparator must too.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            candidate = _suite(Path(tmp), "cand")
+            series = Path(rrm.read_suite(candidate)[1]["run_dir"]) / "artifacts/results/metrics_series.csv"
+            series.unlink()
+            result = cb.compare(payload, host, [candidate])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            # Same: main says "no step-duration data ... would satisfy it vacuously".
+            # "unmeasured" was this branch's word for the same refusal.
+            self.assertIn("no step-duration data", " ".join(result["reasons"]))
+            self.assertIn("vacuously", " ".join(result["reasons"]))
+
 
 class HostRefusalTest(unittest.TestCase):
     def test_cpu_identity_mismatch_is_refused(self):
@@ -190,6 +226,15 @@ class HostRefusalTest(unittest.TestCase):
             result = cb.compare(payload, foreign, [suite])
             self.assertEqual(result["verdict"], cb.PASS)
             self.assertIn("torch", result["host"]["advisory_differences"])
+
+    def test_host_mismatch_still_REFUSES_even_when_work_also_moved(self):
+        # Cross-hardware plus a step_count delta cannot be attributed to the code.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            candidate = _suite(Path(tmp), "cand", step_count=1771)
+            foreign = dict(host, cpu_model="Some Other CPU")
+            self.assertEqual(cb.compare(payload, foreign, [candidate])["verdict"], cb.REFUSED)
 
 
 class WaiverTest(unittest.TestCase):
@@ -615,3 +660,30 @@ class ComparatorDefectTest(unittest.TestCase):
             self.assertEqual(result["verdict"], cb.REFUSED)
             self.assertIn("DUPLICATE workload", " ".join(result["reasons"]))
             self.assertIn(fp[:12], " ".join(result["reasons"]))
+
+
+class VerdictPrecedenceTest(unittest.TestCase):
+    def test_sibling_refusal_does_not_hide_a_FAIL(self):
+        # --suite is repeatable. Work that moved on a comparable suite is still FAIL even if
+        # another suite is a different workload. Collapsing that to REFUSED (exit 2) would hide
+        # the gate firing from a caller that treats refusal as "not a code problem".
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            moved = _suite(Path(tmp), "moved", step_count=1771)
+            other = _suite(Path(tmp), "other", epochs=500, step_count=4012)
+            result = cb.compare(payload, host, [moved, other])
+            self.assertEqual(result["verdict"], cb.FAIL)
+            self.assertEqual(cb.EXIT[result["verdict"]], 1)
+            self.assertFalse(result["scenarios"][0]["work"]["match"])
+
+    def test_sibling_refusal_does_not_PASS_the_comparison(self):
+        # The other direction: matching work on one suite plus an incomparable sibling is not
+        # a clean PASS. Incomplete comparison stays REFUSED.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            matching = _suite(Path(tmp), "ok")
+            other = _suite(Path(tmp), "other", epochs=500, step_count=4012)
+            result = cb.compare(payload, host, [matching, other])
+            self.assertEqual(result["verdict"], cb.REFUSED)
