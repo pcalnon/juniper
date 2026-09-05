@@ -86,6 +86,8 @@
 | `python3 util/ad-hoc/2026-08-20_require_context_safely.py --status` | Census required contexts on the 9-repo roster (never writes) |
 | `python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-ml --context 'Memory Budget' --amend-integration-id` | Dry-run re-pin of an already-required context (#1612) |
 | `python3 -m unittest -v tests/test_require_context_safely.py` | Hermetic ruleset-writer gate (find_ruleset, roster, amend pre-flight) |
+| `python3 util/ad-hoc/e2e_unfilled_rows.py`             | List placeholder E2E matrix `status` cells (ledger, not the estimator) |
+| `python3 util/ad-hoc/e2e_matrix_fill.py --verdicts TSV` | Dry-run fill of C2.*/M-* status cells (pass `--write` to apply) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -715,6 +717,9 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
 | Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
 | Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| E2E matrix neighbouring row now PASS | Hand-edit, or `set_verdicts` on a row with an escaped pipe. Use fill/rescore; dry-run first. See [REFERENCE](REFERENCE.md#canopy-e2e-matrix-writes). |
+| `set_verdicts` wrote with no prompt | No dry-run. Review `--from` / `--set` before invoking. |
+| Planned next segment from `e2e_row_coverage.py` | Estimator. Use `e2e_unfilled_rows.py` against the ledger. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
@@ -903,6 +908,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- required-context classifier; 2026-08-10 class; text-mode 0 can still carry `ERROR:`
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
+- [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore; do not plan from `e2e_row_coverage.py`
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
