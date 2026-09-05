@@ -105,6 +105,70 @@ def score(line: str) -> tuple[int, list[str]]:
     return len(hits), hits
 
 
+def has_hazards_section(text: str) -> bool:
+    return any(re.match(r"^##+\s+Hazards\b", ln) for ln in text.splitlines())
+
+
+def collect_blocks(lines: list[str], inside: list[bool] | None = None) -> list[tuple[int, str, list[str]]]:
+    """Split markdown into scoreable blocks. A fence ends the current block and is never scored.
+
+    A block is a bullet item or a paragraph: it starts at a list marker or after a blank line,
+    and continues through continuation lines. Headings (`#...`) also start a new block so the
+    section label can change. 1-indexed start lines match the CLI's `L<n>` output.
+    """
+    if inside is None:
+        inside = fence_mask(lines)
+    section = "(preamble)"
+    blocks: list[tuple[int, str, list[str]]] = []
+    cur: list[str] = []
+    cur_start, cur_sec = 0, section
+    for i, ln in enumerate(lines):
+        # A fence ENDS the current block and its contents are never scored. Letting fenced
+        # lines join the preceding block produced a false positive on canopy: a `try/except`
+        # code sample scored `silent-failure,hazard-noun` off its own comments. A hazards list
+        # a human reads must not spend their judgement on code examples.
+        if inside[i] or re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
+            if cur:
+                blocks.append((cur_start, cur_sec, cur))
+                cur = []
+            continue
+        if ln.startswith("## "):
+            section = ln[3:].strip()
+        starts = bool(re.match(r"^\s*([-*+]|\d+\.)\s", ln)) or ln.startswith("#")
+        if not ln.strip() or starts:
+            if cur:
+                blocks.append((cur_start, cur_sec, cur))
+            cur, cur_start, cur_sec = ([ln] if starts else []), i + 1, section
+            continue
+        if not cur:
+            cur_start, cur_sec = i + 1, section
+        cur.append(ln)
+    if cur:
+        blocks.append((cur_start, cur_sec, cur))
+    return blocks
+
+
+def collect_candidates(text: str, min_score: int = 2) -> list[tuple[int, int, str, str, list[str]]]:
+    """Score BLOCKS, not lines. Return `(score, start_line, section, text, hits)` descending.
+
+    A first version scored per line and found ZERO candidates in juniper-ml's own AGENTS.md
+    -- which has a Hazards section with four bullets. The positive control is what caught it:
+    these directives are wrapped prose, so "Do not set it" and "silently diverges" sit on
+    different lines and no single line ever reaches two signals.
+    """
+    lines = text.splitlines()
+    found: list[tuple[int, int, str, str, list[str]]] = []
+    for start, sec, blines in collect_blocks(lines):
+        text_block = " ".join(b.strip() for b in blines).strip()
+        if len(text_block) < 40:
+            continue
+        s, hits = score(text_block)
+        if s >= min_score:
+            found.append((s, start, sec, text_block, hits))
+    found.sort(key=lambda r: (-r[0], r[1]))
+    return found
+
+
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("repos", nargs="+")
@@ -117,54 +181,10 @@ def main(argv: list[str]) -> int:
         if not text:
             print(f"\n### {repo}: no {ns.path}")
             continue
-        lines = text.splitlines()
-        inside = fence_mask(lines)
-        has_block = any(re.match(r"^##+\s+Hazards\b", ln) for ln in lines)
+        has_block = has_hazards_section(text)
         print(f"\n### {repo}  {ns.path} {len(text):,} chars   "
               f"existing Hazards section: {'YES' if has_block else '** NONE **'}")
-        # Score BLOCKS, not lines. A first version scored per line and found ZERO candidates in
-        # juniper-ml's own AGENTS.md -- which has a Hazards section with four bullets. The positive
-        # control is what caught it: these directives are wrapped prose, so "Do not set it" and
-        # "silently diverges" sit on different lines and no single line ever reaches two signals.
-        # A block is a bullet item or a paragraph: it starts at a list marker or after a blank line,
-        # and continues through continuation lines.
-        found = []
-        section = "(preamble)"
-        blocks: list[tuple[int, str, list[str]]] = []   # (start_line, section, lines)
-        cur: list[str] = []
-        cur_start, cur_sec = 0, section
-        for i, ln in enumerate(lines):
-            # A fence ENDS the current block and its contents are never scored. Letting fenced
-            # lines join the preceding block produced a false positive on canopy: a `try/except`
-            # code sample scored `silent-failure,hazard-noun` off its own comments. A hazards list
-            # a human reads must not spend their judgement on code examples.
-            if inside[i] or re.match(r"^\s{0,3}(`{3,}|~{3,})", ln):
-                if cur:
-                    blocks.append((cur_start, cur_sec, cur))
-                    cur = []
-                continue
-            if ln.startswith("## "):
-                section = ln[3:].strip()
-            starts = bool(re.match(r"^\s*([-*+]|\d+\.)\s", ln)) or ln.startswith("#")
-            if not ln.strip() or starts:
-                if cur:
-                    blocks.append((cur_start, cur_sec, cur))
-                cur, cur_start, cur_sec = ([ln] if starts else []), i + 1, section
-                continue
-            if not cur:
-                cur_start, cur_sec = i + 1, section
-            cur.append(ln)
-        if cur:
-            blocks.append((cur_start, cur_sec, cur))
-
-        for start, sec, blines in blocks:
-            text_block = " ".join(b.strip() for b in blines).strip()
-            if len(text_block) < 40:
-                continue
-            s, hits = score(text_block)
-            if s >= ns.min_score:
-                found.append((s, start, sec, text_block, hits))
-        found.sort(key=lambda r: (-r[0], r[1]))
+        found = collect_candidates(text, ns.min_score)
         print(f"    {len(found)} candidate line(s) at >= {ns.min_score} signals\n")
         for s, lno, sec, ln, hits in found:
             print(f"  [{s}] L{lno:<5} {sec[:38]:<38} {','.join(hits)}")
