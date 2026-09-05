@@ -1758,6 +1758,7 @@ Both rows stay BLOCKED, attributed to the harness rather than scored FAIL agains
 ---
 
 **F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what blocked the topology block (P0/P1; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive; root-caused in dash-renderer's own source and FIXED 2026-08-31 by canopy#549, censused 0-of-11 -> 11-of-11 at idle scope).**
+Operator loop (apply / soak / report / revert; read the whole series): [`docs/REFERENCE.md` § F-039 Store Probe](../docs/REFERENCE.md#f-039-store-probe).
 Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,
 canopy `6b55399`) against a **completed 10-unit network whose server truth is byte-identical to the one
 F-CANOPY-037 was found on** — `GET /api/topology` = `2 / 10 / 2 / 89`, 14 nodes.
