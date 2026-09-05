@@ -2068,6 +2068,11 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_soak_run_probe_stopping_rule.py` -- Stopping-rule paths in `util/soak_run_probe.py` that the dry-run suite cannot reach: the dry run never enters the arms that decide to STOP, so those arms shipped unexercised.
 - `tests/test_soak_ledger_status_token.py` -- The `util/soak_ledger.py` status first-token contract the dry-run suite cannot see: the token a downstream reader keys on, pinned against a renaming that keeps the line but changes its meaning.
 - `tests/test_soak_analyse_date_pool.py` -- Pins that `analyse()` pools the corpus the probe picker now SPLITS by date -- a pooled analysis over a split corpus silently mixes cohorts and reports one number for two populations.
+- `tests/test_run_suite_gate_metrics.py` -- Suite-report gate values that the header pin in #1643 cannot see: the header can be correct while the gate VALUES beneath it are stale or absent.
+- `tests/test_list_runs_classify_guards.py` -- The `list_runs` classification guards the happy-path suite never reaches -- the arms that REFUSE to classify, which a well-formed run never enters.
+- `tests/test_register_close_protocol.py` -- The defect-register operator pair that #1648/#1717 cannot see: the close protocol itself, distinct from the open-set reader and the status crosscheck.
+- `tests/test_stats_summary_render.py` -- `summary.md` scrape-honesty line collection: which lines the renderer must emit, the conditional class-distribution line, the reason sub-bullet, and `present`/`written` key precedence.
+- `tests/test_stats_summary_git_and_confirmed.py` -- The `summary.md` scrape tri-state and git provenance the producer suite cannot see -- `confirmed` None-is-not-False, the N/A fallback, unavailable git, clean-head, and a decreasing count that must not mint a poll sample. Independent sibling of `test_stats_summary_render.py`; see its header for why both were kept.
 - `scripts/test.bash` -- Manual end-to-end harness for session create/resume launcher flows
 - `scripts/test_resume_file_safety.bash` -- Regression script ensuring invalid `--resume <file.txt>` input does not delete the source file
 
