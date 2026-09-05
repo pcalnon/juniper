@@ -59,6 +59,7 @@
 | **Size memory-budget slack after a cut** | [REFERENCE — Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) (`measure-growth` `max`, floored at 2,000; headroom is not a CI failure) | docs/    |
 | **Re-probe a canopy store that "never advances"** | [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe) (apply / soak / report / revert; read the whole series; `--target topology` refuses) | docs/    |
 | **Check the Claude Code MEMORY.md index** | [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) (200/25k silent newest-first truncate; hook-not-line 120 on NEW slugs; CI cannot see `~/.claude`) | docs/    |
+| **Census F-CANOPY-037 topology paint** | [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) (11 sessions; structured JSON; `hidden_units==0` is INVALID) | docs/    |
 | **Quick-reference dev tasks**           | [DEVELOPER_CHEATSHEET_JUNIPER-ML.md](DEVELOPER_CHEATSHEET_JUNIPER-ML.md)                                                         | docs/    |
 | **Operate the PyPI release train**      | [Release-train operator runbook](../notes/JUNIPER_2026-07-22_JUNIPER-ECOSYSTEM_RELEASE-TRAIN-OPERATOR-RUNBOOK.md)                 | notes/   |
 | **Understand flood CI gates / main-verify** | [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates) + [flood analysis](../notes/JUNIPER_2026-07-28_JUNIPER-ML_CURSOR-PR-FLOOD-REMEDIATION-ANALYSIS.md) | docs/ + notes/ |

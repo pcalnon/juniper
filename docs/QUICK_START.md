@@ -150,6 +150,7 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) -- `measure-growth` sizes a ceiling; headroom below that figure is not a `Memory Budget` failure
 - [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert when a canopy store looks empty after a correct wire response; read the whole series; `--target topology` refuses
 - [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local Claude Code index gate; 200/25k silent newest-first truncate; hook-not-line 120 on NEW slugs; CI cannot see `~/.claude`
+- [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; one green session is not a claim; exit 2 = failed to measure
 - [juniper-observability README](../juniper-observability/README.md) -- shared observability primitives
 - [juniper-data-client Quick Start](https://github.com/pcalnon/juniper-data-client) -- dataset client usage
 - [juniper-cascor-client Quick Start](https://github.com/pcalnon/juniper-cascor-client) -- training client usage
