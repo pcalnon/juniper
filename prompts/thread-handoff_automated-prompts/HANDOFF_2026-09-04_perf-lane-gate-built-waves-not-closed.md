@@ -317,6 +317,25 @@ instruments.
 `juniper-cascor/conf/experiments/spiral-smoke.yaml`; the three 2026-08-31/09-01 PF-1 results notes
 (correction banners); `notes/JUNIPER_2026-08-16_…PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`.
 
+### 7.1 Follow-on session, 2026-09-05 — decisions taken and shipped
+
+Four PRs, all owner-approved. **Two are corrections TO THIS DOCUMENT** (§9's numeric findings), and
+two close gaps §9 was right about.
+
+| PR | decision | changed |
+|---|---|---|
+| **ml#1758** | The P4 operator surface was **stale, not missing** — item 2 above has it backwards. It described the pre-`ml#1743` comparator: six closed defects listed as open, a closed asymmetry, exit 1 called "uninterpretable". Rewritten; CI-wiring prohibition **kept and re-grounded** on the owner decision (P1 §6). | `docs/REFERENCE.md`, `docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md`, `docs/DOCUMENTATION_OVERVIEW.md`, `docs/QUICK_START.md` |
+| **ml#1762** | Same staleness in the design record; the "invariance follows from the iteration cap" mechanism **withdrawn** (every PF-1 run terminates `early_stopped`, so none is cap-bound). | `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`, `notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md` |
+| **ml#1765** | **DECISION: pin the drift-band normalization; do NOT change the 13–20.5% string.** §9's "15.0–20.5%" is refuted (see the struck bullet in §2) — and so is **C4** (see §9). Both struck in place with the arithmetic inline; the normalization pinned next to the numbers. | `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`, this file |
+| **ml#1767** | **DECISION: ship the `metric_contract` correction.** All three gate tools still called `step_count` "deterministic and contention-immune" with **no branch condition** — and `make_baseline.py:254` writes that into `metric_contract` in **every `baseline.json`**, so each blessed baseline shipped a claim its own comparator will not rely on. | `util/experiments/make_baseline.py`, `util/experiments/compare_baseline.py`, `util/experiments/read_run_metrics.py` |
+
+**Why the two corrections matter more than the two fixes.** Acting on §9 as written would have
+changed the 13–20.5% string in **9 sites** (including every `baseline.json`) and made the
+upper-bound wording duration-conditional. Both changes would have been wrong. Neither error was
+detectable by reading §9 — only by re-running its arithmetic against the six source values in §5 /
+§8.4 of `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`.
+**A consensus lane checked the claims ABOUT the numbers, not the numbers.**
+
 ---
 
 ## 8. What this handoff does NOT cover
