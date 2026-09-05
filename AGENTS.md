@@ -138,6 +138,12 @@ python3 -m unittest -v tests/test_resident_gap_triage.py
 python3 -m unittest -v tests/test_resident_gap_scan.py
 python3 -m unittest -v tests/test_hazard_triage.py
 python3 -m unittest -v tests/test_require_context_safely.py
+python3 -m unittest -v tests/test_matrix_set_verdicts.py
+python3 -m unittest -v tests/test_e2e_matrix_fill.py
+python3 -m unittest -v tests/test_e2e_matrix_rescore.py
+python3 -m unittest -v tests/test_e2e_unfilled_rows.py
+python3 -m unittest -v tests/test_e2e_f037_render_census.py
+python3 -m unittest -v tests/test_e2e_row_coverage.py
 python3 -m unittest -v tests/test_run_suite_gate_metrics.py
 python3 -m unittest -v tests/test_list_runs_classify_guards.py
 python3 -m unittest -v tests/test_register_close_protocol.py

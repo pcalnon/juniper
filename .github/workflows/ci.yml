@@ -976,6 +976,18 @@ jobs:
           # resolved, so DBPATH must be resolved too or the comparison matches nothing).
           # Also pins the scan shape: one find, not a readlink fork per fd on the host.
           python3 -m unittest -v tests/test_duplicati_db_holder_guard.py
+          # tests/test_matrix_set_verdicts.py: Hermetic gate for the E2E matrix verdict writer `util/ad-hoc/2026-09-02_matrix_set_verdicts.py` (`util/` is outside every pre-commit Python hook), which shipped with zero tests: verdict tokens, row identity, and the write-back path.
+          python3 -m unittest -v tests/test_matrix_set_verdicts.py
+          # tests/test_e2e_matrix_fill.py: Hermetic gate for the E2E matrix bulk-fill writer, which shipped with zero tests: which cells a fill may touch, and that an already-filled cell is not silently overwritten.
+          python3 -m unittest -v tests/test_e2e_matrix_fill.py
+          # tests/test_e2e_matrix_rescore.py: Hermetic gate for the named-row matrix re-score writer, which shipped with zero tests: row lookup by name, and that a re-score rewrites only the named row.
+          python3 -m unittest -v tests/test_e2e_matrix_rescore.py
+          # tests/test_e2e_unfilled_rows.py: Hermetic gate for the unfilled-rows ledger reader, which shipped with zero tests: what counts as unfilled, and that a partially-filled row is not reported complete.
+          python3 -m unittest -v tests/test_e2e_unfilled_rows.py
+          # tests/test_e2e_f037_render_census.py: Hermetic gate for the F-CANOPY-037 render census, which can certify a VACUOUS run -- a census over an empty or unrendered set reporting success is the failure this pins.
+          python3 -m unittest -v tests/test_e2e_f037_render_census.py
+          # tests/test_e2e_row_coverage.py: Hermetic gate for the row-coverage estimator, which can certify a PARTIAL ledger as complete -- coverage computed over the rows present, not the rows required.
+          python3 -m unittest -v tests/test_e2e_row_coverage.py
           # tests/test_run_suite_gate_metrics.py: Suite-report gate values that the header pin in #1643 cannot see: the header can be correct while the gate VALUES beneath it are stale or absent.
           python3 -m unittest -v tests/test_run_suite_gate_metrics.py
           # tests/test_list_runs_classify_guards.py: The `list_runs` classification guards the happy-path suite never reaches -- the arms that REFUSE to classify, which a well-formed run never enters.
