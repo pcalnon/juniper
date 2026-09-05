@@ -72,6 +72,7 @@
 | `python3 -m unittest -v tests/test_soak_ledger.py`     | Soak ledger regressions (`util/` is not pre-commit-gated) |
 | `python3 util/soak_run_probe.py --probe-id ID [--force]` | Run a named soak probe; `--force` if verdict is terminal |
 | `python3 -m unittest -v tests/test_soak_run_probe.py`  | Soak wrapper regressions (`util/` is not pre-commit-gated) |
+| `python3 util/ad-hoc/cascor_freeze_tell.py`            | Cascor-primary freeze tell (exit 1 = in force; 0 ≠ no importer) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
 | `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
@@ -121,6 +122,8 @@
 | `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 topology-graph paint census (default 11 sessions; exit 0 is not a paint PASS) |
 
 Tip: `register_open_set.py` and `grep -cE '\*\*FIXED'` read the same §4-shaped rows — they can agree and both miss a close that never reached §2 / §5.1. Run `register_status_crosscheck.py` after every four-touch close. `register_open_set.py` uses a relative `notes/…` path (`FileNotFoundError` unless cwd is the repo root); the crosscheck is `__file__`-relative. Token is `**FIXED` only. [REFERENCE — Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol).
+
+**Cascor-primary freeze:** `python3 util/ad-hoc/cascor_freeze_tell.py`. Exit 1 = a user-owned process holds `/home/pcalnon/Development/python/Juniper/juniper-cascor` — do not edit it. Exit 0 is "no user-owned importer", not "no importer" (root-owned `/proc/<pid>/{fd,environ,maps}` are invisible). Sibling `juniper-cascor-client` / `-worker` and both worktree roots are not holds. [REFERENCE.md § Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell).
 
 ---
 
@@ -770,6 +773,8 @@ Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_g
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
 | Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. If it dies on `import torch`, run `util/check_conda_env_torch.bash` first — exit **2** is P-5 FT, exit **4** is May-7. Keep default `JuniperCascor1`. |
+| Freeze tell exit 0, then editing primary corrupts a service | Exit 0 ≠ no importer — root-owned holds are invisible. Confirm with privileged `lsof` on `PRIMARY/src` before editing. |
+| Freeze tell flags `juniper-cascor-client` / a worktree | Live tell uses an exact prefix; siblings and both worktree roots are not holds. A remaining hit is importing the **primary**. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
@@ -1037,6 +1042,7 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; exit 2 = failed to measure; idle populated is VALID
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- shipped count is 58; v1 is the name-matching negative example; C5 remedy refuted
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
+- [Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell) -- exact-prefix hold test; exit 0 is "no user-owned importer"
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore; do not plan from `e2e_row_coverage.py`
 - [F-CANOPY-027 Poller Starvation Probes](REFERENCE.md#f-canopy-027-poller-starvation-probes) -- 12-slot dash-renderer starvation (FIXED canopy#507/#509/#511); do not add a new Interval
