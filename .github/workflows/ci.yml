@@ -583,6 +583,15 @@ jobs:
           #     is routine across ~24 concurrent worktrees);
           #   * a lost, empty or corrupt ledger reports NO-DATA/DEGRADED, never health.
           python3 -m unittest -v tests/test_soak_ledger.py
+          # tests/test_soak_analyse_date_pool.py: complementary leftover the ledger
+          # suite cannot see -- it hard-codes one ts and never asks whether a date
+          # split would change the verdict. analyse() has no date filter; pick_next
+          # (ml#1728) now ignores pre-intervention rows, so the spend-control token
+          # (analyse()["verdict"]) is computed on the POOLED corpus. Pins that
+          # pre 24/35 is INCONCLUSIVE, post-only 2/8 is IN-PROGRESS, pooled 26/43
+          # is BET-FAILING, status first-token is the pooled verdict, and empty /
+          # missing ts still count (the opposite of pick_next's post_intervention).
+          python3 -m unittest -v tests/test_soak_analyse_date_pool.py
           # tests/test_soak_next_probe.py: the gate for util/soak_next_probe.py, which
           # dispatches a probe to a fresh session. Its load-bearing property is a
           # NEGATIVE one -- stdout must carry the task and nothing else -- because a
