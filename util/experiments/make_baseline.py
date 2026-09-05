@@ -164,6 +164,18 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
         failed = [r["run_id"] for r in rows if r.get("outcome") != "succeeded"]
         if failed:
             refusals.append(f"{suite_dir.name}: cells did not succeed: {failed}")
+        # A baseline exists to support the WORK gate. Recurrence exposes no work-done counter
+        # (surveyed 2026-09-04: n_epochs is 1-or-200 by readout type and invariant to d/n_steps;
+        # n_windows is input size), so a "baseline" cut from one could only ever back a SPEED
+        # comparison -- and this host's 13-20.5% drift floor is precisely why speed is not gated.
+        # Blessing one would invite exactly the comparison the lane has ruled out.
+        if not summary.get("work_countable", True):
+            reason = next((r.get("work_uncountable_reason") for r in rows if r.get("work_uncountable_reason")), "no work counter")
+            refusals.append(
+                f"{suite_dir.name}: runs of kind {summary.get('kinds')} expose no countable work -- {reason}. "
+                f"A baseline supports the WORK gate; a speed-only reference would invite the comparison the "
+                f"13-20.5% drift floor rules out. Report these runs instead of baselining them."
+            )
         # A suite of repeats whose work amount MOVED is not a set of repeats, and a baseline cut
         # from it fixes a work count that was never stable. This is the split gate's own premise.
         if not summary["work_invariant"]:

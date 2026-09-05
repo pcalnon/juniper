@@ -124,6 +124,13 @@ def compare(
                 f"(or their identity is unknown) -- cannot compare"
             )
             continue
+        if not summary.get("work_countable", True):
+            reasons.append(
+                f"{Path(suite_dir).name}: candidate runs of kind {summary.get('kinds')} expose no countable work, so the "
+                f"WORK half of the gate does not apply. Speed alone cannot be compared here -- the host's drift floor is "
+                f"13-20.5%. Report the run rather than gating it."
+            )
+            continue
         if not summary["work_invariant"]:
             reasons.append(f"{Path(suite_dir).name}: candidate step_count is not invariant across cells ({[int(c) for c in summary['step_counts']]}) -- not a set of repeats")
             continue
