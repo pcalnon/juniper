@@ -104,8 +104,34 @@ def compare(
 ) -> Dict[str, Any]:
     """Produce the typed verdict. Never raises on a comparison outcome -- only on load failure."""
     reasons: List[str] = []
+    # Refusals split into two classes, because they do NOT rank the same against a FAIL:
+    #   BASIS   -- the comparison itself is invalid (duplicate baseline fingerprints, host
+    #              mismatch). Any "mismatch" found under one is an artifact, not knowledge, so
+    #              these OUTRANK a FAIL.
+    #   PER-SUITE -- one suite could not be compared. A real regression found on a DIFFERENT,
+    #              comparable suite is still knowledge, so a FAIL outranks these.
+    # Collapsing the two is what made A3 (a stray unreadable suite masking a real FAIL) and the
+    # A7 interaction (an arbitrary-scenario mismatch reported as a FAIL) possible.
+    basis_reasons: List[str] = []
     scenario_results: List[Dict[str, Any]] = []
-    by_fingerprint = {s.get("workload_fingerprint"): s for s in baseline_payload.get("scenarios", []) if s.get("workload_fingerprint")}
+    # A7: a dict comprehension silently keeps the LAST scenario when two share a fingerprint, so a
+    # baseline holding two blessed runs of one workload would compare against whichever came last
+    # and could emit a FALSE FAIL. Detect the collision instead of resolving it arbitrarily.
+    by_fingerprint: Dict[str, Any] = {}
+    duplicate_fingerprints: List[str] = []
+    for scenario in baseline_payload.get("scenarios", []):
+        fp = scenario.get("workload_fingerprint")
+        if not fp:
+            continue
+        if fp in by_fingerprint:
+            duplicate_fingerprints.append(str(fp))
+        by_fingerprint[fp] = scenario
+    if duplicate_fingerprints:
+        basis_reasons.append(
+            f"baseline {baseline_payload.get('tag')!r} holds {len(duplicate_fingerprints)} DUPLICATE workload "
+            f"fingerprint(s) {[f[:12] for f in duplicate_fingerprints]} -- which scenario a candidate compares "
+            f"against would be arbitrary. Re-cut the baseline with one scenario per workload."
+        )
 
     candidate_manifests: List[Dict[str, Any]] = []
     for suite_dir in suite_dirs:
@@ -115,6 +141,30 @@ def compare(
             continue
         summary = rrm.summarise(rows)
         candidate_manifests.extend(rrm._load_json(Path(r["run_dir"]) / "manifest.json") for r in rows)
+
+        # A1 / A2 / A4: adopt the refusals make_baseline already implements. The asymmetry was the
+        # bug -- a suite good enough to REJECT as a baseline was still good enough to COMPARE, so a
+        # candidate whose cells never ran, timed out, or did no work at all reported PASS.
+        if summary["truncated_terminations"]:
+            reasons.append(
+                f"{Path(suite_dir).name}: cells ended on {summary['truncated_terminations']} -- the driver stopped "
+                f"before the workload did, so step_count measures the BUDGET, not the code. Not comparable."
+            )
+            continue
+        not_succeeded = [r["run_id"] for r in rows if r.get("outcome") != "succeeded"]
+        if not_succeeded:
+            reasons.append(f"{Path(suite_dir).name}: candidate cells did not succeed: {not_succeeded} -- not comparable")
+            continue
+        unmeasured = [r["run_id"] for r in rows if r.get("step_count") is None]
+        if unmeasured:
+            reasons.append(
+                f"{Path(suite_dir).name}: no step-duration data for {unmeasured} -- those cells are dropped from the "
+                f"work invariant, so a single surviving cell would satisfy it vacuously"
+            )
+            continue
+        if any(r.get("step_count") == 0 for r in rows):
+            reasons.append(f"{Path(suite_dir).name}: step_count is 0 -- nobody did any work, so an equal count proves nothing")
+            continue
 
         # An incoherent CANDIDATE cannot be compared to anything -- its own spread would not be a
         # property of the code. Refuse rather than pick a cell arbitrarily.
@@ -142,12 +192,6 @@ def compare(
         # `completion_reason` -- zero remain divergent within a branch. So comparing across branches
         # is what produced the false FAIL (6496 early_stopped vs 6095 below_threshold at one config),
         # and the correct verdict there is REFUSE.
-        if summary["truncated_terminations"]:
-            reasons.append(
-                f"{Path(suite_dir).name}: cells ended on {summary['truncated_terminations']} -- the driver stopped "
-                f"before the workload did, so step_count measures the BUDGET, not the code. Not comparable."
-            )
-            continue
         if not summary["single_completion_reason"]:
             reasons.append(
                 f"{Path(suite_dir).name}: cells ended on different branches {summary['completion_reasons']} -- "
@@ -212,23 +256,47 @@ def compare(
 
     host = compare_host(baseline_host, mb.collect_host(candidate_manifests) if candidate_manifests else {})
     if not host["match"]:
-        reasons.append(
+        basis_reasons.append(
             "host identity differs from the baseline (" + ", ".join(sorted(host["blocking_differences"])) + ") -- "
             "the run tier's regression definition requires the same hardware and thread budget, so this comparison "
             "would silently be cross-hardware"
         )
 
-    if reasons:
+    # A6: a PASS must not mean "the scenarios you happened to pass still match". Name what the
+    # baseline holds that the candidate never covered, so partial coverage is visible.
+    compared = {s["workload_fingerprint"] for s in scenario_results}
+    uncovered = sorted(str(fp)[:12] for fp in by_fingerprint if fp not in compared)
+
+    # A3: PRECEDENCE IS FAIL > REFUSED > PASS, and the order matters.
+    #
+    # This used to be `if reasons: REFUSED` FIRST, so any refusal anywhere -- including one
+    # unreadable suite on the command line -- converted a REAL FAIL on another suite into a
+    # REFUSE. A caller treating exit 2 as "cannot compare, don't block" then loses the regression.
+    # ml#1733 made it worse by adding four more refusal paths.
+    #
+    # A positively-detected work regression is knowledge and must win. A refusal only means "could
+    # not verify", which must still beat PASS -- so an unverifiable comparison never reports clean.
+    reasons = basis_reasons + reasons
+    work_moved = [s for s in scenario_results if not s["work"]["match"]]
+    if basis_reasons:
+        verdict = REFUSED
+    elif work_moved and not accept_work_change:
+        verdict = FAIL
+    elif work_moved:
+        verdict = WAIVED
+    elif reasons:
         verdict = REFUSED
     elif not scenario_results:
         verdict = REFUSED
         reasons.append("no scenarios compared -- nothing to judge")
-    elif all(s["work"]["match"] for s in scenario_results):
-        verdict = PASS
-    elif accept_work_change:
-        verdict = WAIVED
+    elif uncovered:
+        verdict = REFUSED
+        reasons.append(
+            f"the candidate covered {len(compared)} of {len(by_fingerprint)} baseline scenario(s); "
+            f"uncovered: {uncovered}. A PASS here would mean only that the scenarios you passed still match."
+        )
     else:
-        verdict = FAIL
+        verdict = PASS
 
     return {
         "verdict": verdict,

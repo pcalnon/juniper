@@ -429,3 +429,113 @@ class FailOpenRegressionTest(unittest.TestCase):
             result = cb.compare(payload, host, [cand])
             self.assertEqual(result["verdict"], cb.REFUSED)
             self.assertIn("torn_down_early", " ".join(result["reasons"]))
+
+
+class ComparatorDefectTest(unittest.TestCase):
+    """A1 / A2 / A3 / A4 / A6 / A7 — the ways the comparator reached a wrong verdict.
+
+    All six were found by adversarial validation of the shipped gate. The asymmetry behind
+    A1/A2/A4 is the theme: a suite `make_baseline` would REJECT was still good enough to
+    COMPARE, so the comparator passed on runs the blesser would refuse.
+    """
+
+    def _mutate(self, suite: Path, index: int, **fields) -> None:
+        row = rrm.read_suite(suite)[index]
+        mpath = Path(row["run_dir"]) / "manifest.json"
+        m = json.loads(mpath.read_text())
+        m.update(fields)
+        mpath.write_text(json.dumps(m), encoding="utf-8")
+
+    def test_A3_a_real_FAIL_is_not_masked_by_an_unrelated_refusal(self):
+        """THE ONE THAT MATTERS FOR CI WIRING.
+
+        `if reasons: verdict = REFUSED` used to precede the FAIL branch, so adding any
+        unreadable suite to the command line converted a true FAIL(1) into REFUSED(2). A
+        caller treating exit 2 as "cannot compare, don't block" would lose the regression.
+        Precedence is now FAIL > REFUSED > PASS.
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            regressed = _suite(Path(tmp), "cand", step_count=1771)
+            empty = Path(tmp) / "empty"
+            empty.mkdir()
+
+            alone = cb.compare(payload, host, [regressed])
+            self.assertEqual(alone["verdict"], cb.FAIL, "control: the regression fails on its own")
+
+            with_noise = cb.compare(payload, host, [empty, regressed])
+            self.assertEqual(with_noise["verdict"], cb.FAIL, "an unreadable suite must not mask a real regression")
+            self.assertEqual(cb.EXIT[with_noise["verdict"]], 1)
+            self.assertTrue(with_noise["reasons"], "the refusal is still reported alongside the failure")
+
+    def test_A3_a_refusal_still_beats_a_PASS(self):
+        # "Could not verify" must never report clean.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            empty = Path(tmp) / "empty"
+            empty.mkdir()
+            self.assertEqual(cb.compare(payload, host, [empty, base])["verdict"], cb.REFUSED)
+
+    def test_A1_unmeasured_cells_are_refused(self):
+        # 4 of 5 cells with no metrics used to PASS: nulls were dropped before the work
+        # invariant, so one surviving cell satisfied it vacuously.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", cells=2)
+            series = Path(rrm.read_suite(cand)[0]["run_dir"]) / "artifacts/results/metrics_series.csv"
+            series.unlink()
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("no step-duration data", " ".join(result["reasons"]))
+
+    def test_A2_a_failed_candidate_is_refused(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            cand = _suite(Path(tmp), "cand", cells=2)
+            self._mutate(cand, 0, outcome="failed")
+            self.assertEqual(cb.compare(payload, host, [cand])["verdict"], cb.REFUSED)
+
+    def test_A4_zero_work_on_both_sides_is_refused(self):
+        # `bool(counts)` is True for [0.0, 0.0], so a do-nothing run compared equal and PASSed.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=0, step_sum=0.0)
+            cand = _suite(Path(tmp), "cand", step_count=0, step_sum=0.0)
+            # make_baseline already refuses this, so build the payload by hand to test the
+            # comparator's own guard rather than the blesser's.
+            payload = {"tag": "t", "scenarios": [{"suite": "base", "workload_fingerprint": rrm.summarise(rrm.read_suite(base))["workload_fingerprints"][0], "work": {"step_count": 0, "completion_reason": "early_stopped"}, "speed": {"mean": 0.0}}]}
+            host = mb.collect_host([rrm._load_json(Path(r["run_dir"]) / "manifest.json") for r in rrm.read_suite(base)])
+            result = cb.compare(payload, host, [cand])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("nobody did any work", " ".join(result["reasons"]))
+
+    def test_A6_partial_scenario_coverage_is_refused(self):
+        # A PASS must not mean "the scenarios you happened to pass still match".
+        with tempfile.TemporaryDirectory() as tmp:
+            covered = _suite(Path(tmp), "a", epochs=4000)
+            other = _suite(Path(tmp), "b", epochs=500)
+            payload = mb.build_baseline("t", [covered, other])
+            host = mb.collect_host([rrm._load_json(Path(r["run_dir"]) / "manifest.json") for r in rrm.read_suite(covered)])
+            result = cb.compare(payload, host, [covered])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("uncovered", " ".join(result["reasons"]))
+
+    def test_A7_duplicate_baseline_fingerprints_are_refused(self):
+        # Two scenarios sharing a fingerprint used to collapse to the LAST in a dict
+        # comprehension, so a candidate could be judged against an arbitrary one -- and the
+        # doc's own warning is that a false FAIL is the credibility failure.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _suite(Path(tmp), "s")
+            payload = mb.build_baseline("t", [suite])
+            fp = payload["scenarios"][0]["workload_fingerprint"]
+            twin = json.loads(json.dumps(payload["scenarios"][0]))
+            twin["work"]["step_count"] = 9999
+            payload["scenarios"].append(twin)
+            host = mb.collect_host([rrm._load_json(Path(r["run_dir"]) / "manifest.json") for r in rrm.read_suite(suite)])
+            result = cb.compare(payload, host, [suite])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("DUPLICATE workload", " ".join(result["reasons"]))
+            self.assertIn(fp[:12], " ".join(result["reasons"]))
