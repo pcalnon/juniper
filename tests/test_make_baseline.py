@@ -292,6 +292,18 @@ class HostTest(unittest.TestCase):
             self.assertIn("torch", host["versions"])
             self.assertIn("numpy", host["versions"])
 
+    def test_a_non_dict_environment_does_not_crash_collect_host(self):
+        # `(m.get("environment") or {}).get("python")` guards FALSY, not TYPE. An older writer,
+        # an operator edit, or a hand-built fixture can put a STRING there, and the `or {}` form
+        # passes it straight to `.get` -- AttributeError, mid-build, with no field named.
+        # `collect_host` must skip the unreadable section and still describe the host.
+        with tempfile.TemporaryDirectory() as tmp:
+            good = json.loads((_write_run(Path(tmp), "good") / "manifest.json").read_text())
+            bad = dict(good, environment="Linux-test")
+            host = mb.collect_host([good, bad])
+            self.assertEqual(host["versions"]["python_runs"], ["3.13.13"], "the readable manifest still contributes")
+            self.assertIn("cpu_model", host)
+
     def test_caveat_when_run_python_differs_from_tool(self):
         # torch/numpy are read from THIS interpreter; if the runs used another, say so rather
         # than record a plausible-but-wrong version.

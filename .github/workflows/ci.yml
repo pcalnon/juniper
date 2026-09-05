@@ -1044,6 +1044,20 @@ jobs:
           python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
           # tests/test_e2e_finding_triage_priority.py: `pri_of` first-token severity, lifted out of a nested function so it can be imported: the FIRST severity token anywhere in the bolded header body wins, so a header naming another severity in prose before the parenthetical triages as that severity (F-CANOPY-037 / F-E2E-007).
           python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
+          # tests/test_register_open_set.py: The defect register's open-set counter, which had zero tests: which rows count as open, that a dagger or letter suffix is part of the id, and that the count and the enumerated list cannot disagree.
+          python3 -m unittest -v tests/test_register_open_set.py
+          # tests/test_register_status_crosscheck.py: The register's third reading: §4 **FIXED rows, the §2 prose enumeration and the §5.1 verification table must agree three ways. `**FIXED` counts only in the STATUS cell -- a §5.1 row that merely mentions it is not a close -- and a missing §4 heading is an error rather than an empty-and-AGREE.
+          python3 -m unittest -v tests/test_register_status_crosscheck.py
+          # tests/test_soak_next_probe_split.py: `pick_next` least-coverage-first selection, lifted to module scope so it can be tested: pre-intervention rows must not enter the run counter, or a probe the intervention never touched looks already-sampled and billed sessions keep landing on the covered ones.
+          python3 -m unittest -v tests/test_soak_next_probe_split.py
+          # tests/test_soak_run_probe_terminal.py: The terminal-verdict stopping rule as a pure parse: only the FIRST token of `soak_ledger status` is the verdict, so a later mention of a terminal name in the counts must not trip the guard -- and `--dry-run` is EXEMPT, because the rule rations billed sessions and a dry run spends none.
+          python3 -m unittest -v tests/test_soak_run_probe_terminal.py
+          # tests/test_soak_run_probe_launch_guards.py: The launch guards that lose a spent run before it starts: `claude` resolved by absolute path (subprocess resolves a bare name against the env dict it is HANDED, which every unattended launcher minimises), and the reaper pidfile written where `collect_protected_pids` actually scans rather than under reports/, where it protected nothing.
+          python3 -m unittest -v tests/test_soak_run_probe_launch_guards.py
+          # tests/test_soak_handoff_consensus_checks.py: The consensus reducer that silently no-ops: a mutation record carries its OWN obs_id and names its TARGET, so keying on obs_id makes every mutation vanish and inflates the denominator 43 to 49 -- with a clean, plausible report either way. Also that the via-search-output marker is matched in BOTH lexical forms (8, not 2).
+          python3 -m unittest -v tests/test_soak_handoff_consensus_checks.py
+          # tests/test_x7_offload_census.py: The off-loop census exemption that certified a partial sweep: `census_source` classifies un-offloaded calls from a source string, extracted from `main` so the walk can be tested without canopy's main.py.
+          python3 -m unittest -v tests/test_x7_offload_census.py
 
       - name: Run bash regression tests
         run: |
