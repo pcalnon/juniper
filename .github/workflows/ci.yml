@@ -1008,6 +1008,16 @@ jobs:
           python3 -m unittest -v tests/test_stats_summary_render.py
           # tests/test_stats_summary_git_and_confirmed.py: The `summary.md` scrape tri-state and git provenance the producer suite cannot see -- `confirmed` None-is-not-False, the N/A fallback, unavailable git, clean-head, and a decreasing count that must not mint a poll sample. Independent sibling of `test_stats_summary_render.py`; see its header for why both were kept.
           python3 -m unittest -v tests/test_stats_summary_git_and_confirmed.py
+          # tests/test_canopy_poller_inventory.py: The canopy poller census that can certify a PARTIAL inventory -- a census counting the pollers it found, not the pollers that exist, reports completeness it cannot know.
+          python3 -m unittest -v tests/test_canopy_poller_inventory.py
+          # tests/test_cascor_freeze_tell.py: The cascor freeze tell that FALSE-FROZE siblings and missed the real one: both error directions of the same predicate, which a one-sided test cannot separate.
+          python3 -m unittest -v tests/test_cascor_freeze_tell.py
+          # tests/test_ruleset_context_audit.py: The ruleset context audit that can make `main` UNMERGEABLE -- promoting a context that never reports leaves every PR blocked forever, so the audit's failure mode is worse than its absence.
+          python3 -m unittest -v tests/test_ruleset_context_audit.py
+          # tests/test_snapshot_index_root_resolution.py: The env-root resolver the `--root` suites cannot see: they always pass `--root` explicitly, so the DEFAULT resolution path they exist to protect is never entered.
+          python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
+          # tests/test_equities_symbol_cap_operator.py: The suite and stack surfaces that can defeat the 14-symbol equities cap (APD-DATA-018), with two anti-vacuous controls -- the cap is only a cap if every surface honours it.
+          python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
 
       - name: Run bash regression tests
         run: |
