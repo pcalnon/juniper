@@ -235,7 +235,7 @@ class RequiredContextExactNameTest(unittest.TestCase):
         ]
         names = mod.required_contexts("juniper-ml")
         self.assertIn(mod.CONTEXT, names)
-        self.assertTrue(mod.CONTEXT in names)
+        self.assertIn(mod.CONTEXT, names)
 
     def test_near_miss_name_is_not_memory_budget(self) -> None:
         """NEGATIVE CONTROL. A similarly-named check must not count as required."""
