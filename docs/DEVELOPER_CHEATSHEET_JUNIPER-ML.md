@@ -1,7 +1,7 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
-**Date**: 2026-09-04
+**Version**: 1.0.69
+**Date**: 2026-09-05
 **Project**: juniper-ml
 
 ---
@@ -48,6 +48,9 @@
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
+| `python3 util/memory_index_check.py` | Check the Claude Code `MEMORY.md` index (200 lines / 25k bytes; new-row hook ≤ 120) |
+| `python3 util/memory_index_check.py --accept` | Grandfather current slugs + record one growth sample (always exit 0) |
+| `python3 -m unittest -v tests/test_memory_index_check.py` | Hermetic index-gate suite (CI cannot see `~/.claude`) |
 | `./claudey`                                            | Launch default interactive Claude session       |
 
 ---
@@ -583,6 +586,8 @@ Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or r
 
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
 
+Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 bytes. Run `python3 util/memory_index_check.py` on the host that writes `~/.claude` — CI never sees the real file. The 120 cap is the **hook** (`len` after the `)`), not the line. `--accept` grandfathers and always exits 0; it does not evict. See [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check).
+
 
 ### Host Stack Troubleshooting
 
@@ -659,6 +664,10 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
+| `memory_index_check` exit 2 `not found` | Default path is the **primary** checkout slug under `~/.claude/projects/…/memory/MEMORY.md`. Pass `--memory-file` or `--skip-if-absent`. |
+| First index check flags every row | Empty / missing `conf/memory_index_baseline.json` slugs. Review hooks, then `--accept` once. |
+| Long slug "fails" a 120-byte line budget | Cap is the hook, not the line. See [REFERENCE](REFERENCE.md#memorymd-index-check). |
+| `--accept` then still over 25k / 200 | Expected — accept does not evict. Demote detail; keep STATUS on the row. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
@@ -723,12 +732,13 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local `MEMORY.md` gate; hook-not-line; CI cannot see `~/.claude`
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Last Updated:** 2026-09-05
+**Version:** 1.0.69
 **Maintainer:** Paul Calnon

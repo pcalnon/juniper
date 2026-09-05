@@ -6,6 +6,7 @@
 **License**: MIT License
 **Version**: 0.7.1
 **Last Updated**: 2026-08-31
+**Operator surface (MEMORY.md index)**: [`docs/REFERENCE.md` § MEMORY.md Index Check](../docs/REFERENCE.md#memorymd-index-check)
 
 ---
 

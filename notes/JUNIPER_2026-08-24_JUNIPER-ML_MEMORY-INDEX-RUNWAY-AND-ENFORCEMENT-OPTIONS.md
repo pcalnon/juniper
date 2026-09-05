@@ -5,6 +5,7 @@
 **Date**: 2026-08-24
 **Status**: Analysis — prepares owner decision #4 (the forward-only cap) and its enforcement surface
 **Relates to**: [`JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md`](JUNIPER_2026-08-18_JUNIPER-ML_SHARED-SESSION-MEMORY-PLAN.md) §P0
+**Operator surface**: [`docs/REFERENCE.md` § MEMORY.md Index Check](../docs/REFERENCE.md#memorymd-index-check)
 
 ---
 

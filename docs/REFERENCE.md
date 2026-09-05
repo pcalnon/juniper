@@ -2,9 +2,9 @@
 
 ## juniper-ml Technical Reference
 
-**Version:** 0.6.22
+**Version:** 0.6.57
 **Status:** Active
-**Last Updated:** 2026-09-04
+**Last Updated:** 2026-09-05
 **Project:** Juniper - Meta-Package for PyPI Distribution
 
 ---
@@ -27,6 +27,7 @@
 - [Experiment Stack Utilities](#experiment-stack-utilities)
 - [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - [X7 Off-Loop Census](#x7-off-loop-census)
+- [MEMORY.md Index Check](#memorymd-index-check)
 - [Shared-Package CI Workflows](#shared-package-ci-workflows)
 - [Docs Full Check](#docs-full-check)
 - [Scheduled Security Scan and Lockfile Update](#scheduled-security-scan-and-lockfile-update)
@@ -1236,6 +1237,68 @@ them, so the classifier stays pure.
 
 Exit **0** pass or advisory / **1** over budget / **2** misuse or broken machinery.
 
+Distinct from [`MEMORY.md` Index Check](#memorymd-index-check) (`util/memory_index_check.py`): that tool governs the always-loaded Claude Code index outside the repo. This section is the `AGENTS.md` CI ceiling.
+
+---
+
+## MEMORY.md Index Check
+
+`util/memory_index_check.py` — option A of [`notes/JUNIPER_2026-08-24_JUNIPER-ML_MEMORY-INDEX-RUNWAY-AND-ENFORCEMENT-OPTIONS.md`](../notes/JUNIPER_2026-08-24_JUNIPER-ML_MEMORY-INDEX-RUNWAY-AND-ENFORCEMENT-OPTIONS.md). Local linter for the Claude Code project index. Distinct from [Memory File Size Budget](#memory-file-size-budget) (`AGENTS.md` CI).
+
+**Why it exists.** `MEMORY.md` is loaded into every session and truncates **silently, newest-first** at **200 lines / 25,000 UTF-8 bytes**. The newest rows are the ones a session just learned. Eviction, trim, or rewrite cannot buy more than the whole cap (~40 days from empty at any observed rate). Only governing what goes **in** moves the date.
+
+The tool prints the current rate from `conf/memory_index_baseline.json` `history`. Do not transcribe a runway number into a note — it went stale twice while the checker was being written.
+
+### What it measures
+
+| Quantity | How | Cap |
+|----------|-----|-----|
+| Lines | `len(text.splitlines())` — **every** line, including headings and blanks | 200 |
+| Bytes | `len(text.encode("utf-8"))` | 25,000 |
+| Rows | lines matching `- [Title](slug)hook` | not a hard cap |
+| New-row hook | `len(hook)` vs `--hook-max` (default **120**) | new slugs only |
+
+Owner decision #4 is "120 bytes on NEW entries only". A **whole-line** 120-byte reading is unwritable: the link alone averages ~90 characters and reaches 115. The shipped comparison is `len(hook)` (Python characters after the closing `)`), which is the only reading the corpus can satisfy. Grandfathered slugs never fire, so the first run does not produce 137 findings and get ignored.
+
+"NEW" is any parsed slug absent from `conf/memory_index_baseline.json`. `MEMORY.md` has **no git history**, so the tool carries its own baseline. A missing baseline is tolerated (`slugs: []`); every row is then new.
+
+### Where the file lives
+
+Default path is `~/.claude/projects/<slug>/memory/MEMORY.md`. `<slug>` is the **primary checkout** path with `/` replaced by `-`, resolved via `git rev-parse --path-format=absolute --git-common-dir` then `.parent`. A worktree must share the main checkout's index; if git is unavailable the resolver falls back to `--repo-root` and will look at a nonexistent worktree-local path.
+
+CI **cannot** see the real file. `ci.yml` runs `tests/test_memory_index_check.py` against fixtures. That suite **is** the gate (`util/` is outside every pre-commit Python hook). Pass `--skip-if-absent` only on a host that legitimately has no index; the skip is printed. Without it, a missing file is **exit 2**, not a silent pass.
+
+### Usage
+
+```bash
+python3 util/memory_index_check.py                     # check (exit 0/1/2)
+python3 util/memory_index_check.py --json
+python3 util/memory_index_check.py --advisory          # report, always exit 0
+python3 util/memory_index_check.py --accept            # grandfather current slugs + one growth sample
+python3 util/memory_index_check.py --skip-if-absent    # CI / hosts with no ~/.claude index
+python3 util/memory_index_check.py --memory-file PATH --baseline PATH
+```
+
+Exit **0** pass, advisory, skipped, or `--accept` / **1** over the hard cap or a new oversize hook / **2** missing file (unless skipped), unreadable text, or malformed baseline.
+
+`--accept` always exits 0, even when the file is already over the hard cap — it grandfathers slugs and records today's `(date, rows, lines, bytes)` sample (replacing a same-day sample). Re-run the bare check after accept to see remaining hard-cap debt.
+
+Runway uses the **last two** `history` samples with integer `bytes` and parseable dates. Fewer than two, a same-day pair, or a non-positive span → `n/a`. A shrinking index → `no growth` (`inf`), never a negative day count. Warns at 85% of either hard cap (`::warning::`); over either cap prints `OVER THE HARD CAP`.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Exit 2 `memory index not found` | Default path uses the **primary** checkout slug. Pass `--memory-file`, or `--skip-if-absent` on CI. |
+| First run flags every row | No baseline / empty `slugs`. `--accept` once after reviewing hooks, then keep new hooks ≤ 120. |
+| Long slug fails a "120-byte line" reading you invented | Cap is the **hook**, not the line. A 130-character slug with ` — tiny` is OK. |
+| Grandfathered long hook still listed | It should not fail. If it does, the slug in the baseline does not match the `(slug)` in the row. |
+| `--accept` then still over the hard cap | Expected. Accept does not evict. Shorten or demote **detail**; keep STATUS (open / shipped / refuted) on the row. |
+| Runway `n/a` | Need two dated samples. Run `--accept` on different days. |
+| CI green, local index exploding | CI never reads `~/.claude`. Run the checker on the host that writes the index. |
+
+Tests: `tests/test_memory_index_check.py`. Pins: missing file → 2; `--skip-if-absent` announced; malformed baseline → 2; hook-not-line; grandfathered oversize passes; `--advisory` still reports; `--accept` records a sample; shrinking runway is `inf`; shipped constants 200 / 25000 / 120.
+
 ---
 
 ## Relocation Completeness (G3)
@@ -1451,6 +1514,10 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
 - `tests/test_experiment_config_schemas.py` -- Wave 3.5 drift gate (§10.6 row 3): walks the sibling checkouts' `conf/experiments/*.yaml` (cascor Wave 3.2, recurrence Wave 3.4) and asserts each loads through the driver's §5.6 `load_config` AND that every `service:` key names a real app `Settings` field --
   extracted statically via AST (cascor `Settings`; recurrence `Settings` + the in-repo service-core `SettingsBase`), so no torch-heavy app import is needed. Cross-repo walk gated like `test_doc_tools_drift.py` (`GITHUB_ACTIONS=true` or `JUNIPER_DRIFT_TEST_FORCE_LOCAL=1`; sibling-absent skips loudly); the AST-extractor self-check always runs.
 - `tests/test_experiment_suite_yamls.py` -- Drift gate (R-6) over the shipped suites in `util/experiments/suites/**`, which no test loaded before it: every suite must pass `run_suite.load_suite` (catching the unknown-`execution:`-key / `stall_second` typo class that otherwise surfaces hours into a GPU campaign), and any oversize `app: cascor` suite must declare an `execution.stall_seconds` above the driver's `DEFAULT_STALL_SECONDS` (read from the driver source, not hardcoded).
+- `tests/test_memory_index_check.py` -- Hermetic gate for `util/memory_index_check.py` (`util/` is outside every pre-commit Python hook, so this suite IS the gate).
+  Load-bearing: missing `MEMORY.md` is exit 2 not a silent pass; `--skip-if-absent` is announced; malformed baseline is exit 2; absent baseline treats every row as new.
+  The 120 cap binds the **hook** (`len(hook)`), not the line (a 130-char slug with a tiny hook must pass); grandfathered oversize hooks do not fire.
+  `--advisory` reports and exits 0; `--accept` writes slugs + a history sample; runway needs two dated samples, shrinking is `inf`, same-day does not divide by zero; shipped constants 200 / 25000 / 120.
 - `tests/test_p5_port_memory_budget.py` -- Hermetic gate for the P5 fleet-rollout porting helper `util/ad-hoc/2026-08-25_p5_port_memory_budget.py` (`util/` is outside every pre-commit Python hook): growth statistics from a temp git repo measured in CHARS with a nearest-rank `p90` (the floor form returned the *smallest* growth at n=2, so four of the 2026-08-25 fleet measurements printed p90 < median); `render-job` / `render-workflow` / `render-config` output parses and carries the figures MEASURED in the target (the first two ports found every transcribed figure stale); `insert-job` lands before `required-checks` and outside its `needs:` (C9); `adapt-test` rewrites the repo-root depth and adds SPACE-separated `# nosec` codes (the comma form under-suppresses on bandit 1.9.4 and reads as applied).
   - **Oversize is pool OR cap.** The original gate triggered on `candidate_pool_size >= 16` only, so a wide-**cap** suite at a modest pool shipped and then lost its widest cells to a false `stalled` hours in — the candidate phase slows every iteration as the cascade widens each candidate's input, i.e. "the ml#1069 class, arriving through width instead of through pool size" (`suites/p4/e-i-cascor-cap-ceiling.yaml:46-50`). `max_hidden_units >= 64` now triggers too.
   - **Third contract — wide-cap suites must pin a wall budget**, via either `execution.max_wall_seconds` or a dotted `outputs.max_wall_seconds` override (E-I uses the latter, so accepting only the former would fail a correctly-budgeted suite). Thresholds are measured, not guessed: E-I at fixed pool 8 ran cap 32 → 1497.4 s, cap 64 → 2907.1 s, cap 128 → **4243.6 s** against a 3600 s inherited default, so 128 would have been truncated and 64 clears by only 693 s.
@@ -1580,6 +1647,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
     Note the flag needs the **full 40-char OID** (`headRefOid`); an abbreviated SHA is rejected with `Could not coerce value ... to GitObjectID`.
   - **No enforcement** A script can be skipped; the owner's `always` ruleset bypass is what makes required checks advisory for that actor. `python util/safe_merge.py --pr N [--repo R] [--execute]`; **`--dry-run` is the default**. Exit 0 merged / 1 refused / 2 misuse / 3 hard error / **4 interrupted**. Tests: `tests/test_safe_merge.py`.
 - `util/memory_budget_check.py` + `util/relocation_check.py` -- Memory-size gates (`Memory Budget` job — BLOCKING and a required context since 2026-08-20 (P4); only its G3 step stays advisory). **Don't grow `AGENTS.md`: relocate to `docs/REFERENCE.md`, leaving a pointer that keeps an accurate open/closed status.** G3 proves a relocation moved the *prose*, not just the identifiers — the docs screen cannot see that shape. `Allow-Budget-Overrun:` is a loan, not a pass. [Budget](#memory-file-size-budget) / [G3](#relocation-completeness-g3).
+- `util/memory_index_check.py` -- Local `MEMORY.md` index gate (enforcement option A). Hard cap 200 lines / 25,000 UTF-8 bytes (silent newest-first truncate). New-row hook cap is `len(hook)` vs 120, not the whole line. Baseline `conf/memory_index_baseline.json` decides NEW. Missing file is exit 2 (`--skip-if-absent` for CI). `--accept` grandfathers + samples and always exits 0. Operator surface: [§ MEMORY.md Index Check](#memorymd-index-check). Tests: `tests/test_memory_index_check.py`.
 - `util/open_signed_pr.py` -- Opens a PR on any Juniper repo whose commit is **GitHub-signed**, by creating branch + commit + PR through the API (`createCommitOnBranch`) instead of a local checkout. Promoted from `util/ad-hoc/` after it landed the ml#1099 signing fan-out across 8 repos.
   - Why it exists: `required_signatures` (2026-08-12) rejects unsigned commits fleet-wide, GPG/YubiKey signing is unavailable to a runner, and an unsigned commit **anywhere** in a branch's history blocks the merge (squash does not rescue it). GitHub signs API-authored commits, so this is the portable way to land a signed change. It needs no working tree, which also makes it the path of choice when a session is confined to one worktree and cannot commit in sibling checkouts.
   - `python util/open_signed_pr.py --repo R --branch B --add LOCAL:REPOPATH [--delete REPOPATH] --message M --title T --body-file F [--base main] [--owner pcalnon] [--dry-run]`. `--add` / `--delete` are repeatable and together express a file move; at least one is required. Exit 0 opened / 1 refused / 2 hard error.
@@ -1802,6 +1870,7 @@ juniper-ml/
 │   ├── test_reap_pytest_orphans.py       # Orphan pytest process reaper tests
 │   ├── test_kill_helpers.py              # Emergency kill helpers: process-filter / kill-path (hermetic PATH stubs)
 │   ├── test_check_conda_env_torch.py     # Hermetic P-5 torch._C shadow diagnostic exit matrix (0/1/2/3/4)
+│   ├── test_memory_index_check.py        # Hermetic MEMORY.md index gate (missing file = 2; hook-not-line; grandfathered oversize)
 │   ├── test_requirements_drift_check.py  # Requirements snapshot drift checker tests
 │   ├── test_editable_install_drift_check.py # Editable-install drift checker tests (orphaned / worktree-pinned)
 │   ├── test_env_floor_drift_check.py     # Lint/behavioural: util/env_floor_drift_check.py floor-drift (I-2; synthetic dist-info)
@@ -1868,6 +1937,7 @@ juniper-ml/
     ├── requirements_drift_check.py       # Drift checker for the requirements snapshot (--mode quick)
     ├── editable_install_drift_check.py   # Drift checker for juniper editable installs across conda envs
     ├── env_floor_drift_check.py          # Floor-drift checker: installed juniper-* vs target-repo pyproject floors (I-2)
+    ├── memory_index_check.py             # MEMORY.md index gate (option A): 200 lines / 25k UTF-8 bytes; new-row hook len() vs 120; --accept samples history
     ├── release_train/                    # PyPI release-train: registry.yaml (18-package registry) + detect.py (report-only "needs deploy?" engine, Phase 1) + propose.py/notes_render.py (manifest -> proposal-PR content, dry-run, Phase 2.1) + archive_guard.py (exempt notes-archive PR structural guard, Phase 3.1) + ceremony.py (exempt-archive + Release ceremony, dry-run, Phase 3.2)
     ├── prompt_discovery/                 # Custom-agent suite (PR 4): env-discovery probes -> JSON grounding bundle (path-invoked, --repo-root)
     ├── fleet_triage/                     # Flood §4 item 7 (Stage-0 supervisor script layer): predict_merge.py -- detached-clone predicted-merge per PR (4 verdicts, TRUE delta, cluster map + order; delegates the 2 screens to juniper-ci-tools console scripts); --pr N | --batch, exit 0/2
@@ -3104,6 +3174,7 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 
 | Version | Date       | Changes                                                                                                                                                                  |
 |---------|------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 0.6.57  | 2026-09-05 | MEMORY.md index check: local `util/memory_index_check.py` runbook — hard cap 200/25000 (silent newest-first), hook-not-line 120 on NEW slugs only, fail-closed missing file, `--accept` always exits 0 |
 | 0.6.22  | 2026-09-04 | X7 off-loop census: the count is **58** (canopy#567); the gate is authority for `main.py` only and the call-graph instrument covers the rest; v1 is the name-matching negative example; module-global expression exemptions certify a partial fix |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
