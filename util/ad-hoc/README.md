@@ -120,7 +120,6 @@ The copied blast-radius sentence *W4-01..17 and W1-12..14 stay BLOCKED* names 20
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Step Order and Blast-Radius IDs](../../docs/REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
 
----
 
 ## Memory-budget slack (operational)
 
@@ -171,7 +170,20 @@ A required name that never reports leaves `main` unmergeable with every visible 
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
 
----
+
+## Canopy E2E matrix writes (operational)
+
+The 298-row ledger is `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`. Do not hand-edit status cells.
+
+| Script | Default | Load-bearing constraint |
+|--------|---------|-------------------------|
+| `e2e_matrix_fill.py` | dry-run (`--write` to apply) | Locates `status` by header per table; splits on unescaped pipes; first `--verdicts` source wins (newest first). `--overwrite` clobbers hand-authored `DIVERGENCE` cells — use rescore for a named subset. |
+| `2026-09-02_matrix_set_verdicts.py` | **writes immediately** | `--from` must match every named row. Atomic: one miss updates nothing. Naive split on every pipe — do not use on escaped-pipe rows. |
+| `e2e_matrix_rescore.py` | dry-run | Named `--row` only. Missing ids warn **and still write** the found rows. |
+| `e2e_unfilled_rows.py` | read-only | Ledger reader. Do **not** plan from `e2e_row_coverage.py` (estimator). |
+
+W-lane ids have no status cell (`no-matrix-row`, not an error). Operator contract: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../../docs/REFERENCE.md#canopy-e2e-matrix-writes).
+
 
 ## What does NOT belong here
 

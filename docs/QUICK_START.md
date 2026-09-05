@@ -130,6 +130,7 @@ REST `base_url` is normalised at construction on GitHub-main of the three HTTP c
 - [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default `equities` / `equities_seq` is 422 at 14 symbols (cost is per request; silent slice deleted in data#354)
 - [Perf-lane metrics and baselines](REFERENCE.md#perf-lane-metrics-and-baselines) -- `read_run_metrics.py` / `make_baseline.py`; gate `step_count` exactly, never `wall_seconds` or `timings.drive`
 - [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- `compare_baseline.py`: identity first, work exact / speed reported, exit 0/1/2 (#1622)
+- [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore for the click-by-click ledger (fill is dry-run; set-verdicts is not)
 - [Shared-Package CI Workflows](REFERENCE.md#shared-package-ci-workflows) -- the six in-repo `ci-<pkg>.yml` contracts (paths, floors, coverage enforce)
 - [Docs Full Check](REFERENCE.md#docs-full-check) -- weekly cross-repo link validation + the `ECOSYSTEM_REPOS` clone-list lockstep
 - [Scheduled Security Scan and Lockfile Update](REFERENCE.md#scheduled-security-scan-and-lockfile-update) -- weekly `pip-audit --strict` + the lockfile refresh PR
