@@ -833,5 +833,89 @@ class RegenerateSidecarChainGuardTest(unittest.TestCase):
         )
 
 
+class WholeDatasetSurvivesDecision11Test(unittest.TestCase):
+    """``_whole_dataset`` must build "every row" from whichever artifact shape it is handed.
+
+    ``load_datasets`` read ``produced["X_full"]`` directly, and that subscript sat OUTSIDE
+    the ``try/except`` that turns a broken generator into a recorded gap. Decision 11
+    (juniper-data#369) removes the key, so every generator would have raised ``KeyError``
+    and taken the module down instead of being excluded with a warning -- attribution would
+    stop, loudly, on the first generator.
+    """
+
+    @staticmethod
+    def _numpy():
+        import numpy as np
+
+        return np
+
+    def _artifact(self, np, *, with_full: bool, with_val: bool = True):
+        produced = {
+            "X_train": np.array([[0.0, 0.0], [1.0, 1.0]], dtype=np.float32),
+            "y_train": np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
+            "X_test": np.array([[3.0, 3.0]], dtype=np.float32),
+            "y_test": np.array([[1.0, 0.0]], dtype=np.float32),
+        }
+        if with_val:
+            produced["X_val"] = np.array([[2.0, 2.0]], dtype=np.float32)
+            produced["y_val"] = np.array([[0.0, 1.0]], dtype=np.float32)
+        if with_full:
+            order = ["train", "val", "test"] if with_val else ["train", "test"]
+            produced["X_full"] = np.vstack([produced[f"X_{p}"] for p in order])
+            produced["y_full"] = np.vstack([produced[f"y_{p}"] for p in order])
+        return produced
+
+    def test_a_post_369_artifact_yields_the_whole_dataset(self) -> None:
+        np = self._numpy()
+        X, y = sa._whole_dataset(self._artifact(np, with_full=False), np)
+        self.assertEqual(X.shape, (4, 2))
+        self.assertEqual(y.shape, (4, 2))
+
+    def test_the_derived_rows_are_in_train_val_test_order(self) -> None:
+        """Order is load-bearing: ``labels`` is taken from ``y`` positionally."""
+        np = self._numpy()
+        X, _ = sa._whole_dataset(self._artifact(np, with_full=False), np)
+        self.assertEqual([row[0] for row in X.tolist()], [0.0, 1.0, 2.0, 3.0])
+
+    def test_a_legacy_artifact_keeps_the_producers_own_arrays(self) -> None:
+        """A stored pre-369 snapshot must attribute byte-identically to what it scored before."""
+        np = self._numpy()
+        produced = self._artifact(np, with_full=True)
+        produced["X_full"][0, 0] = 99.0  # a sentinel the concatenation could not produce
+        X, _ = sa._whole_dataset(produced, np)
+        self.assertEqual(X[0, 0], 99.0)
+
+    def test_derived_and_producer_arrays_agree_when_both_are_available(self) -> None:
+        """The concatenation reproduces what juniper-data used to ship, row for row."""
+        np = self._numpy()
+        legacy = self._artifact(np, with_full=True)
+        current = {k: v for k, v in legacy.items() if not k.endswith("_full")}
+        self.assertTrue(np.array_equal(sa._whole_dataset(legacy, np)[0], sa._whole_dataset(current, np)[0]))
+        self.assertTrue(np.array_equal(sa._whole_dataset(legacy, np)[1], sa._whole_dataset(current, np)[1]))
+
+    def test_a_legacy_two_way_artifact_derives_without_val(self) -> None:
+        np = self._numpy()
+        X, _ = sa._whole_dataset(self._artifact(np, with_full=False, with_val=False), np)
+        self.assertEqual(X.shape, (3, 2))
+
+    def test_an_artifact_with_no_partitions_raises_rather_than_returning_empty(self) -> None:
+        """An empty result would read as "this generator produced nothing", which is a lie."""
+        np = self._numpy()
+        with self.assertRaises(KeyError):
+            sa._whole_dataset({"something_else": np.zeros((2, 2))}, np)
+
+    def test_the_read_is_inside_the_recorded_gap_handler(self) -> None:
+        """A generator whose output cannot be read must be EXCLUDED, not fatal.
+
+        Pinned structurally: the call must sit inside the ``try`` whose handler prints the
+        "unavailable ... excluded" warning and continues. It previously sat one line below
+        the handler, so any failure to read the arrays escaped as an uncaught exception.
+        """
+        tree = ast.parse(MODULE_PATH.read_text())
+        loader = next(node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "load_datasets")
+        guarded = [node for node in ast.walk(loader) if isinstance(node, ast.Try) for stmt in node.body for sub in ast.walk(stmt) if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) and sub.func.id == "_whole_dataset"]
+        self.assertTrue(guarded, "_whole_dataset must be called inside load_datasets' try/except, or a bad artifact is fatal instead of a recorded gap")
+
+
 if __name__ == "__main__":
     unittest.main()
