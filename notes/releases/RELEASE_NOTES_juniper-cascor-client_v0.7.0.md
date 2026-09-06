@@ -65,4 +65,3 @@ This release ships **CL1** of the canopy training-runtime defects plan: WebSocke
 - Plan of record: juniper-ml `notes/JUNIPER_2026-07-11_JUNIPER-CANOPY_TRAINING-RUNTIME-DEFECTS-PLAN.md` (§4 I-1/I-4, §7 CL1)
 - PR: juniper-cascor-client#92 · Server-side companion: juniper-cascor#401 (C3)
 - Incident: 2026-07-10 frozen-dashboard session (control WS died 18:17:03; 12+ h half-open)
-
