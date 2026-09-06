@@ -288,6 +288,33 @@ def seeded_params(params_cls, seed: int):
     return params_cls(seed=seed)
 
 
+def _whole_dataset(produced: Dict[str, Any], np) -> Tuple[Any, Any]:
+    """The whole dataset as ``(X, y)``, from whichever shape the generator emitted.
+
+    Attribution wants "every row this generator produces", not a partition. That used to be
+    ``produced["X_full"]``; decision 11 (juniper-data#369) retires the ``*_full`` family, so
+    the key is gone from any freshly-generated artifact and a bare subscript raises.
+
+    The concatenation is not an approximation. ``juniper_data/core/split.py`` built
+    ``X_full`` as ``np.vstack([X_train, X_val, X_test])`` over contiguous slices, so
+    stacking the partitions in that order reproduces it row for row for these six 2-D
+    generators. A legacy artifact that still carries the family is used as-is, which keeps
+    an old snapshot's attribution byte-identical to what it scored before.
+
+    Ordering matters even though attribution itself is order-insensitive: ``labels`` is
+    derived from ``y`` positionally, so ``X`` and ``y`` must be stacked the same way.
+    """
+    if "X_full" in produced and "y_full" in produced:
+        return produced["X_full"], produced["y_full"]
+    partitions = [p for p in ("train", "val", "test") if f"X_{p}" in produced]
+    if not partitions:
+        raise KeyError(f"no partitions to build the whole dataset from; have {sorted(produced)}")
+    return (
+        np.vstack([produced[f"X_{p}"] for p in partitions]),
+        np.vstack([produced[f"y_{p}"] for p in partitions]),
+    )
+
+
 def load_datasets(data_root: Path, max_classes: int = 4, seed: int = DATASET_SEED) -> Dict[str, Dict[str, Any]]:
     """Generate one canonical instance of each 2-D classification generator.
 
@@ -312,10 +339,10 @@ def load_datasets(data_root: Path, max_classes: int = 4, seed: int = DATASET_SEE
             generator = getattr(module, f"{name.capitalize()}Generator", None) or getattr(module, f"{name.title()}Generator")
             params_cls = getattr(module, f"{name.capitalize()}Params", None) or getattr(module, f"{name.title()}Params")
             produced = generator.generate(seeded_params(params_cls, seed))
+            X, y = _whole_dataset(produced, np)
         except Exception as exc:  # noqa: BLE001 - a generator that will not build is a recorded gap, not a crash
             print(f"WARNING: generator {name!r} unavailable ({type(exc).__name__}: {exc}); excluded", file=sys.stderr)
             continue
-        X, y = produced["X_full"], produced["y_full"]
         n_classes = int(y.shape[1])
         if n_classes > max_classes:
             print(f"WARNING: generator {name!r} has {n_classes} classes; excluded (permutation search would be {n_classes}!)", file=sys.stderr)

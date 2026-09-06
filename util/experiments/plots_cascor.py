@@ -64,13 +64,24 @@ def _class_labels(y: Any) -> np.ndarray:
 
 
 def render_dataset(npz: Mapping[str, Any], title: str, out_path: Path) -> Path:
-    """SS8.1 ``dataset.png``: 2-feature scatter coloured by class, train/test split marked."""
+    """SS8.1 ``dataset.png``: 2-feature scatter coloured by class, every partition marked.
+
+    ``val`` is drawn, not skipped. This plotted train and test only, so on a three-way
+    artifact the validation rows were silently absent from the picture -- roughly a tenth
+    of the dataset missing from the one artifact an operator uses to eyeball what was
+    trained on, with nothing in the legend saying so. It stays presence-conditional
+    because a legacy two-way artifact has no val partition at all.
+    """
     x_train = np.asarray(npz["X_train"])
     x_test = np.asarray(npz["X_test"])
     if x_train.ndim != 2 or x_train.shape[1] != 2:
         raise ValueError(f"dataset plot requires 2-feature data, got shape {x_train.shape}")
+    layers = [(x_train, _class_labels(npz["y_train"]), "o", "train")]
+    if "X_val" in npz and "y_val" in npz and np.asarray(npz["X_val"]).shape[0]:
+        layers.append((np.asarray(npz["X_val"]), _class_labels(npz["y_val"]), "^", "val"))
+    layers.append((x_test, _class_labels(npz["y_test"]), "x", "test"))
     fig, ax = plt.subplots(figsize=(7, 6))
-    for arr, labels, marker, suffix in ((x_train, _class_labels(npz["y_train"]), "o", "train"), (x_test, _class_labels(npz["y_test"]), "x", "test")):
+    for arr, labels, marker, suffix in layers:
         for cls in np.unique(labels):
             points = arr[labels == cls]
             ax.scatter(points[:, 0], points[:, 1], marker=marker, s=14, alpha=0.7, label=f"class {int(cls)} ({suffix})")
