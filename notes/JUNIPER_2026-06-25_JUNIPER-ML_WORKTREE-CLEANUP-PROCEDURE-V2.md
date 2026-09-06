@@ -2,7 +2,7 @@
 
 **Purpose**: Standardized procedure for completing work in a worktree, merging, creating PRs, and transitioning to a new worktree — without trapping the Claude Code session in an invalid CWD
 **Project**: juniper-ml
-**Last Updated**: 2026-07-26
+**Last Updated**: 2026-09-04
 
 ---
 
@@ -185,9 +185,16 @@ gh pr create \
 >    2026-08-19: 22 of 23 worktrees were in that state.
 > 2. **Merged-and-clean does not mean idle.** Before removing a worktree you did not
 >    personally just leave, run
->    [`util/ad-hoc/2026-08-20_worktree_liveness_probe.py`](../util/ad-hoc/2026-08-20_worktree_liveness_probe.py).
->    On its first use it caught a worktree that passed every gate — merged, clean,
->    unlocked — while a live session was working in it.
+>    [`util/ad-hoc/2026-08-20_worktree_liveness_probe.py`](../util/ad-hoc/2026-08-20_worktree_liveness_probe.py)
+>    (cwd) **and**
+>    [`util/ad-hoc/2026-09-02_worktree_inuse_probe.py`](../util/ad-hoc/2026-09-02_worktree_inuse_probe.py)
+>    (cwd + open files + argv). cwd-only misses an editor whose cwd is elsewhere
+>    while a file in the tree is still open. On first use the cwd-only probe caught
+>    a worktree that passed every gate — merged, clean, unlocked — while a live
+>    session was working in it. The in-use probe's first run reported every tree
+>    `IN USE` because its own argv named the paths; only STRONG cwd/open-fd may
+>    refuse. Full contract:
+>    [`docs/REFERENCE.md` § Worktree Divergence](../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
 >
 > Never pass `--force` to `git worktree remove`: git's dirty-check is the
 > time-of-check/time-of-use guard.

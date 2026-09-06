@@ -8,6 +8,8 @@
 **Last Updated**: 2026-07-29
 **Scope repos**: `juniper-ml` (tooling home), `juniper-cascor`, `juniper-recurrence`, `juniper-data`, `juniper-data-client`, `juniper-deploy`
 
+> **Operator surface (Wave 7.1 / 7.5):** [REFERENCE — Suite Driver](../docs/REFERENCE.md#suite-driver). This plan's Wave 7 table is the design-of-record; the shipped CLI contract (`--resume` skips only `succeeded`, cascor parallel floor, Grafana env toggle) lives there.
+
 ---
 
 ## 1. Purpose & Scope

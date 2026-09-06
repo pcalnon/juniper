@@ -171,6 +171,51 @@ A required name that never reports leaves `main` unmergeable with every visible 
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
 
+## Worktree in-use probe (operational)
+
+`2026-09-02_worktree_inuse_probe.py` is an independent second opinion for a worktree sweep. The cwd-only liveness probe (`2026-08-20_worktree_liveness_probe.py`) and the P5 cleaner's `occupied()` gate miss an editor or a long `pytest` whose cwd is elsewhere while a file inside the tree is still open.
+
+- STRONG (cwd or an open fd inside the tree) → `IN USE`, exit 1 `REFUSE`.
+- WEAK (cmdline substring) → `review` / `CAUTION`, exit stays 0. The first run reported every tree in use because the probe named the paths as arguments; self and parent pids are excluded from WEAK by pid.
+- Empty argv exits 2 (the cwd-only probe exits 0 on that misuse).
+- Read-only. Sibling `foo-extra` is not inside `foo`. Unreadable `/proc` (other users) is counted, not treated as in-use.
+
+```bash
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree-dir> ...]
+```
+
+Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+## Canopy E2E finding triage (operational)
+
+`e2e_finding_triage.py` is the mechanical P0/P1 open-count for Phase 2's exit criterion. It reads only line-starting `**F-<AREA>-<NNN> — …**` headers in the evidence ledger.
+
+- `FIXED` / `HEALED` in the last 170 characters of the header → closed.
+- `ACCEPTED` in that same tail, and not also FIXED → owner-deferred. Third disposition: not FIXED, not OPEN.
+- `--open-only` hides closed rows; the totals block still counts every finding.
+- Always exits 0. A green shell is not "no open P0/P1".
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
+
+## F-CANOPY-037 render census (operational)
+
+`e2e_f037_render_census.py` re-drives the topology-graph paint that F-CANOPY-037 measured in 2 of 11 sessions. Default `--sessions` is 11; a single session is not a comparable claim. Exit 0 means every session produced PASS or FAIL (even if painted==0); exit 2 means the census failed to measure. All-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. Idle populated is VALID.
+
+The census does **not** start canopy. Bring up the isolated trio first (`util/isolated_stack.bash --up`), train a network, then:
+
+```bash
+python3 util/ad-hoc/e2e_f037_render_census.py
+```
+
+No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`). A/B a pre-merge checkout on `:8052` with `e2e_f037_ab_premerge_leg.bash`. `_find_juniper_root` must see **both** `juniper-canopy` and `juniper-cascor`; three hops from a nested worktree recorded `sha=None`.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-037 Render Census](../../docs/REFERENCE.md#f-canopy-037-render-census).
+
 ---
 
 ## What does NOT belong here
