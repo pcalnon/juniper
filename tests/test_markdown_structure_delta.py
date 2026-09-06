@@ -33,7 +33,6 @@ from __future__ import annotations
 
 import importlib.util
 import subprocess  # nosec B404 - fixed argv git, no shell
-import sys
 import unittest
 import unittest.mock
 from pathlib import Path
