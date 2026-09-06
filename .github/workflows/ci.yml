@@ -1058,6 +1058,8 @@ jobs:
           python3 -m unittest -v tests/test_soak_handoff_consensus_checks.py
           # tests/test_x7_offload_census.py: The off-loop census exemption that certified a partial sweep: `census_source` classifies un-offloaded calls from a source string, extracted from `main` so the walk can be tested without canopy's main.py.
           python3 -m unittest -v tests/test_x7_offload_census.py
+          # tests/test_markdown_structure_delta.py: the CI gate for markdown structure. `main` carries 104 structural problems across 23 files (mostly notes/legacy/ and notes/code-review/), so the gate compares PER FILE and PER PR -- an untouched file is not the PR's problem; a touched one must not come out worse; an ADDED one has no before, so its baseline is zero. Also pins the vacuous case: the screen silently skips anything not ending `.md`, so examining zero of N touched files is an ERROR, not a pass.
+          python3 -m unittest -v tests/test_markdown_structure_delta.py
 
       - name: Run bash regression tests
         run: |
@@ -1515,6 +1517,11 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The structure-delta step below compares each touched file against its BASE state.
+          # actions/checkout defaults to depth 1, which has no base commit to read -- the step
+          # would exit 2 rather than quietly pass, but it would never run.
+          fetch-depth: 0
 
       - name: Set up Python
         uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -1547,6 +1554,28 @@ jobs:
             --exclude development \
             --exclude CHANGELOG.md \
             --cross-repo skip
+
+      # Structure, not links. An unbalanced fence does not go "missing" -- it silently absorbs
+      # every heading after it, and markdownlint reports nothing because ``` is legal wherever
+      # it appears. A table row whose header lost its separator renders as paragraph text. Both
+      # are what a fleet-docs consolidation produces, and neither the link validator above nor
+      # markdownlint can see either one.
+      #
+      # DELTA, not count: `main` carries 104 such problems across 23 files, so a gate demanding
+      # zero would be red on arrival. This compares each markdown file the PR TOUCHES against
+      # its own base state. `fetch-depth: 0` is required -- the default shallow clone has no
+      # merge-base to compare against.
+      - name: Markdown structure (delta against the merge-base)
+        run: |
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║       juniper-ml - Markdown Structure Delta                ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          base="${{ github.event.pull_request.base.sha }}"
+          if [ -z "$base" ]; then
+            base="$(git rev-parse HEAD^1 2>/dev/null || git rev-parse HEAD)"
+            echo "no PR base sha (not a pull_request event) -> falling back to ${base}"
+          fi
+          python3 util/markdown_structure_delta.py --base "$base"
 
   # ═══════════════════════════════════════════════════════════════════════════════════════════════
   # Security: pip-audit for dependency vulnerabilities
