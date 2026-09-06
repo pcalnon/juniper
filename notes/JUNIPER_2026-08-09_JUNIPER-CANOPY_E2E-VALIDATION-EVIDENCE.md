@@ -10,6 +10,8 @@
 
 This file accumulates the arc's execution evidence phase by phase (plan §9). Matrix row statuses live in the matrix's own `status` column at Phase-1 close; this file holds transcripts, findings, and the PR ledger.
 
+**Triage this ledger mechanically** — `python3 util/ad-hoc/e2e_finding_triage.py` (see [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../docs/REFERENCE.md#canopy-e2e-finding-triage)). Disposition tokens (`FIXED` / `HEALED` / `ACCEPTED`) must sit in the finding **header**, in its last 170 characters. Body prose is invisible to the counter.
+
 ---
 
 ## Phase 0 — Prerequisites & stack fixes (2026-08-09) — COMPLETE
