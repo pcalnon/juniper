@@ -186,6 +186,25 @@ class BuildRefusalTest(unittest.TestCase):
                 mb.build_baseline("t", [suite])
             self.assertIn("different workloads", str(ctx.exception))
 
+    def test_refuses_a_suite_whose_cells_mix_a_KNOWN_and_a_MISSING_branch(self):
+        # `make_baseline.py` refuses at the `single_completion_reason` gate, and nothing pinned
+        # it. Blessing this suite would record `early_stopped` from the one cell that HAS a
+        # reason -- `completion_reason` is written beside the count precisely because the count
+        # is only deterministic within a branch -- and the null cell would vanish into a
+        # reference every later comparison is measured against.
+        #
+        # Since ml#1776 `completion_reasons` no longer drops falsy values before uniqueness, so
+        # the refusal names both members and the branch set reads ['None', 'early_stopped'].
+        # Asserting the pre-#1776 wording ("a single known branch") would re-pin the fail-open
+        # form: filtering None first makes `4x early_stopped + 1x None` read as ONE branch.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [{"reason": "early_stopped"}, {"reason": None}])
+            with self.assertRaises(mb.BaselineError) as ctx:
+                mb.build_baseline("t", [suite])
+            self.assertIn("different branches", str(ctx.exception))
+            self.assertIn("None", str(ctx.exception))
+            self.assertIn("early_stopped", str(ctx.exception))
+
     def test_refuses_when_workload_identity_is_unknown(self):
         # The fixture docstring claims this refusal; without it a baseline records
         # workload_fingerprint=None and every later comparison is an invalid comparison
