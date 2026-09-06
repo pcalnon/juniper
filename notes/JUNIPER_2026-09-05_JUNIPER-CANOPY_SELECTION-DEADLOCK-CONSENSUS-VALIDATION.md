@@ -3,11 +3,12 @@
 - **Project**: Juniper — juniper-canopy
 - **Author**: Paul Calnon
 - **Date**: 2026-09-05
-- **Status**: Validation complete; design **upheld with corrections**. Phases 1 and 2 shipped.
+- **Status**: Validation complete; design **upheld with corrections**. Phases 1 and 2 shipped and **accepted in a live browser** (§8.1).
 - **Validates**: [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md)
   and its evaluation of record [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md)
 - **Procedure**: [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`](JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md)
 - **Agent reports**: `reports/2026-09-05_canopy-deadlock-consensus/{laneA1,laneA2,laneA3,laneB1,laneB2}.md`
+- **Acceptance evidence**: `reports/2026-09-05_canopy-deadlock-consensus/browser_acceptance.md`
 
 ---
 
@@ -192,16 +193,50 @@ Remaining, in order:
 
 ---
 
-## 8. Not established
+## 8. Acceptance, and what remains unestablished
 
-- **Nothing was observed in a browser.** OQ-N5's re-run as the #593 acceptance step still stands —
-  the `⊥`-dataset and `⊥`-model states did not exist until now and have never been seen in a DOM.
-  Method constraints from the 09-02 run carry forward: isolated ports, `JUNIPER_E2E_RUN_DIR` and
-  `JUNIPER_E2E_PROJECT_DIR` overridden, a run-dir pid entry so the orphan reaper does not collect it,
-  and `locator.click({force: true})` because canopy never reaches DOM stability.
-- **No live service was contacted**, so §4.9's 502 and §4.2's wire behaviour are traced through code
-  and cascor's own route docstring, not observed.
-- **Availability scenarios are injected, not read from a running container.** §9's "the LMU has zero
-  available datasets in the container" additionally holds only while juniper-data is **up** and
-  reporting `available:false`; two fail-open layers mean a *down* juniper-data reports `equities_seq`
-  available and the failure surfaces later as a 501.
+### 8.1 OQ-N5 is CLOSED — the traversal was observed
+
+Evidence: `reports/2026-09-05_canopy-deadlock-consensus/browser_acceptance.md`. Run against canopy
+`main` @ `aa61156` on an isolated trio **plus the recurrence service** (data 8105 with the
+`equities` extra, cascor 8206, recurrence 8215, canopy 8055), chosen off the documented default
+ports because a concurrent session's stack already held those. The operator's stack and that
+session's stack were both verified untouched afterwards.
+
+```text
+(cascor, Spirals) --✕--> (cascor, ⊥)  [Start DISABLED, Apply DISABLED]
+                  --Select Recurrence--> (recurrence, ⊥)
+                  --gate snap--> (Recurrence (LMU), Equities (sequence))  [both re-ENABLED]
+```
+
+The `<a class="dash-dropdown-clear">` element is present in the rendered DOM — under
+`clearable=False` it is not rendered at all — and carries an `aria-label`, so unlike the greyed
+dataset *option* (Y7) this affordance is exposed to assistive technology. At `⊥` the model table's
+`Recurrence (LMU)` Select is **enabled**; on 2026-09-02 the same click was proven inert.
+
+Two method findings worth carrying:
+
+- **A first-run "Welcome to Juniper Canopy" modal covers the sidebar**, and because
+  `force: true` skips the hit-test, the first ✕ click silently landed on the modal instead and
+  looked like an inert control. Hit-test the target's own centre with `document.elementFromPoint`
+  before concluding a control does nothing.
+- **A single sample after a fixed sleep is not a settled reading.** The step-3 probe read the
+  dataset as `""` at 4000 ms and was briefly written up as "the snap did not fire"; it had fired,
+  just later. Poll for the expected value with a deadline on a page whose callbacks are
+  continuously in flight.
+
+**Y9 was observed rather than inferred**: at `⊥` the model table renders `✓ compatible` for *both*
+models — a positive falsehood, scheduled for §4.3 in PR B.
+
+### 8.2 Still not established
+
+- The `⊥`-**model** state and the empty compatible∩available set were **not** exercised — §4.11 has
+  not shipped, and all 16 generators reported `available: true` with the `equities` extra installed.
+- **No training run was started**, so nothing here says whether the LMU can actually train on
+  `equities_seq` end-to-end. §12.4's unvalidated-capability caveat stands.
+- No live service was contacted during the Lane A/B analysis itself, so §4.9's 502 and §4.2's wire
+  behaviour are traced through code and cascor's own route docstring, not observed.
+- **Availability scenarios remain injected, not read from a running container.** §9's "the LMU has
+  zero available datasets in the container" additionally holds only while juniper-data is **up** and
+  reporting `available:false`; two fail-open layers mean a *down* juniper-data reports
+  `equities_seq` available and the failure surfaces later as a 501.
