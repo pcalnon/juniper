@@ -99,6 +99,12 @@ def check(path: Path) -> list:
             continue
         if in_fence:
             continue
+        # A four-space indent is an INDENTED CODE BLOCK -- CommonMark reads it as literally as a
+        # fence, so a quoted `| ... |` row inside one is not a table. Found by writing this
+        # tool's own findings to a notes document, where the quoted rows are indented precisely
+        # because a fence would be closed by a residue line that contains one.
+        if line[:4] == "    ":
+            continue
         stripped = line.strip()
         if stripped.startswith("|") and line.count("|") >= 2:
             prev = lines[i - 1] if i else ""
