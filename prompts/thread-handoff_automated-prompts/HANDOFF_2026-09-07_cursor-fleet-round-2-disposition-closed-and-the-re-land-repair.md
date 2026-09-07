@@ -12,7 +12,7 @@
 ```text
 Continue the cursor-fleet round-2 disposition arc for juniper-ml. The BACKLOG IS CLOSED --
 0 open `app/cursor` PRs across ALL 17 non-archived repos in the pcalnon org. What remains is
-tail work plus THREE UNMERGED PRs of mine.
+tail work plus TWO UNMERGED PRs of mine (#1814, #1815).
 
 Completed so far:
 - 100 cursor PRs closed UNMERGED on juniper-ml since 2026-09-05; two more (#1655, #1627) were
@@ -200,7 +200,7 @@ FILES OR GITHUB STATE** — **6 of the 15 are not queries**, and one of those cl
   the section TWICE until #1814 lands.
 - **The structure gate gates the DELTA, not the count.** A zero-demanding gate could not ship
   against main's 102 inherited problems. Recorded durably in #1801's merged body.
-- **173 of the 35 docs PRs' 2841 added lines are ABSENT from the merged tree.** That is a
+- **Of the 2841 lines the 35 docs PRs added, 173 are ABSENT from the merged tree.** That is a
   MEASURED OUTCOME, not a decision — and
   `notes/JUNIPER_2026-09-06_JUNIPER-ML_DOCS-FLEET-CONSOLIDATION-ROUND-2-RESIDUE.md` §2 says the
   count "errs toward over-reporting loss". Its §3 adjudicates the four largest contributors,
@@ -251,12 +251,18 @@ pass with open. Both fixed in #1815, with mutation-checked tests.
 | `\| tail -N` discards the exit code | **ACCEPTED.** Removed; `echo "exit=$?"` added. |
 | #1807/#1810 were MERGED, not open; #1808/#1811 collide with #1814 | **ACCEPTED**, and it kept moving — #1808 merged during the revision, #1816/#1817 opened. §2 now carries a re-measure query instead of a list to trust. |
 | "only production file left" — there are three | **ACCEPTED.** Corrected in §1 item 4. |
+| "79 PRs merged since 2026-09-05" | **ACCEPTED.** **81** — 78 pcalnon + 2 cursor + 1 app/github-actions. §2 now says "and rising" and tells you to run the query. |
 | §3 did not mark which tools MUTATE state | **ACCEPTED.** `writes?` column added. |
 | 173 lines framed as "deliberately not merged" | **ACCEPTED.** Reframed as a measured outcome with the over-report caveat. |
 | Failures softened; the gate's limitation written as a law of nature | **ACCEPTED.** §1 and §4 now attribute them to me. |
 | the draft promised a §8 that did not exist | **ACCEPTED.** §7 (this section) is it. The header's pointer to "§8" outlived the fix by two commits — a dangling cross-reference survives every edit that does not happen to read that line. |
 
-**Nine distinct claims of mine were wrong.** The most serious is the contract-revert one, because
-I repeated it to the operator several times before it was measured. Both Lane B agents were
-prompted to refute rather than to check; had they been asked to verify, the sizing table's own
-warning is that they would have agreed.
+**Nine distinct claims of mine were wrong** — and because this document's whole argument is that
+asserted counts should be auditable, here is that one: **four** in Lane A's table above, plus
+**five** in Lane B's (the contract reverts, the anchor count, the twelve defects, the
+production-file count, the merged count). The #1807/#1810 row is perishable state that went
+stale, not a claim I got wrong, so it is counted separately — see §2.
+
+The most serious is the contract-revert one, because I repeated it to the operator several times
+before it was measured. Both Lane B agents were prompted to refute rather than to check; had they
+been asked to verify, the sizing table's own warning is that they would have agreed.
