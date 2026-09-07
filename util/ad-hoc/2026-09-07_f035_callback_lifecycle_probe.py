@@ -103,6 +103,29 @@ _DISCOVER = r"""
                     len: Array.isArray(v) ? v.length : null};
     if (Array.isArray(v) && v.length) {
       try { out.lists[k].sample = JSON.parse(JSON.stringify(v[0])); } catch (e) { out.lists[k].sample = '<unserialisable>'; }
+      // SHAPE CENSUS -- the matcher's own adequacy, per list.
+      //
+      // `isOutput` reads a callback's outputs from one of three positions. If a list's
+      // entries expose NONE of them, the matcher can never match anything in that list
+      // and an empty bucket for it is STRUCTURAL, not a measurement. A 2026-09-07
+      // positive control made this concrete: the HEALTHY topology store produced the
+      // same empty terminal bucket as the broken metrics store, so the verdict was not
+      // discriminating. This census is what tells you which case you are in, and it is
+      // reported for every list whether or not the target id appears anywhere.
+      let cbOut = 0, pOut = 0, erOut = 0, ids = 0;
+      for (const e of v) {
+        if (e && e.callback && Array.isArray(e.callback.outputs)) cbOut++;
+        if (e && e.payload && Array.isArray(e.payload.outputs)) pOut++;
+        if (e && e.executionResult && e.executionResult.payload
+            && Array.isArray(e.executionResult.payload.outputs)) erOut++;
+        try {
+          const L = (e && e.callback && e.callback.outputs) || (e && e.payload && e.payload.outputs) || [];
+          for (const o of L) { if (o && o.id) ids++; }
+        } catch (err) { /* shape census must never throw */ }
+      }
+      out.lists[k].shapes = {entries: v.length, has_callback_outputs: cbOut,
+                             has_payload_outputs: pOut, has_executionResult_outputs: erOut,
+                             total_output_ids_visible: ids};
     }
   }
   return out;
@@ -235,6 +258,18 @@ def _verdict(res: dict) -> dict:
     if not res.get("armed"):
         return {"verdict": "BLOCKED", "why": "the watcher never armed -- nothing was measured"}
 
+    # An empty terminal bucket is only evidence if the terminal lists were actually
+    # there to be looked at. If the inventory does not show them, say so instead of
+    # returning a confident RETIRED-BEFORE-EXECUTION off a zero that may be structural.
+    inv = ((res.get("callbacks_list_inventory") or {}).get("lists") or {})
+    if inv and not any(any(h in k.lower() for h in _TERMINAL_HINTS) for k in inv):
+        return {
+            "verdict": "BLOCKED",
+            "why": (f"state.callbacks exposes {sorted(inv)} and NONE of them matches the terminal "
+                    f"hints {list(_TERMINAL_HINTS)}. An empty terminal bucket here is a naming "
+                    "mismatch, not a measurement. Extend the hints and re-run."),
+        }
+
     seq = [x for x in (res.get("storeLenSeq") or []) if isinstance(x.get("to"), int)]
     applied = any(x["to"] > 0 for x in seq)
     buckets = res.get("buckets") or {}
@@ -319,11 +354,25 @@ def main() -> int:
     ap.add_argument("--window", type=float, default=60.0, help="seconds to observe")
     ap.add_argument("--tab", default="Candidate Metrics", help="tab to drive")
     ap.add_argument("--discover", action="store_true", help="dump the real state.callbacks shape and exit")
+    ap.add_argument(
+        "--store",
+        default=METRICS_STORE,
+        help=(
+            "which store id to track. THE POSITIVE CONTROL LIVES HERE. Pointed at the subject "
+            "(the default) this probe can only ever report an empty terminal bucket, and an empty "
+            "bucket has two causes that look identical: the callback never got there, or this "
+            "sampler cannot see that list at all. Pointing it at a store that demonstrably WORKS "
+            "-- e.g. network-visualizer-topology-store, healthy since canopy#549 -- makes the "
+            "instrument prove it can produce a non-empty terminal bucket. Without that run, "
+            "RETIRED-BEFORE-EXECUTION is an uncontrolled zero."
+        ),
+    )
     args = ap.parse_args()
+    target = args.store  # the tracked store id; METRICS_STORE is only its default
 
     from playwright.sync_api import sync_playwright
 
-    res: dict = {"canopy": CANOPY, "store": METRICS_STORE, "window_s": args.window}
+    res: dict = {"canopy": CANOPY, "store": target, "window_s": args.window}
 
     with sync_playwright() as pw:
         browser, ctx, page = open_dashboard(pw, [])
@@ -333,11 +382,43 @@ def main() -> int:
 
             if args.discover:
                 shape = page.evaluate(_DISCOVER)
+                # The compact census FIRST. The full dump below is truncated to keep it
+                # readable, and the truncation lands inside the biggest list's sample --
+                # which is exactly the list (`stored`) whose reachability matters most.
+                # A diagnostic whose most important line is cut off by its own pretty
+                # printing is the shape of every other instrument failure in this arc.
+                print("per-list output-shape reachability (does isOutput stand a chance?):")
+                for name, info in sorted((shape.get("lists") or {}).items()):
+                    sh = info.get("shapes")
+                    if sh is None:
+                        print(f"  {name:14s} len={info.get('len')}  <empty at sample time - no shape evidence>")
+                    else:
+                        print(f"  {name:14s} len={info.get('len'):<4} callback.outputs={sh['has_callback_outputs']}/"
+                              f"{sh['entries']}  payload.outputs={sh['has_payload_outputs']}/{sh['entries']}  "
+                              f"executionResult.outputs={sh['has_executionResult_outputs']}/{sh['entries']}  "
+                              f"visible_output_ids={sh['total_output_ids_visible']}")
+                print()
                 print(json.dumps(shape, indent=2, default=str)[:6000])
                 return 0
 
-            page.evaluate(f"({_HOOK})({json.dumps(METRICS_STORE)});")
+            page.evaluate(f"({_HOOK})({json.dumps(target)});")
             page.wait_for_timeout(int(args.window * 1000))
+
+            # The list INVENTORY, recorded in the artifact itself. Without it, a future
+            # reader cannot distinguish "the terminal lists existed and never held our
+            # callback" from "the terminal lists were never iterated" -- the two produce
+            # an identical empty bucket, and the second would make the verdict a
+            # structural zero rather than a measurement.
+            res["callbacks_list_inventory"] = page.evaluate(
+                """() => {
+                     const st = window.store && window.store.getState ? window.store.getState() : null;
+                     const cb = st && st.callbacks ? st.callbacks : null;
+                     if (!cb) return {ok:false};
+                     const out = {ok:true, lists:{}};
+                     for (const k of Object.keys(cb)) out.lists[k] = Array.isArray(cb[k]) ? cb[k].length : null;
+                     return out;
+                   }"""
+            )
 
             snap = page.evaluate(
                 """() => {
@@ -350,7 +431,7 @@ def main() -> int:
                    }"""
             )
             res.update(snap)
-            rd = _store(page, METRICS_STORE) or {}
+            rd = _store(page, target) or {}
             res["independent_read"] = {
                 "ok": rd.get("ok"),
                 "len": len(rd["value"]) if isinstance(rd.get("value"), list) else None,
@@ -362,11 +443,12 @@ def main() -> int:
     res["result"] = _verdict(res)
 
     log(f"  armed={res.get('armed')} notifies={res.get('notifies')} errors={len(res.get('errors') or [])}")
-    log(f"  lists with {METRICS_STORE} as an OUTPUT (high-water): {res.get('everSeen')}")
+    log(f"  lists with {target} as an OUTPUT (high-water): {res.get('everSeen')}")
     log(f"  lists merely TOUCHING it -- contrast only, not the measurement: {res.get('touchHigh')}")
     log(f"  notifies present in each list: {res.get('seen')}")
     log(f"  DISTINCT ENTRIES per list (absent->present transitions): {res.get('entries')}")
     log(f"  longest unbroken presence (notifies): {res.get('maxRun')}")
+    log(f"  state.callbacks inventory (proves which lists exist): {res.get('callbacks_list_inventory')}")
     log(f"  buckets: pre={sorted(res['buckets']['pre_execution'])} "
         f"terminal={sorted(res['buckets']['terminal'])} unclassified={sorted(res['buckets']['unclassified'])}")
     log(f"  store length sequence: {[(x.get('from'), x.get('to')) for x in res.get('storeLenSeq') or []][:8]}")

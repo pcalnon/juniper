@@ -719,8 +719,13 @@ turned up a defect in the re-drive instrument itself.
 `dashboard_manager.py`; the shared `:8050` leg was untouched. Naming the serving commit rather than the
 checkout is deliberate — a long-running leg serves the code it *imported*, and reading a merged fix into
 a process that predates it cost this arc a whole row census once already. Every `file:line` cited below
-was re-verified against canopy main **`785fb64`** after teardown and still resolves to the same
-statement, so the citations do not depend on which of the two commits the reader has to hand.
+was re-verified after teardown against the **local canopy primary checkout, then at `785fb64`**, and
+still resolves to the same statement. **Correction (2026-09-07, consensus round 1):** juniper-ml#1794
+called `785fb64` "canopy main". It was not — `785fb64` (#590, 12:03) is an *ancestor* of the leg's
+own `8a43a33` (#589, 14:55), so main cannot have been there after teardown; the local primary
+checkout was simply behind. The citations hold — they were checked against a real tree and re-checked
+on 2026-09-07 against `f56f46c` — but the label was wrong, and a reader comparing timestamps would
+have caught the contradiction before trusting the surrounding numbers.
 
 **A. THE DUPLICATE-INSTANCE HYPOTHESIS IS REFUTED — from the one vantage point that can see it.**
 `state.paths.strs` maps one id to one path, so it cannot *represent* a duplicate; asking it this
@@ -1000,6 +1005,49 @@ a **median round trip of 1.827 s** against a median re-request gap of 1.716 s. A
 ~1.8 s and is re-requested every ~1 s can never finish — which is what these lists show it doing, two
 dozen times a window. The 69% overlap figure from 09-05 and the one-run-in-eight success both fall out
 of the same picture: it is a race the store usually, but not always, loses.
+
+**THE ZERO WAS UNCONTROLLED WHEN FIRST WRITTEN. IT IS CONTROLLED NOW.** An independent consensus
+review (2026-09-07, Lane A, three reviewers at distinct entry points) made the sharpest possible
+objection to the table above: **this instrument had never once produced a non-empty terminal bucket,
+on any run.** An empty bucket has two causes that look identical — the callback never got there, or
+the sampler cannot see that list at all — and without a positive instance the verdict
+`RETIRED-BEFORE-EXECUTION` was an *uncontrolled zero*. The objection was correct, and the claim was
+disarmed from auto-merge rather than shipped while it stood.
+
+Three measurements now close it, in order of strength.
+
+1. **A positive control that produces a non-empty terminal bucket.** The probe gained a `--store`
+   flag and was pointed at `theme-state`, a store that demonstrably holds an applied value. Result:
+   **`terminal=['stored']`, present in 1,987 notifies.** The instrument *can* report a terminal list.
+   `terminal=[]` for the metrics store is therefore a **measurement, not an artifact**.
+   Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-07_f035_lifecycle_POSITIVE-CONTROL_theme-state.json`.
+2. **A per-list output-shape census**, so "the matcher cannot reach that list" is testable rather than
+   assumed. `stored` holds 33-34 entries at sample time and **every one exposes `callback.outputs`**
+   (105 visible output ids). The matcher's shape assumption holds for the exact list whose emptiness
+   the verdict rests on. Evidence: `…/2026-09-07_f035_callbacks_list_inventory.txt`.
+3. **The list inventory is now recorded in every result artifact**, not only under `--discover`, and
+   the verdict returns **BLOCKED** rather than a confident verdict if no list matches the terminal
+   hints. A future rename degrades to "could not measure" instead of to "retired".
+
+**A CONTROL THAT WAS NOT ONE, recorded because the near-miss matters.** The first control attempt used
+`network-visualizer-topology-store` on the grounds that it is healthy (M-TOPOLOGY 16 PASS). It also
+returned `terminal=[]` — which briefly looked like proof the instrument was blind. It was not a valid
+control: a direct read showed that store holding **`hidden_units: 0`** on this leg, i.e. it was empty
+too, so the run distinguished nothing. **A control must be shown to be positive before its negative
+result means anything** — the same lesson as the 2026-09-03 `blob:`/`data:` near-miss, arrived at from
+the opposite direction. Evidence: `…/2026-09-07_f035_lifecycle_control_topology-store.json`.
+
+**A SIDE OBSERVATION, FLAGGED AND NOT FILED.** That reading — `network-visualizer-topology-store` at
+`hidden_units: 0` against a 48-unit fixture, on canopy `de253e9` — is not what M-TOPOLOGY's 16 PASS
+would predict. It is a single unreplicated read taken for another purpose, on a tab that was open
+~12 s, and this arc has a standing rule against filing a finding from a lucky or unlucky session. It
+is recorded here as **an observation to re-drive**, not as a finding, and not as a regression.
+
+**A VERDICT-RULE LIMITATION exposed by the control.** `theme-state` scored `EXECUTED-NOT-APPLIED`
+because the rule's "did the store advance" test reads `len()` of a list, and that store's value is the
+string `"light"`. For non-list stores the "never advanced" half of that verdict is a false read. It
+does not touch the metrics-store result (whose value *is* a list) but the rule should not be reused on
+a non-list store without fixing it first.
 
 **A SAMPLING HOLE, AND THE TWO INDEPENDENT MEASUREMENTS THAT CLOSE IT.** This probe samples on Redux
 notifies, so an entry that passed through `executed` and out between two notifies would be invisible,
