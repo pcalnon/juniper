@@ -950,6 +950,92 @@ Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
 `2026-09-07_f035_candidate_redrive_v3.{txt,json}` (the unchanged 2026-09-04 instrument reproducing
 `len=0` on this leg and commit, which is what proves the difference is not the build).
 
+---
+
+#### 2026-09-07, later — the mechanism is NAMED: the writer is superseded, ~24 times in 90 seconds
+
+The previous block narrowed the owner to "something discards the payload before the reducer" and
+explicitly refused to name the mechanism. It is now named, from dash-renderer's own pending-callback
+bookkeeping.
+
+**The instrument.** `util/ad-hoc/2026-09-07_f035_callback_lifecycle_probe.py`, against a leg at canopy
+main **`f56f46c`**. dash-renderer keeps its callback lifecycle in the *same* Redux store the arc
+already reads, under `state.callbacks` — so this needed no work against the minified bundle and, like
+the dispatch probe, **changes no product code and has nothing to revert**. Its `--discover` mode dumps
+the real list names first rather than assuming a schema: `requested`, `prioritized`, `blocked`,
+`executing`, `watched`, `executed`, `stored`.
+
+**THE RESULT (two 90 s replicates, ~3,000 Redux notifies each).** Counting only callbacks with
+`metrics-panel-metrics-store` **as an output** — matched on the output position, never on a substring,
+because the store is a `State` of its writer and an `Input` of the plots, tiles and candidate panel,
+so a substring test would have counted nearly everything:
+
+| | run 2 | run 3 |
+|---|---|---|
+| notifies present in `requested` | 98 | 97 |
+| notifies present in `prioritized` | 665 | 461 |
+| notifies present in `watched` | 2,344 | 2,731 |
+| notifies present in `executed` / `stored` | **0** | **0** |
+| **distinct entries into `watched`** | **23** | **26** |
+| longest unbroken presence in `watched` | 321 | 283 |
+| store length, throughout | `0` | `0` |
+
+**The writer is scheduled roughly two dozen times per 90 s — one every ~3.7 s — enters `watched` every
+time, and reaches a terminal list zero times.**
+
+**WHY THE ENTRY COUNT IS THE LOAD-BEARING NUMBER.** "Present in `watched` for 2,344 notifies" is
+satisfied by two mechanisms that need **opposite fixes**: a SERIES of calls each replaced before
+resolving (supersession — fix the trigger), or ONE call whose promise never resolves (a hung request —
+a different defect entirely). A presence *count* cannot separate them. The number of contiguous
+present-blocks can, and it was added for exactly that reason before the verdict was read: **23 and 26
+separate entries**, not one. This is supersession.
+
+> The store-writing callback is re-requested faster than it can complete, and each in-flight call is
+> replaced before its response is applied. **F-CANOPY-035's blocker is renderer-level supersession of
+> the poll callback**, and the fix belongs at the TRIGGER, not the work.
+
+**IT FITS THE INDEPENDENT TIMING.** `update_metrics_store` rides `fast-update-interval` at
+`FAST_UPDATE_INTERVAL_MS = 1000` (`canopy_constants.py:370`), and the 2026-09-05 latency probe measured
+a **median round trip of 1.827 s** against a median re-request gap of 1.716 s. A callback that takes
+~1.8 s and is re-requested every ~1 s can never finish — which is what these lists show it doing, two
+dozen times a window. The 69% overlap figure from 09-05 and the one-run-in-eight success both fall out
+of the same picture: it is a race the store usually, but not always, loses.
+
+**A SAMPLING HOLE, AND THE TWO INDEPENDENT MEASUREMENTS THAT CLOSE IT.** This probe samples on Redux
+notifies, so an entry that passed through `executed` and out between two notifies would be invisible,
+and "never in a terminal list" would be an artifact. That hole is closed from outside this instrument:
+the store's value never advances (`len=0`, independent `paths.strs` read), and the dispatch probe
+recorded **zero** value-carrying dispatches across four runs. Had a call completed and been applied, a
+dispatch would have carried it. The conclusion rests on all three, not on the list membership alone.
+
+**WHAT IS STILL NOT ESTABLISHED, stated plainly.**
+
+- **Which code path performs the supersession.** That it *is* supersession is measured; whether it is
+  dash-renderer's duplicate-output pruning, the 12-slot concurrency cap, or another replacement rule is
+  not. The fix direction does not depend on the answer — all three point at the trigger — but the
+  citation would.
+- `stored` never showed an entry even *touching* the store, despite holding 30 entries at discovery
+  time. Unexplained; it does not affect the verdict (which rests on the writer's own lifecycle plus
+  the two external checks) but a future reader should not take it as evidence of anything.
+- **n = 2** replicates for the entry counts, 3 for "never terminal". The procedure's small-sample
+  escalator applies to any further inference; it is enough to name a mechanism that three independent
+  instruments agree on, and not enough to characterise its distribution.
+
+**THE FIX THIS IMPLIES — recorded as a design implication, not shipped here.** Suppress the *trigger*
+while a fetch is in flight, or make the poll period exceed the observed round trip; do not make the
+handler faster and hope. This is the same shape as the arc's recorded dash-renderer lesson
+(*suppress the TRIGGER, not the work*) and belongs in a juniper-canopy PR against
+`update_metrics_store`, not in this ledger.
+
+**Matrix effect: none.** M-CANDIDATES-07 stays **FAIL** — the row is blocked on an upstream cause that
+is now identified rather than bounded. canopy#524's adapter remains correct and unreachable.
+
+**Leg torn down** by pid, worktree removed and pruned; nothing to revert.
+
+Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-07_f035_callback_lifecycle_run{1,2,3}.json`
+(run 1 is the 60 s pilot that established "never terminal"; runs 2 and 3 are the 90 s replicates that
+add the entry counts).
+
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
