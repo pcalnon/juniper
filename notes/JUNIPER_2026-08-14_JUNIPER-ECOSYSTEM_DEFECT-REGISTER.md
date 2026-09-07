@@ -805,6 +805,13 @@ owner declined. Bounding the input turned out to be the smaller change and the b
   > consumers** across all six repos: juniper-data-client has no filter endpoint, and juniper-canopy has no `/api/datasets` route.
   > Its only stated justification is a test docstring citing a caller's "progress bar", which exists nowhere.)
   >
+  > **"Absent" is still not free, though — and for a reason unrelated to consumers.** `total` is a
+  > *required* field of the live `/v1/datasets/filter` schema, and
+  > [`juniper-data/docs/api/JUNIPER_DATA_API.md:63`](https://github.com/pcalnon/juniper-data/blob/main/docs/api/JUNIPER_DATA_API.md)
+  > publishes *"Response fields will NOT be removed within a major version"*, with `:75` naming
+  > removal as a breaking change. Dropping it is a **MAJOR** bump on a published contract, whoever
+  > reads it. Which is a further reason the answer here was never about `total`.
+  >
   > **The actual remedy is the JD-PERF-02 metadata cache, which was inert in production.** `DatasetStore.__init__` creates the cache
   > state and `_list_all_metadata_cached` degrades to an uncached walk when it is absent — and **six of seven stores never called
   > `super().__init__()`**, including `LocalFSDatasetStore`, the store `api/app.py` wires. Its test suite stayed green because every
