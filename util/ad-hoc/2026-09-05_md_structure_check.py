@@ -130,7 +130,8 @@ def main() -> int:
     for path in args.paths:
         bt = base_text(args.base, path)
         try:
-            ht = open(path).read()
+            with open(path) as f:
+                ht = f.read()
         except OSError as exc:
             print(f"[SKIP] {path}: {exc}")
             continue
