@@ -123,8 +123,9 @@ python3 util/ad-hoc/2026-09-07_duplicate_section_census.py docs/REFERENCE.md; ec
 ## 3. Tools this arc built
 
 **Read the tool's docstring before using it** — each records the defect that motivated it.
-`main?` says whether it is on `origin/main` yet. **`writes?` says whether it MUTATES FILES OR
-GITHUB STATE** — three of these are not queries.
+`main?` says whether it is on `origin/main` yet — **4 of these 15 are not, so a command copied
+from here fails from `main` until #1814 and #1815 land.** **`writes?` says whether it MUTATES
+FILES OR GITHUB STATE** — **6 of the 15 are not queries**, and one of those closes PRs.
 
 | tool (under `util/ad-hoc/` unless marked) | main? | writes? | question |
 | --- | --- | --- | --- |
