@@ -44,6 +44,16 @@ assert _spec and _spec.loader
 sl = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(sl)
 
+
+def _load_probe():
+    """`util/soak_run_probe.py` as a module. Path-invoked util script, not an importable package."""
+    spec = importlib.util.spec_from_file_location("soak_run_probe_status_token", PROBE_WRAPPER)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 # The prefixes soak_run_probe.py treats as terminal. Duplicated as a pin, not
 # imported: the wrapper on main inlines the tuple, and a later extract must not
 # be required for this producer-side suite to run.
@@ -237,9 +247,23 @@ class TerminalPrefixesMatchTheSpendControl(unittest.TestCase):
                 self.assertFalse(any(verdict.startswith(p) for p in TERMINAL_PREFIXES))
 
     def test_the_consumer_still_reads_stdout_split_zero(self) -> None:
-        """A parse change in the wrapper (JSON, second field, regex) silently drops this contract."""
+        """A parse change in the wrapper (JSON, second field, regex) silently drops this contract.
+
+        The parse used to sit inline in ``main()`` and this pinned its source text. It now lives
+        in ``status_verdict``, so the contract is pinned where it moved: the function must BE the
+        split-zero form, and ``main()`` must route through it. A wrapper rewritten to read JSON
+        or the second field would satisfy neither half.
+        """
+        probe = _load_probe()
+        self.assertEqual(probe.status_verdict("BET-FAILING  seeded=12 window=7d"), "BET-FAILING")
+        self.assertEqual(probe.status_verdict(f"HOLDS-AT-{sl.DECISION_BOUNDARY} n=40"), f"HOLDS-AT-{sl.DECISION_BOUNDARY}")
+        self.assertEqual(probe.status_verdict("  NO-DATA\n"), "NO-DATA", "leading whitespace is not a token")
+        self.assertEqual(probe.status_verdict(""), "", "empty stdout is the empty verdict, not an IndexError")
+        self.assertEqual(probe.status_verdict("\n\n"), "")
+
         src = PROBE_WRAPPER.read_text(encoding="utf-8")
-        self.assertIn('verdict = (st.stdout.split() or [""])[0]', src)
+        self.assertIn('return (status_stdout.split() or [""])[0]', src, "status_verdict must still be the split-zero parse")
+        self.assertIn("verdict = status_verdict(st.stdout)", src, "main() must route through it rather than re-parsing")
 
 
 if __name__ == "__main__":
