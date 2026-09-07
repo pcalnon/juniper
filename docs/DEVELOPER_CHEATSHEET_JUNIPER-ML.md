@@ -57,6 +57,8 @@
 | `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified `step_count` / `mean_step_seconds` (not `wall_seconds` / `timings.drive`) |
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
 | `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
+| `python util/experiments/run_suite.py --suite PATH` | Drive a multi-cell suite; `aggregate.csv` + `REPORT.md` carry `step_count` / mean step beside de-ratified `wall_seconds` |
+| `python util/experiments/run_suite.py --suite PATH --compare-baseline TAG` | Same, plus a reporting-only comparator verdict in `REPORT.md` (FAIL still exits 0) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
@@ -312,17 +314,23 @@ Full contract: [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-diverge
 
 ## Data Contract
 
-**Shipped NPZ keys** (still required): `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full` (all `float32`). Sequence artifacts add `{dt,target_dt}_{train,test,full}`.
+**Shipped NPZ keys** — SIX, all `float32`: `X_train`, `y_train`, `X_val`, `y_val`, `X_test`, `y_test`. Sequence artifacts add `{dt,target_dt}_{train,val,test}`. The third partition is `X_val` / `y_val`, never `X_eval`.
 
-**Design (closed, not on the wire):** `*_full` leaves the contract (decision 11); the third partition is `X_val` / `y_val`, never `X_eval`. Required-fix 0 has not started. Tolerate `X_full` on stored artifacts; do not write new code that requires it. Recurrence YAML `dataset.split` is still `{train, test, full}` — `"validation"` is exit 2.
+**Decision 11 shipped 2026-09-06:** the `*_full` family is gone from the contract. Two rules — **never require `X_full`** (nothing emits it), and **never assert it is absent** (every artifact stored before 2026-09-06 has it, and consumers must keep loading those). Recurrence YAML `dataset.split` accepts `{train, val, test, full}`; the long form `"validation"` is exit 2.
 
 ```python
 from juniper_data_client import JuniperDataClient
 client = JuniperDataClient(base_url="http://localhost:8100")
 dataset_id = client.create_dataset("spiral", {"n_points": 200, "noise": 0.1})
 npz = client.download_artifact_npz(dataset_id)
-# npz.files includes X_full today; do not index it with partition-derived indices
+# The whole dataset is the concatenation, in this order -- the same order juniper-data
+# used when it built X_full, so it is row-for-row identical. On a LEGACY artifact the
+# key is still there; prefer it if present rather than assuming either shape.
+import numpy as np
+whole = np.vstack([npz[f"X_{p}"] for p in ("train", "val", "test") if f"X_{p}" in npz])
 ```
+
+> Exception: `equities` / `equities_seq` built `_full` entity-major while their partitions are split-major, so the concatenation differs in ROW ORDER for a multi-ticker artifact. Only matters if you slice by row index (walk-forward CV does).
 
 Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`, `equities`, `equities_seq`. Default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols unless `allow_truncation` is set — [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
 
@@ -673,6 +681,8 @@ Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`),
 `--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
 Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
 
+Tip: `run_suite` `aggregate.csv` / `REPORT.md` now carry both gate inputs (`step_count` WORK, mean step SPEED) beside de-ratified `wall_seconds`. `--compare-baseline TAG` pastes a verdict but **does not** change the suite exit code (P1 §6 still open). Report table is milliseconds; CSV is seconds. See [REFERENCE — Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs).
+
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
@@ -756,7 +766,7 @@ Tip: on a failed `*_up` leg, isolated-stack `do_up` auto-calls `do_down` — exp
 
 Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disables `set -e` inside each body — critical steps need `|| return 1` or a health timeout with a live listener false-greens `--up` and skips teardown. A `--grafana-bridge` failure after healthy services tears the run down; a **staging** failure (missing `--config`) still exits between `allocate_port` and `ports.json`, so clear stale `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` by hand (open #979).
 
-Tip: NPZ still requires `X_full` / `y_full`. The partition design **drops** the `*_full` family (decision 11) but required-fix 0 has not started — tolerate the key, do not require it in new code, and do not index it with partition indices. Recurrence `dataset.split: validation` is exit 2 (`RECURRENCE_SPLITS` is `{train, test, full}`). Keys will be `X_val` / `y_val`, never `X_eval`. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract).
+Tip: the NPZ contract is SIX keys — `X_val` / `y_val`, never `X_eval`. Decision 11 shipped 2026-09-06 and nothing emits `*_full` any more: never require it, and never assert it is absent either, because every stored artifact predating that date still carries it. Recurrence `dataset.split: val` works (juniper-ml#1761); the long form `validation` is exit 2 — `RECURRENCE_SPLITS` is `{train, val, test, full}`. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract).
 
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
 
@@ -776,6 +786,13 @@ Tip: P4 `include` cells do not inherit `matrix`. Oversize cascor stall is pool �
 
 Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 bytes. Run `python3 util/memory_index_check.py` on the host that writes `~/.claude` — CI never sees the real file. The 120 cap is the **hook** (`len` after the `)`), not the line. `--accept` grandfathers and always exits 0; it does not evict. See [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check).
 Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py <repos> --min-score 3 --json OUT`. The scored **total will rise** — relocation removes resident identifiers, so the gap predicate starts matching them. Health is the score ≥ 3 count (and whether anything *new* appears there), not the total. `2026-08-28_hazard_triage.py` alone cannot find what was never in `AGENTS.md`. Full contract: [REFERENCE — Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage).
+
+Tip: the canopy E2E matrix is a 298-row ledger. `e2e_matrix_fill.py` is dry-run by default; `2026-09-02_matrix_set_verdicts.py` has **no dry-run** and writes immediately on a `--from` match.
+`e2e_matrix_rescore.py --write` still writes found rows when some `--row` ids are missing. Do not plan from `e2e_row_coverage.py`. Do not `--overwrite` a named subset (clobbers `DIVERGENCE` cells). Full contract: [REFERENCE — Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes).
+
+Tip: before removing a worktree you did not just leave, run the cwd-only liveness probe **and** `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT`. An editor whose cwd is elsewhere while a file in the tree is open is invisible to cwd-only. STRONG (cwd/open-fd) exits 1; WEAK cmdline is CAUTION and must not fail the process (the probe's own argv used to report every tree in use). Empty argv exits 2. See [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+Tip: Phase 2 exit is "every P0 and P1 closed or explicitly deferred". Run `python3 util/ad-hoc/e2e_finding_triage.py` rather than a hand list. It reads only the finding **header**; ACCEPTED is a third disposition (not FIXED, not OPEN); `--open-only` still prints full totals; exit is always 0. See [REFERENCE — Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage).
 
 
 ### Host Stack Troubleshooting

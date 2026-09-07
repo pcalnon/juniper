@@ -1,0 +1,2949 @@
+{
+  "canopy": "http://127.0.0.1:8052",
+  "store": "metrics-panel-metrics-store",
+  "window_s": 60.0,
+  "tab": "Candidate Metrics",
+  "armed": true,
+  "dispatches": [
+    {
+      "t": 1788786215284,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215388,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215388,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215389,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215389,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215389,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215389,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215550,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215550,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215550,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215551,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215551,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215639,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215640,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786215706,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786216441,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786216441,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786216812,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786216813,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786216815,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218238,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218536,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218570,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218570,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218570,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218571,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218571,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218571,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218571,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218572,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218572,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218572,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218601,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218601,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218601,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218602,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218602,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218602,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218602,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218603,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218642,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786218902,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786219800,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786219991,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220054,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220109,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220619,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220675,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220676,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220676,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220677,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220677,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220678,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220678,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220679,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786220809,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786221878,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222214,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222214,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222299,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222299,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222300,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222300,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786222855,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786223508,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224440,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224440,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224516,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224516,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224516,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224516,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224946,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786224946,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786225191,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786225270,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786226183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786226218,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786226518,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227251,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227252,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227378,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227503,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227504,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227504,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227574,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227630,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227630,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227630,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227631,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227631,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786227632,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786228158,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786228760,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229100,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229100,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229101,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229101,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229101,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229101,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229135,
+      "type": "Callbacks.Aggregate",
+      "len": 500
+    },
+    {
+      "t": 1788786229135,
+      "type": "Callbacks.Aggregate",
+      "len": 500
+    },
+    {
+      "t": 1788786229135,
+      "type": "Callbacks.Aggregate",
+      "len": 500
+    },
+    {
+      "t": 1788786229756,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229756,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229757,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229932,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786229980,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786230503,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786230503,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786230503,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786230504,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786230504,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786230504,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786231063,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786231063,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786231156,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786231836,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232137,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232137,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232137,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232138,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232138,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232139,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232758,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232930,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232931,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786232931,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233003,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233147,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233147,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786233804,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234116,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234117,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234117,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234237,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234426,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234427,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234427,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234427,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234427,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786234428,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236076,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236077,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236164,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236217,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236218,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236218,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236218,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236218,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236219,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786236980,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786237342,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786237343,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786237343,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786237428,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786237822,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238123,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238123,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238123,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238123,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238124,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238124,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238759,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238938,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238938,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786238938,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239018,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239306,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239306,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239306,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239307,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239307,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786239307,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240158,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240201,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240201,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240201,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240286,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240286,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240286,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786240287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241085,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241085,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241190,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241234,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241234,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241234,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786241806,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242149,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242149,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242150,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242150,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242150,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242150,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786242811,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243014,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243015,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243015,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243161,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243330,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243330,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243330,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243330,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243331,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243331,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786243890,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244184,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244184,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244184,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244303,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244421,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244421,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244421,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244421,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244421,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786244422,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245362,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245362,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245362,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245962,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245962,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786245962,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246045,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246047,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246232,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246318,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246517,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246518,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246518,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246518,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246519,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246519,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786246849,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247145,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247145,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247145,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247146,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247685,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247848,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247848,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247848,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786247916,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248130,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248130,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248130,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248130,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248130,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248131,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248443,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248444,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248444,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248778,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786248861,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786249182,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786249182,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786249182,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786249183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786249183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786249183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250177,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250177,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250178,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250178,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250178,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250179,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250831,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250832,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786250909,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251051,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251052,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251052,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251217,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251412,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251413,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251413,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251413,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251413,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251414,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786251766,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252048,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252048,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252049,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252049,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252049,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252049,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252431,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252431,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252432,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252526,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786252838,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253164,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253164,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253165,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253165,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253165,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253165,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786253833,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254007,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254007,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254007,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254147,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254310,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254311,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254311,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254311,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254312,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786254312,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255055,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255055,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255055,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255211,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255296,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255297,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255297,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255298,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786255298,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256353,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256353,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256353,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256481,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256482,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786256643,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786257006,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786257397,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786257397,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786257398,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786257776,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786257844,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258231,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258231,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258231,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258232,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786258863,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259104,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259104,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259104,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259198,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259530,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259531,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259531,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259531,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259531,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786259531,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260334,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260335,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260335,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260481,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260538,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260538,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260539,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260539,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260539,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260539,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260962,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786260963,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786261043,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786262119,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786262529,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786262530,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786262530,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786262950,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786263054,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786263862,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786264169,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786264170,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786264170,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786264170,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786264171,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786264171,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265223,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265223,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265223,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265316,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265393,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265394,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265394,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265394,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265394,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265394,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265684,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265685,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786265810,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786266142,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786266713,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786266713,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786266713,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786266785,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786266936,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267343,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267343,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267343,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267344,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267344,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267344,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786267876,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268288,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268288,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268288,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268288,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268839,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268903,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268904,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786268904,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269077,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269399,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269399,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269399,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269400,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269400,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786269400,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270132,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270132,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270133,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270236,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270451,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270451,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270451,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270452,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270452,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270452,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270594,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270594,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786270732,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786271104,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786271385,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786271385,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786271385,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786271750,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786271794,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272188,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272188,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272188,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272189,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272189,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272189,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272836,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272982,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272982,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786272982,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273158,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273360,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273361,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786273936,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274233,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274349,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274491,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274492,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274492,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274492,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274492,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786274492,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275422,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275422,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275422,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275422,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275422,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275423,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275777,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275778,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786275908,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276372,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276373,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276373,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276373,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276373,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276373,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276780,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276941,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276942,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786276942,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277100,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277282,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277283,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277283,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277283,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277283,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277283,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786277964,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786278226,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786278227,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786278227,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786278341,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786278935,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786279286,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786279286,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786279287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786279287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786279287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786279287,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280182,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280182,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280183,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280366,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280367,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280518,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280939,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280991,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280991,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786280992,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786281257,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786281742,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282062,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282062,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282062,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282063,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282063,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282063,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282656,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282692,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282693,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282693,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786282877,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283234,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283234,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283235,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283235,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283235,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283235,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786283844,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284015,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284015,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284016,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284153,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284351,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284352,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786284353,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786285453,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786285454,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786285454,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786285817,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786285983,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786285983,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286120,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286552,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286552,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286553,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286553,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286553,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286553,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786286900,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287278,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287278,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287278,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287278,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287279,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287279,
+      "type": "SET_PATHS",
+      "len": 18
+    },
+    {
+      "t": 1788786287796,
+      "type": "SET_PATHS",
+      "len": 18
+    }
+  ],
+  "transitions": [
+    {
+      "t": 1788786214065,
+      "from": null,
+      "to": null,
+      "note": "initial"
+    },
+    {
+      "t": 1788786214137,
+      "from": null,
+      "to": 0
+    },
+    {
+      "t": 1788786229135,
+      "from": 0,
+      "to": 500
+    }
+  ],
+  "actionTypes": {
+    "IsLoading.Set": 1,
+    "<thunk>": 2025,
+    "RESET_COMPONENT_STATE": 2653,
+    "Callbacks.Aggregate": 8124,
+    "LOADING": 1149,
+    "LOADED": 1145,
+    "SET_PATHS": 577
+  },
+  "totalDispatches": 15674,
+  "totalNotifies": 15985,
+  "errors": [],
+  "independent_read": {
+    "ok": true,
+    "via": "paths.strs",
+    "len": 500
+  },
+  "result": {
+    "verdict": "APPLIED",
+    "why": "580 dispatches carried a value, the state reached [500] and STAYED. On this run the store worked. Against runs that read empty this is the load-bearing observation: the path is functional, so the defect is a LOST RACE rather than a dead path.",
+    "relabelled": "was 'APPLIED-THEN-LOST' under the pre-fix rule; data unchanged, only the label"
+  }
+}
