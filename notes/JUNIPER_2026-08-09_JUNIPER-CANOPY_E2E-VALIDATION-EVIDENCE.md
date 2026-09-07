@@ -719,8 +719,13 @@ turned up a defect in the re-drive instrument itself.
 `dashboard_manager.py`; the shared `:8050` leg was untouched. Naming the serving commit rather than the
 checkout is deliberate — a long-running leg serves the code it *imported*, and reading a merged fix into
 a process that predates it cost this arc a whole row census once already. Every `file:line` cited below
-was re-verified against canopy main **`785fb64`** after teardown and still resolves to the same
-statement, so the citations do not depend on which of the two commits the reader has to hand.
+was re-verified after teardown against the **local canopy primary checkout, then at `785fb64`**, and
+still resolves to the same statement. **Correction (2026-09-07, consensus round 1):** juniper-ml#1794
+called `785fb64` "canopy main". It was not — `785fb64` (#590, 12:03) is an *ancestor* of the leg's
+own `8a43a33` (#589, 14:55), so main cannot have been there after teardown; the local primary
+checkout was simply behind. The citations hold — they were checked against a real tree and re-checked
+on 2026-09-07 against `f56f46c` — but the label was wrong, and a reader comparing timestamps would
+have caught the contradiction before trusting the surrounding numbers.
 
 **A. THE DUPLICATE-INSTANCE HYPOTHESIS IS REFUTED — from the one vantage point that can see it.**
 `state.paths.strs` maps one id to one path, so it cannot *represent* a duplicate; asking it this
@@ -949,6 +954,224 @@ Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
 (the 2×2 that refuted the reload claim) and
 `2026-09-07_f035_candidate_redrive_v3.{txt,json}` (the unchanged 2026-09-04 instrument reproducing
 `len=0` on this leg and commit, which is what proves the difference is not the build).
+
+---
+
+#### 2026-09-07, later — the writer's lifecycle never completes. Supersession is the leading
+#### hypothesis and is NOT established — a Lane B review took the earlier claim apart
+
+The previous block narrowed the owner to "something discards the payload before the reducer" and
+explicitly refused to name the mechanism. **This block first claimed to name it — renderer-level
+supersession — and that claim did not survive review. It is withdrawn to a hypothesis.** What stands
+is the lifecycle observation; what does not is the inference from it. Both are below, in that order,
+with the arithmetic that separates them.
+
+**WHAT STANDS.** From dash-renderer's own pending-callback bookkeeping (`state.callbacks`, read out of
+the same Redux store), over two 90 s replicates: the store-writing callback enters the pre-execution
+lists ~24 times per window and **reaches a terminal list zero times**, while the store's value never
+advances. The writer's lifecycle does not complete. That is a measurement and it is the useful part.
+
+**WHAT DOES NOT — four numbers from this arc's own artifacts that supersession does not fit.**
+
+1. **The margin is 0.11 s, not 0.8 s.** The earlier text set a 1.827 s median round trip against the
+   1.0 s *source constant*. The measured re-request gap in the same artifact
+   (`2026-09-05_f035_store_write_latency.json`) is a **median 1.716 s**. Numerator from the
+   measurement, denominator from the constant, is the arithmetic that makes the gap look decisive.
+2. **31% of calls had no successor at all.** The same artifact: `20/29 = 0.69` overlapped, so **nine
+   in-flight calls were unopposed** — nothing could have superseded them — and the store still read
+   `len=0`. That was recorded on 2026-09-05 and then dropped from the summary that concluded
+   supersession.
+3. **The scheduling rate is ~3.7 s, three and a half times SLOWER than the trigger.** 23 and 26 entries
+   per 90 s. A 1 Hz trigger superseded every tick predicts ~90 entries; even a round-trip-limited
+   series predicts ~49. "Re-requested faster than it can complete" predicts the opposite of what was
+   measured.
+4. **Two concurrent entries were never observed, once.** Both replicates record
+   `everSeen: {watched: 1, requested: 1, prioritized: 1}` — the high-water count of matching entries in
+   any list is **one**. A successor coexisting with its victim is supersession's direct observable, and
+   it never appeared. Mean residency in `watched` (~3.1 s) against a ~3.9 s inter-entry interval
+   describes a serialised fire → finish → pause → fire pattern, not an overlapping one.
+
+**AND A FIFTH MECHANISM IS UNELIMINATED, better correlated than supersession.** `Callback failed: the
+server did not respond` appeared in the console of **2 of the 4** failing probe runs and **none** of the
+successful one. A response the renderer treats as failed or aborted produces exactly this signature —
+enters `watched`, never reaches a terminal list, no dispatch carries a value — and it is the only
+candidate that *correlates with the outcome*. It needs a different fix from trigger-gating. It was
+recorded as a "weak side-signal" and should have been carried as a competing hypothesis.
+
+**THE TEST THAT WOULD SETTLE IT ALREADY EXISTS AND WAS NOT RUN.**
+`util/ad-hoc/e2e_f039_supersession_test.py` (2026-09-02) was written for precisely this hypothesis
+against F-CANOPY-039: it disables the competing cadence **at runtime via `setProps` — no code change,
+no restart** — on the reasoning that "if that is right, removing the competing cadence should make it
+paint." Running it against `metrics-panel-metrics-store` is the owed next step, and it discriminates
+supersession from the failed-response candidate in one drive. That an instrument built for this exact
+question sat unused while three new ones were written is the §9-inventory failure this arc has now
+committed twice.
+
+**The instrument.** `util/ad-hoc/2026-09-07_f035_callback_lifecycle_probe.py`, against a leg at canopy
+main **`f56f46c`**. dash-renderer keeps its callback lifecycle in the *same* Redux store the arc
+already reads, under `state.callbacks` — so this needed no work against the minified bundle and, like
+the dispatch probe, **changes no product code and has nothing to revert**. Its `--discover` mode dumps
+the real list names first rather than assuming a schema: `requested`, `prioritized`, `blocked`,
+`executing`, `watched`, `executed`, `stored`.
+
+**THE RESULT (two 90 s replicates, ~3,000 Redux notifies each).** Counting only callbacks with
+`metrics-panel-metrics-store` **as an output** — matched on the output position, never on a substring,
+because the store is a `State` of its writer and an `Input` of the plots, tiles and candidate panel,
+so a substring test would have counted nearly everything:
+
+| | run 2 | run 3 |
+|---|---|---|
+| notifies present in `requested` | 98 | 97 |
+| notifies present in `prioritized` | 665 | 461 |
+| notifies present in `watched` | 2,344 | 2,731 |
+| notifies present in `executed` / `stored` | **0** | **0** |
+| **distinct entries into `watched`** | **23** | **26** |
+| longest unbroken presence in `watched` | 321 | 283 |
+| store length, throughout | `0` | `0` |
+
+**The writer is scheduled roughly two dozen times per 90 s — one every ~3.7 s — enters `watched` every
+time, and reaches a terminal list zero times.**
+
+**WHY THE ENTRY COUNT IS THE LOAD-BEARING NUMBER.** "Present in `watched` for 2,344 notifies" is
+satisfied by two mechanisms that need **opposite fixes**: a SERIES of calls each replaced before
+resolving (supersession — fix the trigger), or ONE call whose promise never resolves (a hung request —
+a different defect entirely). A presence *count* cannot separate them. The number of contiguous
+present-blocks can, and it was added for exactly that reason before the verdict was read: **23 and 26
+separate entries**, not one. This is supersession.
+
+> The store-writing callback's lifecycle **never completes**: it is scheduled ~24 times per 90 s and
+> reaches a terminal list zero times. **Why** it never completes is not established — supersession and
+> a failed/aborted response both fit, and four numbers above fit supersession badly.
+
+**IT FITS THE INDEPENDENT TIMING.** `update_metrics_store` rides `fast-update-interval` at
+`FAST_UPDATE_INTERVAL_MS = 1000` (`canopy_constants.py:370`), and the 2026-09-05 latency probe measured
+a **median round trip of 1.827 s** against a median re-request gap of 1.716 s. A callback that takes
+~1.8 s and is re-requested every ~1 s can never finish — which is what these lists show it doing, two
+dozen times a window. The 69% overlap figure from 09-05 and the one-run-in-eight success both fall out
+of the same picture: it is a race the store usually, but not always, loses.
+
+**THE ZERO WAS UNCONTROLLED WHEN FIRST WRITTEN. IT IS CONTROLLED NOW.** An independent consensus
+review (2026-09-07, Lane A, three reviewers at distinct entry points) made the sharpest possible
+objection to the table above: **this instrument had never once produced a non-empty terminal bucket,
+on any run.** An empty bucket has two causes that look identical — the callback never got there, or
+the sampler cannot see that list at all — and without a positive instance the verdict
+`RETIRED-BEFORE-EXECUTION` was an *uncontrolled zero*. The objection was correct, and the claim was
+disarmed from auto-merge rather than shipped while it stood.
+
+Three measurements now close it, in order of strength.
+
+1. **A control that is weaker than it was first written up as.** The probe gained a `--store` flag and
+   was pointed at `theme-state`: **`terminal=['stored']`, present in 1,987 notifies.** But its
+   `entries: {stored: 1}` and `maxRun: 1987` mean **one entry, resident for the entire window** — it was
+   already in `stored` when the watcher armed. So the control shows the matcher can *read a resident
+   entry*; it does **not** show the sampler can catch a **transit** through a terminal list, which is
+   the actual blind spot. It also ran 45 s (not 90), on a one-shot page-load callback rather than a 1 Hz
+   poll, and could not read its own store's value (`len: null`, a string). Its committed verdict block
+   reads `EXECUTED-NOT-APPLIED … the retirement hypothesis should be dropped` — a false read caused by
+   the `len()` test on a string store, and the reason that rule must not be reused on a non-list store.
+   **Net: `terminal=[]` is better supported than before and still not proven to be a measurement.**
+   Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-07_f035_lifecycle_POSITIVE-CONTROL_theme-state.json`.
+2. **A per-list output-shape census**, so "the matcher cannot reach that list" is testable rather than
+   assumed. `stored` holds 33-34 entries at sample time and **every one exposes `callback.outputs`**
+   (105 visible output ids). The matcher's shape assumption holds for the exact list whose emptiness
+   the verdict rests on. Evidence: `…/2026-09-07_f035_callbacks_list_inventory.txt`.
+3. **The list inventory is now recorded in every result artifact**, not only under `--discover`, and
+   the verdict returns **BLOCKED** rather than a confident verdict if no list matches the terminal
+   hints. A future rename degrades to "could not measure" instead of to "retired".
+
+**A SECOND CONTROL RETURNED THE SAME VERDICT ON A DIFFERENT STORE, and dismissing it was circular.**
+`network-visualizer-topology-store` — chosen because M-TOPOLOGY is 16 PASS — returned
+`RETIRED-BEFORE-EXECUTION`, 9 entries into `watched`, `terminal=[]`: **the identical signature, on a
+second store.** It was set aside on the strength of one direct read showing `hidden_units: 0`. That
+dismissal cannot stand as written, because the same reading is flagged three paragraphs below as a
+single unreplicated observation that nothing may be concluded from. **Either it is evidence — in which
+case the control is invalid — or it is not, in which case the control stands and the verdict is not
+discriminating.** It cannot be both. Until that is re-driven, treat the lifecycle verdict as
+*non-discriminating between a broken store and a working one*.
+
+**A CONTROL THAT WAS NOT ONE, recorded because the near-miss matters.** The first control attempt used
+`network-visualizer-topology-store` on the grounds that it is healthy (M-TOPOLOGY 16 PASS). It also
+returned `terminal=[]` — which briefly looked like proof the instrument was blind. It was not a valid
+control: a direct read showed that store holding **`hidden_units: 0`** on this leg, i.e. it was empty
+too, so the run distinguished nothing. **A control must be shown to be positive before its negative
+result means anything** — the same lesson as the 2026-09-03 `blob:`/`data:` near-miss, arrived at from
+the opposite direction. Evidence: `…/2026-09-07_f035_lifecycle_control_topology-store.json`.
+
+**A SIDE OBSERVATION, FLAGGED AND NOT FILED.** That reading — `network-visualizer-topology-store` at
+`hidden_units: 0` against a 48-unit fixture, on canopy `de253e9` — is not what M-TOPOLOGY's 16 PASS
+would predict. It is a single unreplicated read taken for another purpose, on a tab that was open
+~12 s, and this arc has a standing rule against filing a finding from a lucky or unlucky session. It
+is recorded here as **an observation to re-drive**, not as a finding, and not as a regression.
+
+**A VERDICT-RULE LIMITATION exposed by the control.** `theme-state` scored `EXECUTED-NOT-APPLIED`
+because the rule's "did the store advance" test reads `len()` of a list, and that store's value is the
+string `"light"`. For non-list stores the "never advanced" half of that verdict is a false read. It
+does not touch the metrics-store result (whose value *is* a list) but the rule should not be reused on
+a non-list store without fixing it first.
+
+**A SAMPLING HOLE, AND THE TWO INDEPENDENT MEASUREMENTS THAT CLOSE IT.** This probe samples on Redux
+notifies, so an entry that passed through `executed` and out between two notifies would be invisible,
+and "never in a terminal list" would be an artifact. That hole is closed from outside this instrument:
+the store's value never advances (`len=0`, independent `paths.strs` read), and the dispatch probe
+recorded **zero** value-carrying dispatches across four runs. Had a call completed and been applied, a
+dispatch would have carried it. The conclusion rests on all three, not on the list membership alone.
+
+**WHAT IS STILL NOT ESTABLISHED, stated plainly.**
+
+- **Which code path performs the supersession.** That it *is* supersession is measured; whether it is
+  dash-renderer's duplicate-output pruning, the 12-slot concurrency cap, or another replacement rule is
+  not. The fix direction does not depend on the answer — all three point at the trigger — but the
+  citation would.
+- `stored` never showed an entry even *touching* the store, despite holding 30 entries at discovery
+  time. Unexplained; it does not affect the verdict (which rests on the writer's own lifecycle plus
+  the two external checks) but a future reader should not take it as evidence of anything.
+- **n = 2** replicates for the entry counts, 3 for "never terminal". The procedure's small-sample
+  escalator applies to any further inference; it is enough to name a mechanism that three independent
+  instruments agree on, and not enough to characterise its distribution.
+
+**A SIBLING INSTRUMENT ALREADY EXISTED, and the comparison is the useful part.**
+`util/ad-hoc/e2e_f039_renderer_apply.py` (2026-09-02) already wrapped `store.dispatch` for
+F-CANOPY-039. This session's `2026-09-07_f035_renderer_dispatch_probe.py` re-derived that half rather
+than reusing it — a duplication that a check of the arc's own tooling would have avoided, and it is
+recorded here so the next reader starts from the inventory. The *lifecycle* half is new: neither the
+F-039 instrument nor the dispatch probe reads `state.callbacks`.
+
+And reading it separates two findings that had looked like one family with one shape:
+
+| | where it dies |
+|---|---|
+| **F-CANOPY-039** | the lifecycle **completes** (`AddRequested → LOADING → RemoveExecuted → LOADED`) with the correct itempath, and *no dispatched action carries the payload* — it dies at `RemoveExecuting`, one set over |
+| **F-CANOPY-035** | the lifecycle **never completes** — the writer never reaches `executed`/`stored` at all, and is re-entered ~24 times per 90 s |
+
+Same family (a renderer-level discard), **different failure point**. F-039's call finished and its
+result was dropped on the way to being applied; F-035's call never finishes. The earlier note that
+this "supports F-035/-038/-039 being one defect" should be read with that distinction in mind.
+
+**NO FIX DIRECTION IS ESTABLISHED, and the earlier text asserted one.** "Suppress the trigger, not the
+work" is this arc's standing prior from a *previous* dash-renderer finding; it is not a result of this
+measurement, and the measurement above fits it poorly. Two specific cautions for whoever does build a
+fix:
+
+- **A faster handler is not obviously futile.** Against the *measured* 1.716 s gap the margin is
+  ~0.11 s (~6%), not the ~0.8 s the constant implies. Shaving the handler is untested, like every other
+  candidate — not ruled out.
+- **Do NOT raise `FAST_UPDATE_INTERVAL_MS`** (`canopy_constants.py:370`) to lengthen the poll. It is
+  the shared fast lane: `src/tests/unit/frontend/test_stage2_global_lane.py` pins its exact membership,
+  `src/tests/unit/test_constants.py` pins the value at 1000, and `network_visualizer.py:1881,1923`
+  derives the **cascade-add glow timing (M-TOPOLOGY-16)** from it — so raising it silently rescales a
+  row this arc still owes. Give `update_metrics_store` its own Interval, or gate it clientside.
+
+Run `util/ad-hoc/e2e_f039_supersession_test.py` before writing any canopy code: it falsifies or
+supports the trigger hypothesis with no product change at all.
+
+**Matrix effect: none.** M-CANDIDATES-07 stays **FAIL** — the row is blocked on an upstream cause that
+is now identified rather than bounded. canopy#524's adapter remains correct and unreachable.
+
+**Leg torn down** by pid, worktree removed and pruned; nothing to revert.
+
+Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-07_f035_callback_lifecycle_run{1,2,3}.json`
+(run 1 is the 60 s pilot that established "never terminal"; runs 2 and 3 are the 90 s replicates that
+add the entry counts).
 
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.

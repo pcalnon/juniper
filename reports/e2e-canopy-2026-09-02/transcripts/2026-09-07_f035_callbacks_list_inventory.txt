@@ -1,0 +1,253 @@
+[t=    685ms] navigating to http://127.0.0.1:8052
+[t=   6453ms]   welcome modal not present/visible
+[t=  14329ms]   modal cleared after 1 attempt(s)
+per-list output-shape reachability (does isOutput stand a chance?):
+  blocked        len=0  <empty at sample time - no shape evidence>
+  completed      len=None  <empty at sample time - no shape evidence>
+  executed       len=0  <empty at sample time - no shape evidence>
+  executing      len=0  <empty at sample time - no shape evidence>
+  prioritized    len=0  <empty at sample time - no shape evidence>
+  requested      len=11   callback.outputs=11/11  payload.outputs=0/11  executionResult.outputs=0/11  visible_output_ids=29
+  stored         len=34   callback.outputs=34/34  payload.outputs=0/34  executionResult.outputs=21/34  visible_output_ids=105
+  watched        len=7    callback.outputs=7/7  payload.outputs=0/7  executionResult.outputs=0/7  visible_output_ids=20
+
+{
+  "ok": true,
+  "stateKeys": [
+    "appLifecycle",
+    "callbacks",
+    "config",
+    "error",
+    "graphs",
+    "history",
+    "hooks",
+    "profile",
+    "changed",
+    "isLoading",
+    "layout",
+    "paths",
+    "layoutHashes",
+    "loading",
+    "dependenciesRequest",
+    "layoutRequest",
+    "reloadRequest",
+    "loginRequest",
+    "callbackJobs"
+  ],
+  "callbackKeys": [
+    "blocked",
+    "executed",
+    "executing",
+    "prioritized",
+    "requested",
+    "stored",
+    "watched",
+    "completed"
+  ],
+  "lists": {
+    "blocked": {
+      "type": "array",
+      "len": 0
+    },
+    "executed": {
+      "type": "array",
+      "len": 0
+    },
+    "executing": {
+      "type": "array",
+      "len": 0
+    },
+    "prioritized": {
+      "type": "array",
+      "len": 0
+    },
+    "requested": {
+      "type": "array",
+      "len": 11,
+      "sample": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "metrics-panel-replay-play",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "metrics-panel-replay-play.children",
+          "inputs": [
+            {
+              "id": "metrics-panel-replay-state",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "metrics-panel-replay-play.children",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.1d239db84fb6f"
+      },
+      "shapes": {
+        "entries": 11,
+        "has_callback_outputs": 11,
+        "has_payload_outputs": 0,
+        "has_executionResult_outputs": 0,
+        "total_output_ids_visible": 29
+      }
+    },
+    "stored": {
+      "type": "array",
+      "len": 34,
+      "sample": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.1d239db84fb6f",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      },
+      "shapes": {
+        "entries": 34,
+        "has_callback_outputs": 34,
+        "has_payload_outputs": 0,
+        "has_executionResult_outputs": 21,
+        "total_output_ids_visible": 105
+      }
+    },
+    "watched": {
+      "type": "array",
+      "len": 7,
+      "sample": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "metrics-panel-training-state-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "metrics-panel-training-state-store.data",
+          "inputs": [
+            {
+              "id": "metrics-panel-stats-update-interval",
+              "property": "n_intervals"
+            }
+          ],
+          "state": [
+            {
+              "id": "ws-liveness-store",
+              "property": "data"
+            },
+            {
+              "id": "metrics-panel-training-state-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "metrics-panel-training-state-store.data",
+        "changedPropIds": {
+          "metrics-panel-stats-update-interval.n_intervals": 2
+        },
+        "initialCall": false,
+        "pr
