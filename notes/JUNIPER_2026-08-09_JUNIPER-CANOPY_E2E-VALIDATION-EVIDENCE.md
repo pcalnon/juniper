@@ -1021,6 +1021,24 @@ dispatch would have carried it. The conclusion rests on all three, not on the li
   escalator applies to any further inference; it is enough to name a mechanism that three independent
   instruments agree on, and not enough to characterise its distribution.
 
+**A SIBLING INSTRUMENT ALREADY EXISTED, and the comparison is the useful part.**
+`util/ad-hoc/e2e_f039_renderer_apply.py` (2026-09-02) already wrapped `store.dispatch` for
+F-CANOPY-039. This session's `2026-09-07_f035_renderer_dispatch_probe.py` re-derived that half rather
+than reusing it — a duplication that a check of the arc's own tooling would have avoided, and it is
+recorded here so the next reader starts from the inventory. The *lifecycle* half is new: neither the
+F-039 instrument nor the dispatch probe reads `state.callbacks`.
+
+And reading it separates two findings that had looked like one family with one shape:
+
+| | where it dies |
+|---|---|
+| **F-CANOPY-039** | the lifecycle **completes** (`AddRequested → LOADING → RemoveExecuted → LOADED`) with the correct itempath, and *no dispatched action carries the payload* — it dies at `RemoveExecuting`, one set over |
+| **F-CANOPY-035** | the lifecycle **never completes** — the writer never reaches `executed`/`stored` at all, and is re-entered ~24 times per 90 s |
+
+Same family (a renderer-level discard), **different failure point**. F-039's call finished and its
+result was dropped on the way to being applied; F-035's call never finishes. The earlier note that
+this "supports F-035/-038/-039 being one defect" should be read with that distinction in mind.
+
 **THE FIX THIS IMPLIES — recorded as a design implication, not shipped here.** Suppress the *trigger*
 while a fetch is in flight, or make the poll period exceed the observed round trip; do not make the
 handler faster and hope. This is the same shape as the arc's recorded dash-renderer lesson
