@@ -3,12 +3,13 @@
 - **Project**: Juniper — juniper-canopy
 - **Author**: Paul Calnon
 - **Date**: 2026-09-05
-- **Status**: Validation complete; design **upheld with corrections**. Phases 1 and 2 shipped and **accepted in a live browser** (§8.1).
+- **Status**: Validation complete; design **upheld with corrections**. The deadlock fix and all of PR B are shipped (six PRs) and **accepted in a live browser** (§8.1, §8.1b). Remaining: PR C, the §12 generator programme, `⊥`-at-mount, and X10/X11 (§7).
 - **Validates**: [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md)
   and its evaluation of record [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md`](JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-DEADLOCK-PROPOSALS.md)
 - **Procedure**: [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`](JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md)
 - **Agent reports**: `reports/2026-09-05_canopy-deadlock-consensus/{laneA1,laneA2,laneA3,laneB1,laneB2}.md`
-- **Acceptance evidence**: `reports/2026-09-05_canopy-deadlock-consensus/browser_acceptance.md`
+- **Acceptance evidence**: `reports/2026-09-05_canopy-deadlock-consensus/browser_acceptance.md` (PR A)
+  and `…/browser_acceptance_prb.md` (PR B)
 
 ---
 
@@ -171,13 +172,36 @@ Executed:
 |---|---|
 | **canopy#592** | §4.4 X1 model-state truth + **G5**. Departs from §4.4 deliberately: `swapped is False` is *also* correct when re-selecting the already-live model, so agreement is tested on the model's **provider** instead. |
 | **canopy#593** | §4.1 ✕ + §4.8 Start gate (both axes, pre-closing X9) + §4.2 guards on **all three** commit paths + §4.5 restart-modal regate + **G1a/G1b/G2/G6**. Also repairs a defect in #592's guardrail: it pinned a `backend_type` of `"cascor"`, which the property never returns (real domain `{"service","demo","recurrence"}`). |
+| **canopy#594** | PR B/1 — §4.11 model clear (OQ-N6's affordance, deferred at #394 and never revisited) + N11 + **Y9** + **G8**. |
+| **canopy#595** | PR B/2 — §4.7 empty-set recovery + §4.3 notice channels + **G3** + **G1d**. |
+| **canopy#596** | PR B/4 — §4.12 demo-mode loud degradation across **all three** fallback sites + **G9**. |
+| **canopy#598** | PR B/3 — the five resolver injection points + **G1c**, which closes this document's own NO ARTIFACT. |
 
 Remaining, in order:
 
-1. **PR B** — §4.11 clear-model + G8, §4.7 empty-set + G3, §4.3 notice channels (built on the
-   existing `dbc.Alert(duration=)` idiom used 17× — canopy's "zero Toast components" cost is
-   overstated), §4.12 across **all three** fallback sites + G9, and the four remaining resolver
-   injection points + G1c/G1d.
+1. ~~**PR B**~~ — **SHIPPED** as canopy#594 / #595 / #596 / #598, in four independently
+   reviewable slices. Three findings came out of building it, each of which contradicts something
+   the design or this document assumed:
+
+   - **The two clear affordances are two INDEPENDENT cut vertices, not a fix plus a companion.**
+     Clearing the model ungates the dataset list, from which `equities_seq` can be picked directly
+     and Recurrence then selected — reaching the target pair without ever touching the dataset ✕.
+     G2 asserted the opposite and failed on #594. **Consequence: neither affordance can be
+     regression-tested by its own absence any more. Only the pair can.**
+   - **The BFS was starting in a state the app occupies only transiently.**
+     `params-init-interval` fires the gate ~1 s after load, so the mount pass always runs and the
+     layout's seeded dataset is cleared before the user can act where it is unavailable. G1d was
+     asserting about a pre-gate snapshot until the search was moved to start *after* that pass.
+   - **§4.3's repair notice is not interactively reachable.** The model table enables a Select only
+     when that model is compatible with the current dataset — precisely when no snap is needed —
+     so the transition that would fire the notice cannot be made from there. It is a safety net for
+     the mount pass and for availability changes, covered at handler level and **not** observed in
+     a DOM (`browser_acceptance_prb.md` §4).
+
+   Also: §4.3's costing was wrong in canopy's favour. It budgeted a new Toast component tree on the
+   grounds that canopy has zero; canopy has **28** `dbc.Alert(` uses including a fixed-position
+   idiom, and since Y7 measured zero `aria-*` attributes in that file, a toast alone would have been
+   an accessibility **regression** against rendering the notice inline.
 2. **PR C** *(parallel)* — §4.6 alias, §4.9 staging guard + G4 as re-specified, and the two real
    fixes filed as **cross-repo** items: `RecurrenceBackend.stage_dataset` (juniper-recurrence) and
    `equities_seq` in `juniper-cascor/src/api/models/training.py:235`'s `Literal`.
@@ -227,6 +251,27 @@ Two method findings worth carrying:
 
 **Y9 was observed rather than inferred**: at `⊥` the model table renders `✓ compatible` for *both*
 models — a positive falsehood, scheduled for §4.3 in PR B.
+
+### 8.1b PR B was accepted in a browser too
+
+`reports/2026-09-05_canopy-deadlock-consensus/browser_acceptance_prb.md`, against `main` @
+`f8fb4a2`, over **two** stacks — because availability is a bring-up parameter and the empty-set
+state only exists when a compatible generator is genuinely absent. Run B used the deployed
+container's real configuration (no `equities` extra), so §4.7 was exercised in the condition that
+actually produces it rather than a synthetic one.
+
+Observed: the model-clear control and its ungating; the second cut-vertex traversal end to end; Y9's
+per-row requirement text; and the empty-set alert with `role="status"` / `aria-live="polite"`,
+persistent (no `duration`), dataset held at `⊥`, Start and Apply both disabled.
+
+**A trap caught before it produced a false result**: the first bring-up served canopy from a main
+checkout still at `aa61156` — *pre*-PR B — and looked entirely healthy. Caught by grepping the
+served source for `model-selection-clear` before driving anything. A checkout is not a deployment.
+
+**And the same instrument error three times.** Three probes sampled once after a fixed
+`waitForTimeout` and briefly reported the opposite of the truth (the dataset "did not snap"; Start
+"was not disabled"; the modal "did not open"). Canopy's callbacks are continuously in flight, so a
+fixed sleep is not a synchronisation primitive — poll for the expected value with a deadline.
 
 ### 8.2 Still not established
 
