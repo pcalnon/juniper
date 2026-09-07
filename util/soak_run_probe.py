@@ -343,7 +343,18 @@ def retrieval_channel(parsed: dict, pointer: str) -> dict:
     automate while correctness is not.
     """
     doc = pointer.split("#", 1)[0].strip() if pointer else ""
-    blob = "\n".join(parsed["tool_inputs"]) + "\n" + parsed["answer"]
+    # TOOL INPUTS ONLY. The first version also searched the ANSWER text, which
+    # made any run that merely NAMED the pointer document score as a follow.
+    # It fired on P15 (2026-09-04): zero tool calls touched docs/REFERENCE.md,
+    # but the answer said "before the docs/REFERENCE.md relocation cut it to
+    # ~35k" -- a passing mention of the file, scored as retrieval of the fact.
+    #
+    # Retrieval is evidenced by OPENING the document, which is a tool call. Prose
+    # that names a filename is evidence the model knows the filename, which is
+    # exactly the thing the soak must not credit -- the whole question is whether
+    # the pointer gets FOLLOWED, and a model reciting the path without reading it
+    # is the strongest possible example of not following it.
+    blob = "\n".join(parsed["tool_inputs"])
     hit = bool(doc) and doc in blob
     return {
         "pointer_doc": doc,

@@ -57,6 +57,8 @@
 | `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified `step_count` / `mean_step_seconds` (not `wall_seconds` / `timings.drive`) |
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
 | `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
+| `python util/experiments/run_suite.py --suite PATH` | Drive a multi-cell suite; `aggregate.csv` + `REPORT.md` carry `step_count` / mean step beside de-ratified `wall_seconds` |
+| `python util/experiments/run_suite.py --suite PATH --compare-baseline TAG` | Same, plus a reporting-only comparator verdict in `REPORT.md` (FAIL still exits 0) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
@@ -673,6 +675,8 @@ Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`),
 `--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
 Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
 
+Tip: `run_suite` `aggregate.csv` / `REPORT.md` now carry both gate inputs (`step_count` WORK, mean step SPEED) beside de-ratified `wall_seconds`. `--compare-baseline TAG` pastes a verdict but **does not** change the suite exit code (P1 §6 still open). Report table is milliseconds; CSV is seconds. See [REFERENCE — Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs).
+
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
 Tip: orphaned cascor workers outside `JuniperProject.pid` need `KILL_WORKERS=1 util/juniper_chop_all.bash` (default `0`). Strict filter keeps `juniper-cascor-worker` / `juniper_cascor_worker` only — not the old over-greedy `cascor.*worker`. Timeout hard-coded `5s`. Full contract: [REFERENCE — Host Orchestration](REFERENCE.md#host-orchestration-utilities).
@@ -776,6 +780,13 @@ Tip: P4 `include` cells do not inherit `matrix`. Oversize cascor stall is pool �
 
 Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 bytes. Run `python3 util/memory_index_check.py` on the host that writes `~/.claude` — CI never sees the real file. The 120 cap is the **hook** (`len` after the `)`), not the line. `--accept` grandfathers and always exits 0; it does not evict. See [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check).
 Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py <repos> --min-score 3 --json OUT`. The scored **total will rise** — relocation removes resident identifiers, so the gap predicate starts matching them. Health is the score ≥ 3 count (and whether anything *new* appears there), not the total. `2026-08-28_hazard_triage.py` alone cannot find what was never in `AGENTS.md`. Full contract: [REFERENCE — Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage).
+
+Tip: the canopy E2E matrix is a 298-row ledger. `e2e_matrix_fill.py` is dry-run by default; `2026-09-02_matrix_set_verdicts.py` has **no dry-run** and writes immediately on a `--from` match.
+`e2e_matrix_rescore.py --write` still writes found rows when some `--row` ids are missing. Do not plan from `e2e_row_coverage.py`. Do not `--overwrite` a named subset (clobbers `DIVERGENCE` cells). Full contract: [REFERENCE — Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes).
+
+Tip: before removing a worktree you did not just leave, run the cwd-only liveness probe **and** `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT`. An editor whose cwd is elsewhere while a file in the tree is open is invisible to cwd-only. STRONG (cwd/open-fd) exits 1; WEAK cmdline is CAUTION and must not fail the process (the probe's own argv used to report every tree in use). Empty argv exits 2. See [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+Tip: Phase 2 exit is "every P0 and P1 closed or explicitly deferred". Run `python3 util/ad-hoc/e2e_finding_triage.py` rather than a hand list. It reads only the finding **header**; ACCEPTED is a third disposition (not FIXED, not OPEN); `--open-only` still prints full totals; exit is always 0. See [REFERENCE — Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage).
 
 
 ### Host Stack Troubleshooting

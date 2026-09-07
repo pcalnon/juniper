@@ -1,0 +1,37 @@
+{
+  "canopy": "http://127.0.0.1:8052",
+  "store": "metrics-panel-metrics-store",
+  "window_s": 60.0,
+  "tab": "Candidate Metrics",
+  "reloaded": false,
+  "armed": true,
+  "dispatches": [],
+  "transitions": [
+    {
+      "t": 1788786786350,
+      "from": null,
+      "to": 0,
+      "note": "initial"
+    }
+  ],
+  "actionTypes": {
+    "Callbacks.Aggregate": 3734,
+    "<thunk>": 851,
+    "LOADING": 643,
+    "SET_PATHS": 78,
+    "LOADED": 631,
+    "RESET_COMPONENT_STATE": 4488
+  },
+  "totalDispatches": 10425,
+  "totalNotifies": 10661,
+  "errors": [],
+  "independent_read": {
+    "ok": true,
+    "via": "paths.strs",
+    "len": 0
+  },
+  "result": {
+    "verdict": "NEVER-ARRIVES",
+    "why": "no dispatched action ever carried a value for this store, over 10425 dispatches. The response is discarded before the reducer sees it -- consistent with renderer-level retirement of a superseded in-flight call, and NOT with a reducer that drops a value it was handed."
+  }
+}
