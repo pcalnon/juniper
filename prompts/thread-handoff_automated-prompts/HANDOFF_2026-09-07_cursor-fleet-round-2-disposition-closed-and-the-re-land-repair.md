@@ -3,7 +3,7 @@
 **Date**: 2026-09-07
 **Session**: `b8961afb-ff80-4711-ad14-f0b84fc764cf` (`https://claude.ai/code/session_01XKkhhaqpFhYJ89JFtYU6Q5`)
 **Worktree**: `juniper-ml/.claude/worktrees/zippy-dreaming-kay`
-**Validation**: five independent agents, §8. **Nine of my claims were wrong; they are corrected below and the corrections are the most useful thing in this document.**
+**Validation**: five independent agents — results in **§7**. **Nine of my claims were wrong; they are corrected below and the corrections are the most useful thing in this document.**
 
 ---
 
@@ -247,7 +247,7 @@ pass with open. Both fixed in #1815, with mutation-checked tests.
 | §3 did not mark which tools MUTATE state | **ACCEPTED.** `writes?` column added. |
 | 173 lines framed as "deliberately not merged" | **ACCEPTED.** Reframed as a measured outcome with the over-report caveat. |
 | Failures softened; the gate's limitation written as a law of nature | **ACCEPTED.** §1 and §4 now attribute them to me. |
-| §7 promised a §8 that did not exist | **ACCEPTED.** This section replaces it. |
+| the draft promised a §8 that did not exist | **ACCEPTED.** §7 (this section) is it. The header's pointer to "§8" outlived the fix by two commits — a dangling cross-reference survives every edit that does not happen to read that line. |
 
 **Nine distinct claims of mine were wrong.** The most serious is the contract-revert one, because
 I repeated it to the operator several times before it was measured. Both Lane B agents were
