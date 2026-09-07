@@ -1320,6 +1320,15 @@ Coverage: `tests/test_soak_ledger.py`, `tests/test_soak_next_probe.py`, `tests/t
 
 The pointer-follow soak measures whether a **fresh, unprimed** Claude session retrieves a **relocated** fact from its pointer (usually a `docs/REFERENCE.md` heading) rather than from source. Owner decision 2026-09-03: the soak exists **to inform relocation decisions**, not to print a pooled pass/fail about "relocation in general."
 
+Recording click-by-click verdicts into the 298-row matrix is a **separate write path**: [Canopy E2E Matrix Writes](#canopy-e2e-matrix-writes).
+
+| Utility | Purpose | Key Overrides |
+|---------|---------|---------------|
+| `util/isolated_stack.bash --up` | Create the data venv, then launch data → cascor → canopy (health-gated); a mid-leg failure tears the partial trio back down | `JUNIPER_E2E_DATA_PORT`, `JUNIPER_E2E_CASCOR_PORT`, `JUNIPER_E2E_CANOPY_PORT`, `JUNIPER_E2E_HEALTH_TIMEOUT`, `JUNIPER_E2E_DATA_EXTRAS`, `JUNIPER_E2E_RUN_DIR`, `JUNIPER_E2E_*_CONDA` / `*_DIR` |
+| `util/isolated_stack.bash --down` | Kill-by-port teardown + clean run / snapshot artifacts | same port / `RUN_DIR` / project overrides |
+| `util/isolated_stack.bash --status` | Probe each `/v1/health` and report listening PID | same |
+| `util/isolated_stack.bash --dry-run …` | Print every command; execute nothing (safe when ports are busy) | same |
+
 Protocol: [`notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md`](../notes/JUNIPER_2026-08-20_JUNIPER-ML_POINTER-FOLLOW-SOAK-LEDGER.md). Trigger and characterisation: [`notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md`](../notes/JUNIPER_2026-09-03_JUNIPER-ML_SOAK-TRIGGER-DESIGN-CONVERSATION.md).
 
 ### Pieces
@@ -1469,12 +1478,30 @@ Troubleshooting:
 
 | Symptom | Check / Fix |
 |---------|-------------|
+| `ERROR: required command 'python3.14' not found` | Install/expose `python3.14` on `PATH` before `--up`; no venv or pidfile should exist yet under `JUNIPER_E2E_RUN_DIR`. |
+| Data health timeout / free-threading oddities | Confirm launch used `PYTHON_GIL=0`; inspect `${RUN_DIR}/logs/juniper-data.log` and that `.venv-data` was created with `python3.14`. |
+| Stale editable install in data venv | Delete `${RUN_DIR}/.venv-data` (or run `--down`) and re-`--up`, or set a fresh `JUNIPER_E2E_RUN_DIR`. Existing venv skips `python3.14 -m venv` but still re-pip-installs. |
+| `--up` dies with unset-variable / odd conda activate noise | Need #785 nounset restore; also confirm `JUNIPER_E2E_CONDA_DIR` points at a real `conda.sh`. |
+| `bring-up failed — tearing the partial trio back down` | Expected on a mid-`--up` leg failure — `do_down` already ran. Read `${LOG_DIR}`, confirm the ports are free, then retry. |
+| `ERROR: conda activate '…' failed` | Expected fail-closed path — fix `JUNIPER_E2E_CASCOR_CONDA` / `JUNIPER_E2E_CANOPY_CONDA` / `JUNIPER_E2E_CONDA_DIR`, then re-`--up`. |
+| Cascor/canopy "up" but wrong torch / odd site-packages after a conda env rename | Confirm `activate_conda` still fail-closes (`rg -n 'if ! conda activate' util/isolated_stack.bash`); a masked activate failure launches on the ambient PATH. |
+| Ports still busy after `--down` | Confirm `ss` is on `PATH` and can see user processes; re-run `--down` or kill the `pid=` from `ss -tlnpH` manually. |
+| Health timeout mid-`--up` | Inspect `${JUNIPER_E2E_RUN_DIR:-/tmp/juniper-e2e}/logs/*.log`; raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service, not as a silent hang workaround. |
+| Cascor dies / wrong torch after `--up` | Confirm live launch emptied `LD_LIBRARY_PATH` (`--dry-run --up` shows `LD_LIBRARY_PATH=`); prefer default `JuniperCascor1`. |
+| Canopy looks "up," but training APIs are demo stubs | `JUNIPER_CANOPY_DEMO_MODE` must be `0` on the live launch line. |
+| Isolated canopy is live but Candidate Metrics / Decision Boundary / Topology stay at mount defaults | 12-slot starvation, not missing wiring. Do **not** add a new Interval. Run [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes). |
+| Control-WS `403` / reconnect churn | Cascor allowlist + canopy Origin must both be canopy's origin (`http://127.0.0.1:<CANOPY_PORT>`). See checklist §4. |
+| Topology / metrics store looks empty while the wire is correct | Do not trust a browser `_store()` read or the first TOPOPROBE lines. Run the apply / soak / report / revert loop in [F-039 Store Probe](#f-039-store-probe). |
 | Exit `2`: `no --site-packages dir exists` | Path typo or stale CI fixture — pass a real directory, or drop `--site-packages` and use `--env`. |
 | Exit `2`: `no site-packages under … for env(s)` | Env missing under `--conda-dir`, or no `lib/python*/site-packages` yet — create/install into the env. |
 | Exit `2`: `no conda env maps to '…' in ecosystem.yaml` | Target `[project].name` has no `used_by` entry — pass `--env` / `--site-packages`, or add the mapping. |
 | Unexpected `BELOW_FLOOR` after a partial upgrade | Multi-interpreter env may still have an older site-packages tree — the tool reports the **highest** installed version; upgrade every tree or remove the stale one. |
 | `MISSING` but `pip show` works | Checker reads `METADATA` on disk under the resolved dirs only — confirm `--env` / `--site-packages` matches the interpreter you inspected. |
 | Floor / editable green, `import torch` still fails | Those checkers never import torch. Classify the ABI/`_C` layout with [Conda Env Torch Shadow Diagnostic](#conda-env-torch-shadow-diagnostic-p-5). |
+
+Do **not** point isolated ports at the host stack or run `--up` on ports `plant_all` already owns.
+
+Store-apply contradictions (correct `/api/topology` body, empty DOM) are a different class from bring-up failures — see [F-039 Store Probe](#f-039-store-probe).
 
 ---
 
@@ -1488,6 +1515,9 @@ Both notes surface the same `ImportError: Failed to load PyTorch C extensions` /
 |------|-------------|-------------|
 | [`JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md`](../notes/JUNIPER_2026-05-03_JUNIPER-ECOSYSTEM_CONDA-ENV-REBUILD-PROCEDURE.md) (P-5) | Free-threaded `cp*t` interpreter + regular (`cp*`, no `t`) torch wheel | **2** |
 | [`JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md`](../notes/JUNIPER_2026-05-07_JUNIPER-CASCOR_CONDA-ENV-FIX.md) | Regular `cp314` + torch 2.9.1 ships `torch/_C/` stubs **and** `_C.cpython-314-*.so`; import prefers the directory | **4** |
+
+# Restart THAT canopy leg (instrumentation is a source edit). Then hold a live tab:
+  util/ad-hoc/e2e_f039_metrics_store_soak.py --seconds 120
 
 `util/juniper_plant_all.bash` already defaults `JUNIPER_CASCOR_CONDA` and `JUNIPER_WORKER_CONDA` to `JuniperCascor1`. Run the diagnostic before overriding either back to `JuniperCascor`.
 
@@ -1810,6 +1840,196 @@ Shared browser helpers come from `e2e_w3_params_driver.py`. Default canopy URL i
 | Duplicate-store probe exits 1 | Probe could not run. Not a refutation and not a confirmation. |
 
 These scripts are **not CI**. They edit a sibling checkout. Revert is part of the contract, not optional cleanup.
+
+
+## Canopy E2E Matrix Writes
+
+The ledger is [`notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md) (298 rows). Hand-editing a status cell is how a neighbouring row silently acquires a verdict nobody measured. Four ad-hoc tools write or read that ledger; they are **not** interchangeable.
+
+Companion plan: [`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md). Evidence: [`JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md). Bring-up stays in [Isolated Stack E2E Utilities](#isolated-stack-e2e-utilities).
+
+### Which tool
+
+| Job | Tool | Default | Writes if some rows fail? |
+|-----|------|---------|---------------------------|
+| After a run, fill empty `status` cells from `statuses.tsv` / `rowlog.md` | `util/ad-hoc/e2e_matrix_fill.py` | **dry-run** (`--write` to apply) | No write unless `--write`. Exit `1` if nothing to fill. |
+| Set named rows that **all currently hold the same** status | `util/ad-hoc/2026-09-02_matrix_set_verdicts.py` | **writes immediately** (no dry-run) | **No.** Any missing / `--from` mismatch → exit `1`, file bytes unchanged. |
+| Re-score **exactly** the rows a fix re-opened, regardless of current status | `util/ad-hoc/e2e_matrix_rescore.py` | **dry-run** (`--write` to apply) | **Yes, the found rows.** Missing ids are a stderr WARNING; exit `0`. |
+| List placeholder `status` cells from the ledger | `util/ad-hoc/e2e_unfilled_rows.py` | read-only | n/a |
+
+Do **not** plan the next segment from `util/ad-hoc/e2e_row_coverage.py`. That script is an estimator over verdict records: it mis-reads compressed enumerations and over-credits rows whose only record is `pending …`. Segment 15's first handoff draft would have re-driven two already-`PASS` rows and dropped three unfilled ones. `e2e_unfilled_rows.py` reads the matrix with the filler's own pipe splitter and placeholder set.
+
+Do **not** use `e2e_matrix_fill.py --overwrite` to re-score a named subset. `--overwrite` rewrites **every** cell any verdict source covers, including hand-authored `INCONCLUSIVE` / `DIVERGENCE …` cells that no TSV reproduces. That is why `e2e_matrix_rescore.py` exists.
+
+### How to run
+
+```bash
+# Ledger: what is still a placeholder? (plan from this, not from e2e_row_coverage.py)
+python3 util/ad-hoc/e2e_unfilled_rows.py
+
+# After a drive: newest run FIRST (first source that carries a row wins)
+python3 util/ad-hoc/e2e_matrix_fill.py \
+  --verdicts reports/e2e/<NEWEST>/statuses.tsv \
+  --verdicts reports/e2e/<OLDER>/rowlog.md
+python3 util/ad-hoc/e2e_matrix_fill.py --verdicts reports/e2e/<NEWEST>/statuses.tsv --write
+
+# Named rows that all currently say BLOCKED (no dry-run — review the --from value)
+python3 util/ad-hoc/2026-09-02_matrix_set_verdicts.py \
+  --matrix notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md \
+  --from BLOCKED --set M-TOPOLOGY-09=PASS --set M-TOPOLOGY-12=FAIL
+
+# After a fix: touch only the re-opened rows (dry-run first)
+python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --row M-DATASET-02 --status PASS
+python3 util/ad-hoc/e2e_matrix_rescore.py --row M-DATASET-01 --status PASS --write
+```
+
+### Contracts verified against source
+
+**Fill** (`e2e_matrix_fill.py`):
+
+- Locates the `status` column **by header name per table**. Column sets differ (C2.4 WS-badge vs M-*); a fixed index silently writes into the wrong column.
+- Splits on unescaped pipes only (`\|` stays inside its cell). A naive split turned C2.2-04 (`display:block\|none`) into an extra phantom cell and wrote the verdict into the previous column.
+- Refuses a write that would change the row's cell count (exit `2`).
+- Namespaces with a status cell: `C2.*` and `M-*` only. W-lane ids (`W3-*`, `W5-*`, …) are numbered prose steps — reported as no-matrix-row, not an error.
+- `--verdicts` is repeatable. Sources are consulted in order; **first source wins**. Pass the newest run first.
+- Range / slash tokens (`M-TOPOLOGY-01..06,09..18`, `M-PARAMETERS-01/02/03`) expand; lane suffixes `-L` / `-D` become `PASS (LIVE arm)` / `PASS (DEMO arm)` so a single-arm drive cannot fold onto the other arm.
+- Non-terminal prefixes (`pending`, `todo`, `in progress`, `deferred`, `not run`) never reach a status cell.
+- Default `--max-len 44`; `shorten` drops a trailing rider rather than amputating a finding id mid-parenthesis.
+- Without `--overwrite`, an already-filled cell is left alone (placeholders: empty, `—`, `-`, `--`, `TBD`, `n/a`).
+- Exit: `0` ok, `1` nothing to fill, `2` misuse / unreadable input / cell-count refuse.
+
+**Set-verdicts** (`2026-09-02_matrix_set_verdicts.py`):
+
+- **No dry-run.** A successful `--from` match writes the file.
+- `--from` is required and applies to **every** named row. Mixed current statuses need two invocations (or use rescore).
+- Status is `cells[-2]` after a **naive** `line.split("|")` — last data cell. Do **not** use this tool on a row whose cells contain `\|`; use fill/rescore, which share `split_row`.
+- Row identity is `cells[1]` exact match (`M-TOPOLOGY-09` will not retarget `M-TOPOLOGY-090`). An id that appears only in a later cell is ignored.
+- Atomic: one bad `--set` among two updates **neither** row.
+- Exit: `0` all updated, `1` any missing / `--from` mismatch, `2` bad `ROW=VERDICT` syntax.
+
+**Rescore** (`e2e_matrix_rescore.py`):
+
+- Reuses fill's `split_row` / `status` header lookup. Cell-count change → exit `3`, no write of that line.
+- Refuses a status that starts with `pending` (exit `2`).
+- Missing `--row` ids: stderr WARNING, **still writes the found rows**, exit `0`. Confirm the printed list before `--write`.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| Neighbouring row now says PASS | Hand-edit, or `set_verdicts` on a row with an escaped pipe (naive split). Use the tools; dry-run fill/rescore first |
+| `set_verdicts` wrote immediately | It has no dry-run. Review `--from` / `--set` before invoking |
+| `rescore --write` landed 1 of 3 rows | Missing ids warn and still write. Check the WARNING list |
+| `--overwrite` clobbered `DIVERGENCE D-1 …` | Expected. Use `e2e_matrix_rescore.py --row` for a named subset |
+| W-lane verdict "didn't fill" | Those rows have no status cell. Expected `no-matrix-row` |
+| Older `rowlog.md` overwrote a newer TSV | First source wins. Pass newest `--verdicts` first |
+| Planned from `e2e_row_coverage.py` | Estimator. Use `e2e_unfilled_rows.py` against the ledger |
+| Fill wrote into the FA / AUTO column | Old index-guessing class. Current fill uses the `status` header; do not reintroduce a fixed index |
+| `pending demo lane` in a status cell | Non-terminal. Fill drops it; rescore refuses `pending*` |
+
+Ad-hoc inventory: [`util/ad-hoc/README.md`](../util/ad-hoc/README.md) § Canopy E2E matrix writes.
+
+Starvation / tab-gated poller forensics for a live isolated canopy: [F-CANOPY-027 Poller Starvation Probes](#f-canopy-027-poller-starvation-probes).
+
+
+## F-CANOPY-027 Poller Starvation Probes
+
+F-CANOPY-027 was "a panel's data store is written repeatedly and nothing downstream of it ever runs" (Candidate Metrics / Decision Boundary / Topology frozen at mount defaults). It is **FIXED** in juniper-canopy (#507 / #509 / #511 — tab-gated intervals + Stage 2 suppressed chained store rewrites). Ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md) entry F-CANOPY-027.
+
+The root cause is **callback starvation under dash-renderer's hard-coded 12-slot pool**, not missing wiring. Twenty wiring mechanisms were refuted in situ; retain that record. Recurrence looks identical (store fills on the wire, consumers never paint), so the probes stay in `util/ad-hoc/` as provenance.
+
+### The pool, not the graph
+
+dash-renderer 4.2.0 (`dash_renderer.dev.js` ~2846) promotes `callbacks.prioritized` with:
+
+```text
+available = Math.max(0, 12 - executing.length - watched.length)
+```
+
+If `executing + watched >= 12`, **nothing** leaves `prioritized` on that pass. Ordering is `sortPriority` / `getPriority` (base-36 downstream depth×breadth, **DESCENDING**). A terminal render callback — outputs feed no further callback — scores the minimum and loses every arbitration while the pool is contended. The callback is registered, resolvable, and queued; it is simply never picked.
+
+`getReadyCallbacks` only promotes `requested` → `prioritized` when none of the callback's INPUTS is an OUTPUT of a still-pending callback. One never-leaving pending writer pins every consumer of its outputs in `requested` forever (`blocked` / `executing` / `executed` all 0). That is "never READY", not "never wired".
+
+### Which probe
+
+Run against a **live isolated** canopy (`JuniperCanopy1`, `DEMO_MODE=0`). Empty `LD_LIBRARY_PATH` as for cascor/canopy launch. `e2e_f027_queues.py` / `e2e_f027_ready.py` / `e2e_f027_slots.py` have **no** `--base-url` — they inherit `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`) from `e2e_w3_params_driver.open_dashboard`.
+
+LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python \
+  util/ad-hoc/e2e_f027_queues.py --tab 'Candidate Metrics'
+# control arm (a winner, not a starvation loser):
+  util/ad-hoc/e2e_f027_queues.py --tab 'Training Metrics' \
+  --store metrics-panel-training-state-store
+
+  util/ad-hoc/e2e_f027_ready.py --tab 'Candidate Metrics'
+
+  util/ad-hoc/e2e_f027_slots.py --tab 'Candidate Metrics' --seconds 60
+
+| Probe | Question it answers |
+|-------|---------------------|
+| `e2e_f027_queues.py` | When the dead store's prop changes: consumer **queued-and-stuck**, or never queued? Hooks `store.dispatch` before injecting via `setProps`. |
+| `e2e_f027_ready.py` | Which pending callback is pinning each `requested` consumer, and which queue is that blocker in? |
+| `e2e_f027_slots.py` | How often is `available == 0`? Who occupies `watched`/`executing`, who sits in `prioritized` unpicked? |
+| `e2e_f027_deps_endpoint.py` | Does `/dashboard/_dash-dependencies` (client graph) list the consumer with the store as an Input? (`callback_map` is the **server** registry.) Run from `juniper-canopy/src`. |
+| `e2e_f027_cleanroom.py` | Smallest app with canopy's `visualization-tabs` shape. Default **includes** the once-only children rewrite (`suppress_cascade_tabs`); `--no-rebuild` omits it. Self-hosted on port `8399` (`--port`). |
+
+
+| Symptom | Cause |
+|---------|-------|
+| "Must be unwired — consumers never fire" | Check queues first. F-027 consumers **were** in `requested`. |
+| New Interval to "fix" a frozen panel | **Forbidden.** The F-027 rule: feed an existing store (canopy#524 used `metrics-panel-metrics-store`). A new poller re-saturates the 12-slot pool. |
+| Topology graph dead after a "correct" server render | Same family: 12-Input rebuild on the 1 s `fast-update-interval`. #509 gated it to `tabpoll-topology`. |
+| Probe against host `plant_all` canopy | Ports / DEMO_MODE collide. Isolated stack only ([Isolated Stack E2E](#isolated-stack-e2e-utilities)). |
+| `F-CANOPY-034` "store written by nothing" | Orthogonal: a poller with **no consumer**. Do not treat as 027. |
+| `F-CANOPY-035` empty candidate-loss figure | Not starvation — `/api/state` never carried `epochs`/`losses`/`phases`. Fixed canopy#524 by reading the shared metrics store. |
+
+These scripts are **not** CI. They need a live Dash page and Playwright/`e2e_w3_params_driver.py` helpers.
+
+---
+
+## Canopy E2E Finding Triage
+
+Phase 2's exit criterion ([the frontend validation plan](../notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md) §6.3) is "every P0 and P1 closed or explicitly deferred with owner sign-off". [`util/ad-hoc/e2e_finding_triage.py`](../util/ad-hoc/e2e_finding_triage.py) is the mechanical count of that ledger. Do not hand-maintain a parallel open list — it drifts.
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
+
+Default ledger: [`notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`](../notes/JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md). Override with `--note PATH`.
+
+### What it reads
+
+Only **line-starting** bold headers of the form `**F-<AREA>-<NNN> — …**` (optional trailing letter, e.g. `F-CANOPY-041b`). The body is non-greedy to the first closing `**`. Finding prose below the header, later mentions of the same id, and indented headings are invisible.
+
+The first heading for an id wins. A later restatement of the same id is skipped.
+
+### Dispositions
+
+Tokens are taken from the **last 170 characters** of the header body (the text between the em-dash and the closing `**`), case-insensitive whole words:
+
+| Token in that tail | Printed | Counts as |
+|--------------------|---------|-----------|
+| `FIXED` or `HEALED` | `FIXED` | closed, shipped |
+| `ACCEPTED` and not also FIXED | `ACCEPT` | owner-deferred — **not** open, **not** fixed |
+| neither | `OPEN` | still on the Phase 2 exit criterion |
+
+**ACCEPTED is a third disposition.** The defect is real and unrepaired, but the owner signed off (plan §6.3 "explicitly deferred"). Counting it as FIXED overstates what shipped; counting it as OPEN keeps an already-settled exit criterion red.
+
+`--open-only` hides FIXED and ACCEPTED rows from the table. The totals block underneath still counts every finding.
+
+### Priority
+
+First match of `P0/P1`, `P0`, `P1`, `P2`, `CRITICAL`, or `LEDGER` in the **full** header body (not only the tail). The alternation lists `P0/P1` before `P0`, so a `P0/P1` header is not classified as `P0`. Untagged → `?`.
+
+### Constraints
+
+- Always exits **0**. A green shell is not "no open P0/P1".
+- A `FIXED` token more than 170 characters before the end of the header body does **not** close an OPEN tail. Put the disposition in the header, near the end.
+- Putting `FIXED` / `HEALED` / `ACCEPTED` only in the finding's body paragraphs does nothing.
+- The printed summary is `header.split(":")[0]` truncated to 78 characters — a colon in the title cuts the line short; the id and disposition are unaffected.
+- A missing `--note` path is an uncaught `FileNotFoundError` (exit 1), not a triage table.
+
+Re-run; the counts drift. On 2026-09-04 against `origin/main` this printed **54** findings, **34** fixed, **1** accepted (`F-CANOPY-004`), **19** open (1 `P0/P1` + 3 `P1` + 15 `P2`).
 
 ---
 
@@ -4082,6 +4302,63 @@ Both non-zero codes fail the job on purpose (fail-closed). An empty ruleset list
 
 CI wiring: `.github/workflows/ci.yml` job `ruleset-scope-guard` (`needs: [pre-commit]`). Gate: `python3 -m unittest -v tests/test_ruleset_scope_guard.py`. Hermetic: `_get` is monkeypatched; no network. Coverage includes narrow pass, `~ALL` fail naming the ruleset and the `29110` rows, one-wide-among-narrow, empty list → 2, probe failure → 2 not 0, retry-then-recover, and the `bypass_actors` source pin.
 
+Related: both rulesets are `~DEFAULT_BRANCH`-scoped on purpose. The companion that fails a re-scope to `~ALL` (which would re-arm deleted bot bypass rows) is [Ruleset Scope Guard](#ruleset-scope-guard).
+
+## Ruleset Scope Guard
+
+`util/ruleset_scope_guard.py` fails if any Juniper ruleset is scoped `~ALL` instead of `~DEFAULT_BRANCH`. The CI job name is **`Ruleset Scope Guard`** (`ruleset-scope-guard`). It is a **hard Quality Gate need** (`tests/test_ci_quality_gate.py` `REQUIRED_NEEDS`): it runs on every event, including `push:main`, so folding it into `required-checks.needs` does not paint pushes red the way the PR-only soak jobs would.
+
+### Why `~ALL` is a hole
+
+On 2026-08-23 the `dependabot[bot]` (`29110`) and `Copilot SWE Agent` (`1143301`) bypass rows were removed from all 9 repos. That removal is safe **only while every ruleset stays `~DEFAULT_BRANCH`-scoped**:
+
+- Under `~DEFAULT_BRANCH`, the `creation` rule is evaluated only when creating the default branch — which no bot ever does — so those rows were inert and removing them changed nothing.
+- Under `~ALL`, `creation` is evaluated on **every** branch, including `dependabot/*`. The rows were genuinely load-bearing there: that is exactly what the 24 `creation: fail` bypass events between 2026-07-20 and 2026-08-10 were.
+
+Re-scoping any ruleset back to `~ALL` silently re-arms a dependency on rows that no longer exist. The symptom is dependency PRs stopping fleet-wide, with nothing pointing at the cause. Determination and evidence: [`notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md`](../notes/JUNIPER_2026-08-22_JUNIPER-ECOSYSTEM_BYPASS-CANDIDATE-DETERMINATION.md).
+
+### What it does **not** check
+
+**Bypass-row presence.** `bypass_actors` is redacted for unauthenticated callers. This guard is deliberately token-free so it can run on any PR without a secret. It reports scope only, and says so on stdout (`bypass rows are NOT checked`). For the row half use the authenticated `util/ad-hoc/2026-08-23_bypass_removal_verify.py`.
+
+That split is load-bearing: a token-free tool that appeared to verify rows would report a redacted field as empty — looking green while checking nothing. `ScopeContractTest` pins that the source does not `get("bypass_actors")`.
+
+The tool is **read-only** (GET only). It never PUTs a ruleset and never adds or amends required contexts.
+
+### Usage
+
+```bash
+python3 util/ruleset_scope_guard.py                  # this repo only (per-PR / CI default)
+python3 util/ruleset_scope_guard.py --fleet          # all 9 repos (manual)
+python3 util/ruleset_scope_guard.py --repo juniper-data --json
+```
+
+`--fleet` and `--repo` are mutually exclusive. Default repo is `juniper-ml`. `FLEET` is a stdlib-only list kept in lockstep with the release-train registry's publishing repos plus `juniper-deploy` (`FleetListDriftTest` — adding a sibling means updating this list too).
+
+No token is required: all 9 repos are public and `GET /repos/{o}/{r}/rulesets[/{id}]` answers 200 unauthenticated. `GITHUB_TOKEN` / `GH_TOKEN` is used when present purely for the higher rate limit (60/hr unauthenticated is per-IP and shared on hosted runners). CI passes `secrets.GITHUB_TOKEN`.
+
+
+| Code | Meaning |
+|------|---------|
+| 0 | every ruleset narrowly scoped |
+| 1 | at least one `~ALL` ruleset — the guard firing |
+| 2 | could not verify (probe failed after retries) **or** no rulesets found at all |
+
+Both non-zero codes fail the job on purpose (fail-closed). An empty ruleset list is **not** a pass — the repo is unprotected, or the probe degraded. A failed `_get` raises `ProbeError` rather than returning `[]` / `None` (a failed probe that reads as "nothing found" reports a broken check as clean). Transient flakiness is absorbed by 3 retries with backoff, not by treating an unverifiable result as a pass.
+
+`audit_repo`'s `getter` resolves at **call** time, not definition time — a `getter=_get` default would bind the original function object and make the module attribute unpatchable, so the hermetic tests would silently hit the network.
+
+### Repair
+
+| Symptom | Check / Fix |
+|---------|-------------|
+| Exit 1, `FAIL: N ruleset(s) scoped ~ALL` | Re-scope the named ruleset to `~DEFAULT_BRANCH`, **or** restore the dependabot (`29110`) / Copilot (`1143301`) bypass rows deliberately and update the determination note |
+| Exit 2, `COULD NOT VERIFY` | Not the same as clean. Re-run; if it persists, check `api.github.com` before assuming the rulesets are fine |
+| Exit 2, `no rulesets found at all` | Unprotected repo or a degraded empty list — never treat as a pass |
+| Quality Gate red, this job skipped | Membership in `required-checks.needs` is not decorative: the gate runs `if: always()` and tests each `needs.<job>.result` — a job listed with no `if` arm in the script gates nothing (`test_ci_quality_gate.py`) |
+
+CI wiring: `.github/workflows/ci.yml` job `ruleset-scope-guard` (`needs: [pre-commit]`). Gate: `python3 -m unittest -v tests/test_ruleset_scope_guard.py`. Hermetic: `_get` is monkeypatched; no network. Coverage includes narrow pass, `~ALL` fail naming the ruleset and the `29110` rows, one-wide-among-narrow, empty list → 2, probe failure → 2 not 0, retry-then-recover, and the `bypass_actors` source pin.
+
 ## CI/CD Workflow Inventory
 
 Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it is read on demand rather than loaded into every session.
@@ -4976,6 +5253,10 @@ Default Prometheus URL: `JUNIPER_EXP_PROMETHEUS_URL` = `http://127.0.0.1:9090`.
 Coverage: `tests/test_experiment_suite_yamls.py` (R-6 load + oversize stall + wide-cap wall + timeout-above-budget). Driver scrape split: `tests/test_run_experiment.py`. Suite expansion / Grafana env: `tests/test_run_suite.py`.
 After a cascor suite finishes, compare it to a named Q-8 baseline with [`util/experiments/compare_baseline.py`](#perf-lane-split-comparator) — identity first, work exact, speed reported.
 
+Multi-cell campaigns go through `util/experiments/run_suite.py`. After #1643 the suite report carries the ratified gate inputs — see [Suite Report Gate Inputs](#suite-report-gate-inputs).
+
+Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md`](../notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-CLI-TEST-VALIDATION-EXPERIMENTATION-PLAN.md). Preflight evidence: [`notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md`](../notes/JUNIPER_2026-07-30_JUNIPER-ECOSYSTEM_CLI-EXPERIMENTATION-P0-PREFLIGHT-EVIDENCE.md).
+
 ---
 
 ## Perf-Lane Split Comparator
@@ -5527,6 +5808,77 @@ A waiver blesses a WORK change, never an invalid comparison. Passing it on a REF
 | Gating CI on the CLI | **Never** — P1 §6 closed 2026-09-07. Host identity blocks on any hosted runner, so it would exit 2 REFUSED every time. Module tests are wired; the run-tier gate is not, permanently. |
 
 Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
+
+---
+
+## Suite Report Gate Inputs
+
+`util/experiments/run_suite.py` writes `SUITE_DIR/aggregate.csv` + `REPORT.md` after every suite. Until juniper-ml#1643 (perf-lane P2 item 1.4) the aggregate carried **`wall_seconds` and nothing else** — and `wall_seconds` is **de-ratified**: it absorbs plot rendering and stack bring-up, and enabling the Grafana bridge alone moves it ~5%. A reader who opened the CSV was analysing the wrong quantity with nothing flagging it.
+
+Design of record: [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md) item 1.4. The two ratified inputs come from `util/experiments/read_run_metrics.py` (`step_count` = WORK, `mean_step_seconds` = SPEED). The split comparator lives in `util/experiments/compare_baseline.py`.
+
+### What the report now carries
+
+| Surface | What you get |
+|---------|--------------|
+| `aggregate.csv` | `step_count` and `mean_step_seconds` sit **next to** `wall_seconds`. The de-ratified column stays for continuity; it is no longer the only number. |
+| `REPORT.md` cell table | `step_count`, mean step **in milliseconds** (`mean_step_seconds * 1000`), then wall (s). CSV stays in seconds. |
+| `REPORT.md` **Gate inputs** | States `wall_seconds` is DE-RATIFIED, then two suite-level verdicts (computed independently, not via `summarise()`). |
+| `REPORT.md` **Baseline comparison** | Only when `--compare-baseline TAG` is passed. The text is `compare_baseline.render(...)`. |
+
+Suite-level verdicts:
+
+- **work invariant HOLDS** when every *measured* `step_count` is the same; **BROKEN** when they differ (the report then says these cells are **not repeats** and a baseline must not be cut from them). Unmeasured cells are omitted from the set — an empty set prints `step_count not measured`.
+- **single workload yes** when every computed `workload_fingerprint` is the same; **NO** otherwise. Fingerprints are the first 12 hex chars plus `...`. The fingerprint hashes the materialised cell YAML with cosmetic `experiment.description` / `experiment.name` stripped (`config_sha256` cannot serve: PF-1's five repeats differ only by "repeat N" and would all look different).
+
+Verified live after #1643 against the recalibrated PF-1 suite: every row `step_count` 1770, `work invariant: HOLDS`, `single workload: yes`, PASS against `pf1-2026-09-04`.
+
+### `--compare-baseline` is reporting only
+
+```bash
+python util/experiments/run_suite.py --suite util/experiments/suites/perf/<file>.yaml --compare-baseline pf1-2026-09-04
+```
+
+The flag compares the just-written suite against `JUNIPER_EXP_RUN_ROOT/baselines/<TAG>/` (default root `~/.local/state/juniper-experiments`) and pastes the verdict under `## Baseline comparison`.
+
+**The suite's own exit code does not change with the verdict.** Wiring a FAIL to `run_suite`'s status would silently make the run tier a CI gate — and §6 of the P1 design ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md`](../notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md)) records that as a **separate owner decision, still open**.
+
+`test_a_failing_verdict_does_NOT_change_the_suite_exit_code` pins it: a FAIL verdict still exits 0, the verdict is still visible, and the report says so in the text. If that test ever fails, someone has made the gating decision by accident.
+
+`run_suite` exit codes stay the cell-outcome contract:
+
+| Exit | Meaning |
+|------|---------|
+| `0` | Every executed cell succeeded (a FAIL/REFUSED/missing-baseline comparison does **not** override this) |
+| `1` | Suite completed with failed / other-than-succeeded cells |
+| `2` | Misuse / suite-validation error |
+
+A missing tag is **not** fatal: `_run_comparison` catches `CompareError` and writes `comparison could not run: …`. Without the flag there is no `## Baseline comparison` section. To get the comparator's own exit codes (0 PASS/WAIVED, 1 FAIL, 2 REFUSED), run `compare_baseline.py` directly.
+
+### Import failure is loud on purpose
+
+`_gate_metrics` / `_run_comparison` import the sibling modules **without** `try/except ImportError`. The first draft swallowed the error; under the test harness the imports *did* fail, and the feature degraded to blank `step_count` columns plus `work invariant: BROKEN -- step_count not measured` — indistinguishable from a genuinely broken suite.
+
+Two pins keep that from returning:
+
+1. `util/` is inserted on `sys.path` at module import so the siblings resolve whether `run_suite.py` is executed as a script (`sys.path[0] = util/experiments`) or imported as a module.
+2. A missing sibling is a packaging bug and must raise, not blank the columns.
+
+Cells with no `run_dir` in `registry.jsonl` are skipped (empty gate columns), which is a missing-run fact, not an import failure.
+
+### Operator pitfalls
+
+| Symptom | Cause / fix |
+|---------|-------------|
+| CSV / report only show `wall_seconds` as the useful number | Pre-#1643 artifact. Re-run the suite on a tree that has item 1.4, or read `read_run_metrics.py` against each `run_dir`. |
+| `work invariant: BROKEN -- step_count not measured` | Either the cells truly have no step totals, **or** (pre-fix) a swallowed `ImportError`. On current main a missing sibling **raises** — if you still see this wording, the runs were not measured. |
+| `--compare-baseline` FAIL / REFUSED but suite exits 0 | Expected. Read `REPORT.md`; run `compare_baseline.py` if you need its exit code. |
+| `comparison could not run: no baseline 'TAG'` | Tag is missing under `JUNIPER_EXP_RUN_ROOT/baselines/`. Cut one with `make_baseline.py` first. |
+| Mean-step column looks 1000× too large vs the CSV | Report table is **milliseconds**; `aggregate.csv` is **seconds**. |
+| `single workload: NO` on a suite of "repeats" | Fingerprint strips only `experiment.description` / `name`. A seed change, or leftover `output_epochs` / budget drift, is a different workload. Do not cut a baseline from it. |
+| Trusting `config_sha256` as "same workload" | It hashes the whole cell YAML including the cosmetic description. PF-1's five repeats all differ. Use the fingerprint printed in **Gate inputs**. |
+
+Coverage: `tests/test_run_suite.py` (`GateInputsInAggregateTest`, `ComparisonReportingTest`).
 
 ---
 
@@ -7124,6 +7476,10 @@ Control receives rejects malformed/non-object JSON with close **1003** rather th
 | 0.6.44  | 2026-09-04 | Cascor Primary Freeze Tell: `cascor_freeze_tell.py` exact-prefix hold test (not substring); sibling client/worker and both worktree roots excluded; exit 0 is "no user-owned importer", never "no importer" |
 | 0.6.46  | 2026-09-04 | Experiment stats summary (SS8.3): how to read `stats.json` / `summary.md` — de-ratified `wall_seconds`, per-poll step-duration honesty, `scrape_confirmed` tri-state, recurrence timings under `outcome.timings` |
 | 0.6.19  | 2026-09-04 | Perf-lane split comparator (`compare_baseline.py`, #1622): identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask a refusal, host block vs advisory |
+| 0.6.21  | 2026-09-04 | Ruleset Scope Guard operator surface: `~ALL` re-arms deleted dependabot/Copilot bypass rows; token-free GET-only (bypass rows NOT checked); exit 0/1/2 fail-closed; Quality Gate hard need |
+| 0.6.23  | 2026-09-04 | Canopy E2E matrix writes: fill is dry-run / header-located; set-verdicts has no dry-run and is atomic `--from`; rescore writes found rows even when some `--row` ids are missing. Do not plan from `e2e_row_coverage.py`. Skipped 0.6.16–0.6.22 (in-flight docs PRs) |
+| 0.6.27  | 2026-09-04 | F-CANOPY-027 poller starvation probes: 12-slot dash-renderer cap, queued-vs-unwired, no-new-poller rule; finding FIXED canopy#507/#509/#511 |
+| 0.6.27  | 2026-09-04 | Canopy E2E finding triage: header-only parser; ACCEPTED is a third disposition; FIXED/HEALED in the last 170 chars; `--open-only` still prints full totals; always exits 0 |
 | 0.6.11  | 2026-08-24 | Claude Code Action operator surface: live `claude.yml` triggers / exact permissions / SHA pin, ungrouped Dependabot bumps, template-snapshot drift, not the local `claudey` launcher |
 | 0.6.12  | 2026-08-24 | Publish #1310 operator surface: Gate 1 provenance is a 10×6s TestPyPI poll (not `sleep 30`); sibling `push:`-gated Release steps were unreachable — the trigger is the gate. Also carries the Snapshot Attribution Dataset Pin operator section (juniper-ml#1341), which landed in this version — its own row lost the merge race |
 | 0.6.41  | 2026-09-04 | Resident-hazard gap triage: three complementary scanners, block scoring, `--self-check`, and why the candidate count grows after a successful cut |
