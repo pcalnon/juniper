@@ -169,6 +169,47 @@ class VacuousExaminationTest(unittest.TestCase):
                 with unittest.mock.patch.object(msd, "problems_at", return_value=None):
                     self.assertEqual(msd.main(["--base", base, "--head", "HEAD"]), 2)
 
+    def test_a_PARTIALLY_unreadable_examination_exits_2(self):
+        """Nine files read and one skipped is the same failure as reading none, one file at a time.
+
+        The all-unreadable test below passes with a `continue` that never counts the skip, which
+        is how this survived: the guard fired only when EVERY file was unreadable, and a run that
+        examined nine of ten reported success while saying nothing about the tenth.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            (root / "a.md").write_text(CLEAN_TABLE, encoding="utf-8")
+            (root / "b.md").write_text(CLEAN_TABLE, encoding="utf-8")
+            base = _commit(root, "base")
+            (root / "a.md").write_text(CLEAN_TABLE + "\ntext\n", encoding="utf-8")
+            (root / "b.md").write_text(CLEAN_TABLE + "\nmore\n", encoding="utf-8")
+            _commit(root, "head")
+
+            real = msd.problems_at
+
+            def flaky(screen, ref, rel):
+                return None if rel.endswith("b.md") else real(screen, ref, rel)
+
+            with unittest.mock.patch.object(msd, "REPO_ROOT", root):
+                with unittest.mock.patch.object(msd, "problems_at", flaky):
+                    self.assertEqual(msd.main(["--base", base, "--head", "HEAD"]), 2)
+
+    def test_base_equal_to_head_is_NOT_a_comparison(self):
+        """ci.yml's non-`pull_request` fallback is `git rev-parse HEAD^1 || git rev-parse HEAD`.
+
+        On a root commit the second arm yields HEAD itself. The diff is then empty, the run
+        prints "no markdown touched", and exits 0 -- a pass earned by comparing a tree to itself.
+        """
+        with TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            _repo(root)
+            (root / "doc.md").write_text(BROKEN_TABLE, encoding="utf-8")
+            head = _commit(root, "only")
+            with unittest.mock.patch.object(msd, "REPO_ROOT", root):
+                self.assertEqual(msd.main(["--base", head, "--head", head]), 2)
+                self.assertEqual(msd.main(["--base", "HEAD", "--head", "HEAD"]), 2)
+
     def test_the_screen_only_reads_dot_md_so_the_temp_name_keeps_the_suffix(self):
         # `problems_at` materialises the blob under the ORIGINAL basename. A sanitised temp name
         # would be skipped by the screen and score 0 for every file -- vacuous, and green.
