@@ -957,11 +957,55 @@ Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
 
 ---
 
-#### 2026-09-07, later — the mechanism is NAMED: the writer is superseded, ~24 times in 90 seconds
+#### 2026-09-07, later — the writer's lifecycle never completes. Supersession is the leading
+#### hypothesis and is NOT established — a Lane B review took the earlier claim apart
 
 The previous block narrowed the owner to "something discards the payload before the reducer" and
-explicitly refused to name the mechanism. It is now named, from dash-renderer's own pending-callback
-bookkeeping.
+explicitly refused to name the mechanism. **This block first claimed to name it — renderer-level
+supersession — and that claim did not survive review. It is withdrawn to a hypothesis.** What stands
+is the lifecycle observation; what does not is the inference from it. Both are below, in that order,
+with the arithmetic that separates them.
+
+**WHAT STANDS.** From dash-renderer's own pending-callback bookkeeping (`state.callbacks`, read out of
+the same Redux store), over two 90 s replicates: the store-writing callback enters the pre-execution
+lists ~24 times per window and **reaches a terminal list zero times**, while the store's value never
+advances. The writer's lifecycle does not complete. That is a measurement and it is the useful part.
+
+**WHAT DOES NOT — four numbers from this arc's own artifacts that supersession does not fit.**
+
+1. **The margin is 0.11 s, not 0.8 s.** The earlier text set a 1.827 s median round trip against the
+   1.0 s *source constant*. The measured re-request gap in the same artifact
+   (`2026-09-05_f035_store_write_latency.json`) is a **median 1.716 s**. Numerator from the
+   measurement, denominator from the constant, is the arithmetic that makes the gap look decisive.
+2. **31% of calls had no successor at all.** The same artifact: `20/29 = 0.69` overlapped, so **nine
+   in-flight calls were unopposed** — nothing could have superseded them — and the store still read
+   `len=0`. That was recorded on 2026-09-05 and then dropped from the summary that concluded
+   supersession.
+3. **The scheduling rate is ~3.7 s, three and a half times SLOWER than the trigger.** 23 and 26 entries
+   per 90 s. A 1 Hz trigger superseded every tick predicts ~90 entries; even a round-trip-limited
+   series predicts ~49. "Re-requested faster than it can complete" predicts the opposite of what was
+   measured.
+4. **Two concurrent entries were never observed, once.** Both replicates record
+   `everSeen: {watched: 1, requested: 1, prioritized: 1}` — the high-water count of matching entries in
+   any list is **one**. A successor coexisting with its victim is supersession's direct observable, and
+   it never appeared. Mean residency in `watched` (~3.1 s) against a ~3.9 s inter-entry interval
+   describes a serialised fire → finish → pause → fire pattern, not an overlapping one.
+
+**AND A FIFTH MECHANISM IS UNELIMINATED, better correlated than supersession.** `Callback failed: the
+server did not respond` appeared in the console of **2 of the 4** failing probe runs and **none** of the
+successful one. A response the renderer treats as failed or aborted produces exactly this signature —
+enters `watched`, never reaches a terminal list, no dispatch carries a value — and it is the only
+candidate that *correlates with the outcome*. It needs a different fix from trigger-gating. It was
+recorded as a "weak side-signal" and should have been carried as a competing hypothesis.
+
+**THE TEST THAT WOULD SETTLE IT ALREADY EXISTS AND WAS NOT RUN.**
+`util/ad-hoc/e2e_f039_supersession_test.py` (2026-09-02) was written for precisely this hypothesis
+against F-CANOPY-039: it disables the competing cadence **at runtime via `setProps` — no code change,
+no restart** — on the reasoning that "if that is right, removing the competing cadence should make it
+paint." Running it against `metrics-panel-metrics-store` is the owed next step, and it discriminates
+supersession from the failed-response candidate in one drive. That an instrument built for this exact
+question sat unused while three new ones were written is the §9-inventory failure this arc has now
+committed twice.
 
 **The instrument.** `util/ad-hoc/2026-09-07_f035_callback_lifecycle_probe.py`, against a leg at canopy
 main **`f56f46c`**. dash-renderer keeps its callback lifecycle in the *same* Redux store the arc
@@ -995,9 +1039,9 @@ a different defect entirely). A presence *count* cannot separate them. The numbe
 present-blocks can, and it was added for exactly that reason before the verdict was read: **23 and 26
 separate entries**, not one. This is supersession.
 
-> The store-writing callback is re-requested faster than it can complete, and each in-flight call is
-> replaced before its response is applied. **F-CANOPY-035's blocker is renderer-level supersession of
-> the poll callback**, and the fix belongs at the TRIGGER, not the work.
+> The store-writing callback's lifecycle **never completes**: it is scheduled ~24 times per 90 s and
+> reaches a terminal list zero times. **Why** it never completes is not established — supersession and
+> a failed/aborted response both fit, and four numbers above fit supersession badly.
 
 **IT FITS THE INDEPENDENT TIMING.** `update_metrics_store` rides `fast-update-interval` at
 `FAST_UPDATE_INTERVAL_MS = 1000` (`canopy_constants.py:370`), and the 2026-09-05 latency probe measured
@@ -1016,10 +1060,16 @@ disarmed from auto-merge rather than shipped while it stood.
 
 Three measurements now close it, in order of strength.
 
-1. **A positive control that produces a non-empty terminal bucket.** The probe gained a `--store`
-   flag and was pointed at `theme-state`, a store that demonstrably holds an applied value. Result:
-   **`terminal=['stored']`, present in 1,987 notifies.** The instrument *can* report a terminal list.
-   `terminal=[]` for the metrics store is therefore a **measurement, not an artifact**.
+1. **A control that is weaker than it was first written up as.** The probe gained a `--store` flag and
+   was pointed at `theme-state`: **`terminal=['stored']`, present in 1,987 notifies.** But its
+   `entries: {stored: 1}` and `maxRun: 1987` mean **one entry, resident for the entire window** — it was
+   already in `stored` when the watcher armed. So the control shows the matcher can *read a resident
+   entry*; it does **not** show the sampler can catch a **transit** through a terminal list, which is
+   the actual blind spot. It also ran 45 s (not 90), on a one-shot page-load callback rather than a 1 Hz
+   poll, and could not read its own store's value (`len: null`, a string). Its committed verdict block
+   reads `EXECUTED-NOT-APPLIED … the retirement hypothesis should be dropped` — a false read caused by
+   the `len()` test on a string store, and the reason that rule must not be reused on a non-list store.
+   **Net: `terminal=[]` is better supported than before and still not proven to be a measurement.**
    Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-07_f035_lifecycle_POSITIVE-CONTROL_theme-state.json`.
 2. **A per-list output-shape census**, so "the matcher cannot reach that list" is testable rather than
    assumed. `stored` holds 33-34 entries at sample time and **every one exposes `callback.outputs`**
@@ -1028,6 +1078,16 @@ Three measurements now close it, in order of strength.
 3. **The list inventory is now recorded in every result artifact**, not only under `--discover`, and
    the verdict returns **BLOCKED** rather than a confident verdict if no list matches the terminal
    hints. A future rename degrades to "could not measure" instead of to "retired".
+
+**A SECOND CONTROL RETURNED THE SAME VERDICT ON A DIFFERENT STORE, and dismissing it was circular.**
+`network-visualizer-topology-store` — chosen because M-TOPOLOGY is 16 PASS — returned
+`RETIRED-BEFORE-EXECUTION`, 9 entries into `watched`, `terminal=[]`: **the identical signature, on a
+second store.** It was set aside on the strength of one direct read showing `hidden_units: 0`. That
+dismissal cannot stand as written, because the same reading is flagged three paragraphs below as a
+single unreplicated observation that nothing may be concluded from. **Either it is evidence — in which
+case the control is invalid — or it is not, in which case the control stands and the verdict is not
+discriminating.** It cannot be both. Until that is re-driven, treat the lifecycle verdict as
+*non-discriminating between a broken store and a working one*.
 
 **A CONTROL THAT WAS NOT ONE, recorded because the near-miss matters.** The first control attempt used
 `network-visualizer-topology-store` on the grounds that it is healthy (M-TOPOLOGY 16 PASS). It also
@@ -1087,11 +1147,22 @@ Same family (a renderer-level discard), **different failure point**. F-039's cal
 result was dropped on the way to being applied; F-035's call never finishes. The earlier note that
 this "supports F-035/-038/-039 being one defect" should be read with that distinction in mind.
 
-**THE FIX THIS IMPLIES — recorded as a design implication, not shipped here.** Suppress the *trigger*
-while a fetch is in flight, or make the poll period exceed the observed round trip; do not make the
-handler faster and hope. This is the same shape as the arc's recorded dash-renderer lesson
-(*suppress the TRIGGER, not the work*) and belongs in a juniper-canopy PR against
-`update_metrics_store`, not in this ledger.
+**NO FIX DIRECTION IS ESTABLISHED, and the earlier text asserted one.** "Suppress the trigger, not the
+work" is this arc's standing prior from a *previous* dash-renderer finding; it is not a result of this
+measurement, and the measurement above fits it poorly. Two specific cautions for whoever does build a
+fix:
+
+- **A faster handler is not obviously futile.** Against the *measured* 1.716 s gap the margin is
+  ~0.11 s (~6%), not the ~0.8 s the constant implies. Shaving the handler is untested, like every other
+  candidate — not ruled out.
+- **Do NOT raise `FAST_UPDATE_INTERVAL_MS`** (`canopy_constants.py:370`) to lengthen the poll. It is
+  the shared fast lane: `src/tests/unit/frontend/test_stage2_global_lane.py` pins its exact membership,
+  `src/tests/unit/test_constants.py` pins the value at 1000, and `network_visualizer.py:1881,1923`
+  derives the **cascade-add glow timing (M-TOPOLOGY-16)** from it — so raising it silently rescales a
+  row this arc still owes. Give `update_metrics_store` its own Interval, or gate it clientside.
+
+Run `util/ad-hoc/e2e_f039_supersession_test.py` before writing any canopy code: it falsifies or
+supports the trigger hypothesis with no product change at all.
 
 **Matrix effect: none.** M-CANDIDATES-07 stays **FAIL** — the row is blocked on an upstream cause that
 is now identified rather than bounded. canopy#524's adapter remains correct and unreachable.
