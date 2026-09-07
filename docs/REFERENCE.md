@@ -5915,7 +5915,7 @@ print(sorted(n for n, i in GENERATOR_REGISTRY.items() if not generator_available
 
 Against a **running** data service, the same facts come from the API: `GET /v1/generators/{name}/schema` includes `"available"`, and unavailable generators return `501` at dataset-creation time.
 
-The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`) are also the attribution roster in `util/snapshot_attribute.py`. Their `seed` fields are **not** interchangeable — five declare `None` and redraw every call unless pinned. Operator contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin). `load_datasets` still reads `X_full` / `y_full` — see [Train / Val / Test Partition Contract](#train--val--test-partition-contract).
+The six numpy-only 2-D classification generators (`spiral`, `xor`, `gaussian`, `circles`, `moon`, `checkerboard`) are also the attribution roster in `util/snapshot_attribute.py`. Their `seed` fields are **not** interchangeable — five declare `None` and redraw every call unless pinned. Operator contract: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin). `load_datasets` builds the whole dataset through `_whole_dataset`, which prefers a legacy `*_full` pair and otherwise concatenates the partitions — see [Train / Val / Test Partition Contract](#train--val--test-partition-contract).
 
 `csv_import` stays in the "no optional-dep gate" row above: it is always *registered*. The I/O bound that shipped with juniper-data#326 is a **runtime** refusal, not an availability hook — [CSV Import Byte Cap](#csv-import-byte-cap).
 
@@ -6164,13 +6164,20 @@ Regression: `python3 -m unittest -v tests/test_snapshot_attribute.py` (`DatasetI
 | `--write` exits 2 immediately | `--sample` or `--min-hidden` (or `--from-sidecar`) with `--write` is refused by design. |
 | Quoted counts do not match a rebuild | Pre-pin §2.1 figures are not properties of the archive. Quote the seeded table above. |
 | Chain driver errors on a missing backup file | Copy all four `snapshots_{index,classification,attribution,backfill}.jsonl` into `--backup` first. |
-| `KeyError: 'X_full'` from `load_datasets` | Expected until required-fix 0 lands a replacement. Do not add a new required-`X_full` caller; see [Partition Contract](#train--val--test-partition-contract). |
+| `KeyError: 'X_full'` from `load_datasets` | **Should no longer happen** (juniper-ml#1805). If it does, something bypassed `_whole_dataset` — that is a defect, not the expected state. See [Partition Contract](#train--val--test-partition-contract). |
 
 ---
 
 ## Train / Val / Test Partition Contract
 
-The NPZ data contract still **emits and consumes** `X_full` / `y_full` (and sequence `dt_full` / `target_dt_full`). The design of record has **closed** the partitioning question and **drops** the `*_full` family from the contract — that removal is **not implemented**. Do not treat the six-key cheatsheet list as finished, and do not write new code that *requires* `X_full`.
+**Decision 11 SHIPPED on 2026-09-06.** The NPZ contract is six keys — `X_train` / `y_train`, `X_val` / `y_val`, `X_test` / `y_test` — and the `*_full` family (including sequence `dt_full` / `target_dt_full`) is **no longer emitted by anything**.
+
+Two rules, and the second is the one that gets forgotten:
+
+1. **Never require `X_full`.** juniper-data#369 stopped producing it. A consumer that wants the whole dataset **concatenates the partitions in `train | val | test` order** — the same order `juniper_data/core/split.py` used when it built the key (`np.vstack([X_train, X_val, X_test])`), so the concatenation is row-for-row identical.
+2. **Never assert `X_full` is ABSENT either.** Every artifact stored before 2026-09-06 still carries it, and design §9.5.4 obliges consumers to keep loading those. A test demanding absence turns "not required" into a requirement pointing the other way.
+
+> **The concatenation identity has two exceptions.** `equities` and `equities_seq` built `_full` ENTITY-major (each ticker's train, val and test in turn) while their partitions are SPLIT-major. Same rows, different permutation, identical only for a single-ticker request. Anything that slices the whole view by **row index** — walk-forward cross-validation does — gets different results from the two orders. `juniper_recurrence_model.data.derive_full_split` rebuilds the entity-major order by stable-sorting on `ticker_code`; see `_assemble` in `juniper_data/generators/equities_seq/generator.py`.
 
 - Design of record: [`notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md`](../notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md) — read the header + §9.5 / §9.6; §§9.3–9.4 are HISTORY.
 - Implementation plan: [`notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_PARTITION-IMPLEMENTATION-PLAN.md`](../notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_PARTITION-IMPLEMENTATION-PLAN.md) (S-3 still unhomes `NPZ_SPLITS`).
@@ -6180,10 +6187,11 @@ The NPZ data contract still **emits and consumes** `X_full` / `y_full` (and sequ
 
 | Surface | What it does |
 |---------|--------------|
-| `util/experiments/run_experiment.py` `RECURRENCE_SPLITS` | Allow-list `{"train", "test", "full"}`. `dataset.split` / `predict.from_dataset_split` of `"validation"` raises `ConfigError` (driver exit 2). Tests: `test_recurrence_bad_dataset_split_rejected`, `test_recurrence_bad_predict_split_rejected`. |
-| Fake NPZ in `tests/test_run_experiment.py` | Tabular and sequence fixtures still write `X_full` / `y_full` (sequence also `dt_full` / `target_dt_full`). No `X_val`. |
-| `util/snapshot_attribute.py` `load_datasets` | Reads `produced["X_full"]`, `produced["y_full"]` — "give me the whole dataset", not partition indices. |
-| `prompts/agent_templates/data/ecosystem.yaml` | Still lists `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full`. |
+| `util/experiments/run_experiment.py` `RECURRENCE_SPLITS` | Allow-list `{"train", "val", "test", "full"}` — `val` landed in juniper-ml#1761 (Chunk 9). `"validation"` still raises `ConfigError` (driver exit 2): the contract name is `val`, never the long form. `"full"` is retained deliberately — the recurrence service accepts any string (`schemas.py` is a bare `split: str`) and `juniper_recurrence_model.data` now DERIVES a full split, so the value resolves rather than failing. Tests: `test_recurrence_bad_dataset_split_rejected`, `test_recurrence_bad_predict_split_rejected`. |
+| Fake NPZ in `tests/test_run_experiment.py` | Tabular and sequence fixtures still write `X_full` / `y_full`. **Harmless and deliberate** — they exercise the LEGACY artifact shape, which consumers must keep tolerating. Not a gap. |
+| `util/snapshot_attribute.py` `load_datasets` | Goes through `_whole_dataset` (juniper-ml#1805): prefers a producer-supplied `*_full` when present so an archived snapshot attributes byte-identically, otherwise concatenates the partitions. The call sits INSIDE the `try/except`, pinned structurally by `test_the_read_is_inside_the_recorded_gap_handler` — it previously sat one line below, so a bad artifact was fatal instead of a recorded gap. |
+| `prompts/agent_templates/data/ecosystem.yaml` | Six keys, `X_val` / `y_val` included (juniper-ml#1805). It had been wrong in BOTH directions — no `X_val`, still `X_full`. |
+| `util/experiments/plots_cascor.py` `render_dataset` | Draws `val` as its own marker. It drew train and test only, so validation rows were silently absent from `dataset.png` — wrong since `val` shipped, not a decision-11 break. |
 
 Partitions on the producer side are cut by `shuffle_and_split` / `temporal_split_index` and are **index-disjoint by construction** (design decision 9 REVERSED). This repo does not re-implement that split; the experiment driver only *selects* a named split from an already-built NPZ.
 
@@ -6193,32 +6201,40 @@ Partitions on the producer side are cut by `shuffle_and_split` / `temporal_split
 |----------|--------|----------|
 | 9 REVERSED | Keep the current carve. P-1a and P-1b abandoned. | Yes — existing generator behaviour. The arc's net effect on the split mechanism was **zero code change**. |
 | 10 COLLAPSED | No duplicate-row guard. | Yes — nothing to build. |
-| 11 | `X_full` / the whole `*_full` family leave the contract. Generators emit `train` / `val` / `test` plus metadata. | **No.** Required-fix 0. |
-| 12 | `partition_provenance` blob **inside the NPZ**, plus one ingestion gate. | **No.** Schema described, not specified. |
+| 11 | `X_full` / the whole `*_full` family leave the contract. Generators emit `train` / `val` / `test` plus metadata. | **YES — 2026-09-06.** juniper-data#369 (producer, all 16 generators to `VERSION 3.0.0`), juniper-cascor#625 (`required_keys`), juniper-recurrence#150 (crossval), juniper-data-client#190, juniper-canopy#589, juniper-ml#1805. |
+| 12 | `partition_provenance` blob **inside the NPZ**, plus one ingestion gate. | **No.** Schema described, not specified. Now the only unimplemented decision in the arc. |
 | 7 | Normaliser fit on `train` only; apply those statistics unchanged to `val` and `test`. | Decision stands. The three-generator leak is **shipped** (juniper-data#314 / data#323). |
 
 **Closed companion tickets** (verified `CLOSED` on `pcalnon/juniper-data`, 2026-09-04): #314 (normaliser; data#323), #316 (circular import; data#333), #317 (`arc_agi` empty; data#318), #319 (seed defaults; data#322), #320 (Postgres schema; data#343).
 
-### Remaining work — required-fix 0 only
+### Required-fix 0 — all four items CLOSED
 
-Scoped in design §9.5.4; **none of these have started**:
+Scoped in design §9.5.4. Each verified against the sibling repo's `main`, not transcribed from the design document — that distinction cost an earlier revision of this section its accuracy:
 
-1. `DatasetMeta.n_samples` is `len(X_full)` today — redefine as the partition sum (`test_e2e_metadata_consistency`).
-2. Canopy's artifact validation ladder validates `X_full` (`demo_mode.py`). Re-point it or the guard is **silently lost**.
-3. The data-client preview serves the first *n* rows of `X_full` — needs a new source (`train` changes semantics slightly).
-4. `NPZ_SPLITS` (`juniper-data-client` `constants.py`) is `("train", "test", "full")` — drop `"full"`, add `"val"` (plan S-3; still unhomed).
+| # | Item | Where it landed |
+|---|------|-----------------|
+| 1 | `DatasetMeta.n_samples` → the partition sum | `juniper_data/core/meta.py`: `n_samples = n_train + n_val + n_test`, with `n_val` presence-conditional so a two-partition artifact reports 0 rather than failing. |
+| 2 | Canopy's validation ladder re-pointed off `X_full` | juniper-canopy#589: `DemoMode._VALIDATED_PARTITIONS = ("train", "val", "test")`, with tests. |
+| 3 | Preview endpoint needs a new source | juniper-data#369: `datasets.py` serves `X_train`. It previously read `X_full` with a `train + test` fallback — R-5 surviving in the preview path, silently skipping validation rows. Shifts semantics for a SEQUENCE artifact, where train is the earliest block rather than a random sample. |
+| 4 | `NPZ_SPLITS` drops `"full"`, gains `"val"` | juniper-data-client #187 then #190: `("train", "val", "test")`. |
 
-**Backward compatibility.** Stored artifacts carry `X_full`. Consumers must **tolerate** it after producers stop emitting it; only the *requirement* is dropped. The design census names cascor `data_provider.py` `required_keys` as the site that would reject absence. This repo's fixtures and `snapshot_attribute.py` still *require* the key.
+### What actually remains
 
-Items 2–4 live in sibling repos; they are listed here so a juniper-ml change that drops `X_full` from fixtures / `RECURRENCE_SPLITS` / attribution does not land first and silently break those consumers.
+- **Decision 12** — `partition_provenance` inside the NPZ plus one ingestion gate. Adopted 2026-09-03, schema *described, not specified*; no code has moved.
+- **`RECURRENCE_SPLITS`** retains `"full"` alongside `train` / `val` / `test`. Kept deliberately: the recurrence service accepts any split string and now derives the whole set, so `"full"` resolves rather than failing. Removing it would break stored configs for no gain.
+- **`juniper-model-core` is published at 0.3.1** with a docstring asserting a dead contract: `crossval/splits.py` still says *"folds are derived client-side from the `*_full` arrays; no juniper-data change is required for v1."* That was D-CV-4's premise and decision 11 voids it. The behaviour is fixed in juniper-recurrence#150; the published docstring is not.
+- **`hf_store.py` / `kaggle_store.py`** (juniper-data) still cut a TWO-way split (`X[:n_train]`, `X[n_train:]`), write `X_full` / `y_full`, and emit **no** `X_val`. Decision 11 changed the *generator* path via `partition_and_assemble`; these stores build their arrays independently and were untouched. The consequence is asymmetric and worth stating precisely: cascor's **service** refuses a val-less artifact by default (`src/api/lifecycle/manager.py:3649` and `:3658`, overridable with `JUNIPER_CASCOR_ALLOW_MISSING_VALIDATION_SPLIT=true`), while cascor's **direct CLI** tolerates it — `data_provider.py` deliberately keeps `X_val` out of `required_keys` per design §6a. So an HF/Kaggle artifact loads under the CLI and is rejected by the service. Pre-dates this arc.
+- Consumer docs still publishing the old key list: `juniper-recurrence/README.md`, `juniper-recurrence-client/README.md`, `juniper-canopy/docs/demo/DEMO_MODE_REFERENCE.md`, `juniper-data-client/docs/REFERENCE.md`.
+
+**Backward compatibility.** Stored artifacts carry `X_full`, and consumers must keep loading them — only the *requirement* was dropped, never the tolerance. `snapshot_attribute.py` and the `test_run_experiment.py` fixtures exercise exactly that path.
 
 ### Operator pitfalls
 
-- **`dataset.split: validation` is refused today.** The design name for the third partition is `val` / `X_val`, but the experiment driver allow-list is still `{train, test, full}`. Adding `val` is implementation-plan Chunk 9, not a one-line YAML change.
-- **Do not index `X_full` with partition-derived indices.** Every fleet use in the design census is "the whole dataset". `util/ad-hoc/verify_*.py` masks by ticker and re-sorts by date — that pattern does not depend on `X_full` being the pre-split array.
-- **Do not treat `X_full` as uniformly normalised.** Decision 7 fits on `train` only. Until `*_full` is gone, a concatenated array can mix scales.
+- **`dataset.split: val` WORKS; `validation` is still refused.** Chunk 9 landed in juniper-ml#1761 and added `val` to the allow-list. The long form `"validation"` is not and will not be a contract name — the keys are `X_val` / `y_val` (design §10), so `validation` raises `ConfigError` and exits 2. Do not "fix" that by widening the allow-list.
+- **Do not index `X_full` with partition-derived indices** on a legacy artifact. Every fleet use in the design census is "the whole dataset". `util/ad-hoc/verify_*.py` masks by ticker and re-sorts by date — that pattern does not depend on `X_full` being the pre-split array.
+- **A concatenated whole-dataset view mixes scales.** Decision 7 fits the normaliser on `train` only, so `val` and `test` are legitimately outside `[0, 1]`. That was true of `X_full` and is equally true of any concatenation replacing it.
 - **`X_eval` is the wrong name.** Hugging Face maps `eval` → test. Contract keys are `X_val` / `y_val` (design §10).
-- **A new consumer that requires `X_full` extends the debt.** Tolerate the key on stored artifacts; read `train` / `test` (and `val` once it exists) for work.
+- **Every generator is at `VERSION = "3.0.0"`.** `1.x → 2.0.0` added `val`; `2.0.0 → 3.0.0` removed `*_full`. The version is hashed into the `dataset_id`, which is the only thing stopping a cached artifact of an older shape from answering a current request — i.e. stopping cache state, rather than the contract, from deciding what a consumer sees. A contract change without a bump re-opens risk R-1; `TestEveryGeneratorBumpedForDecision11` in juniper-data pins all sixteen.
 - **§§9.3 and 9.4 of the design are HISTORY.** Prefix-stability / P-1b / guard measurements will mislead a successor who starts there.
 
 ### Example — recurrence split as shipped
@@ -6226,17 +6242,17 @@ Items 2–4 live in sibling repos; they are listed here so a juniper-ml change t
 ```yaml
 dataset:
   generator: mackey_glass
-  split: test          # one of: train | test | full
+  split: test          # one of: train | val | test | full
 predict:
   enabled: true
   from_dataset_split: test
 ```
 
-`split: validation` (or `val`) fails at YAML load with `dataset.split must be one of ['full', 'test', 'train']`. The allow-list is the shipped contract; do not "fix" a YAML by inventing `X_val` until Chunk 9 lands.
+`split: val` is accepted (juniper-ml#1761). `split: validation` fails at YAML load with `dataset.split must be one of ['full', 'test', 'train', 'val']` — the contract name is the short form, and the error message enumerates the allow-list, so read it rather than guessing.
 
 ### Related
 
-- Attribution still regenerates via `X_full`: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
+- Attribution builds the whole dataset via `_whole_dataset`: [Snapshot Attribution Dataset Pin](#snapshot-attribution-dataset-pin)
 - Recurrence split allow-list: [Experiment Stack Utilities](#experiment-stack-utilities)
 
 ---
