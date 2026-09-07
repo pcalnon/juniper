@@ -159,9 +159,28 @@ and already correct everywhere; what changes is the *local smoke tag* `worker-sm
   nothing there, so the zero-tag guard does not catch it. Their own publishers already do
   this: `juniper-cascor/.github/workflows/publish.yml:15` and
   `juniper-recurrence/.github/workflows/publish-recurrence-app.yml:73`.
-- **recurrence needs a `type=match` tag rule**, not `type=semver` — `type=semver` cannot
-  parse `juniper-recurrence-v0.4.0`, so a legitimate release would publish only `latest`
-  with no version tag, and the verify step would inspect an empty ref.
+- **recurrence needs the `match` ATTRIBUTE on the semver rules** — not `type=match`, and
+  not bare `type=semver`. Verified against `docker/metadata-action` at the pinned SHA
+  (`dc80280` = v6.2.0), `src/meta.ts`: the semver path applies `attrs['match']` and takes
+  `tmatch[1]` at **L167-172**, *before* the `semver.valid()` gate at **L178** — so the
+  prefix is stripped and the tag parses:
+
+  ```yaml
+  type=semver,pattern={{version}},match=juniper-recurrence-v(.*)
+  type=semver,pattern={{major}}.{{minor}},match=juniper-recurrence-v(.*)
+  ```
+
+  `type=match` is the wrong instrument: `procMatch` (L264-291) has no semver logic, so it
+  can emit `{{version}}` but **never `{{major}}.{{minor}}`**, silently dropping a tag the
+  scheme requires.
+
+  **This failure is invisible at two levels, which is why it must be got right up front.**
+  On an unparseable tag `meta.ts:178-180` emits `core.warning` and plain-`return`s — no
+  throw — and `main.ts:41,52` likewise only warns; **`setFailed` is never called**. With
+  `type=raw,value=latest` still firing on a release, the workflow's own `tag_count -eq 0`
+  guard sees exactly one tag and passes, and `Verify both architectures` inspects
+  `.tags[0]` = `:latest` and passes too. A recurrence release would publish `:latest` with
+  no version tag and the whole run would read SUCCESS, leaving only a warning annotation.
 - **recurrence's `Resolve build provenance` step will crash as written.** It runs
   `tomllib.load(open("pyproject.toml"))["project"]["version"]` from the repo root; there is
   no root `pyproject.toml`, and the nested one uses a **dynamic** version
