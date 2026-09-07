@@ -673,7 +673,7 @@ That is a stronger finding than a single stray hit would have been: the one pack
 | APD-DATA-016   | **FIXED ([data#313](https://github.com/pcalnon/juniper-data/pull/313))** — `download_artifact` is named streaming but fully materialises the body                                                                 | R   | `api/routes/datasets.py:693-704` (dead; the route is now `:837-878`)                                         | 3999                  | High |
 | APD-DATA-017   | No `ETag`/`Cache-Control`/conditional requests despite a stored SHA-256                                                                | R   | `api/routes/datasets.py:700-704`; validator at `core/artifacts.py:50-63` | 3647                  | High |
 | APD-DATA-018   | **FIXED (data#326 / data#354)** — No async job pattern — generation runs inside the request                                                                            | R   | `api/routes/datasets.py:150` (dead; generation is `:175`, via `to_thread`)                                             | 3853                  | High |
-| APD-DATA-019   | Every page does full-population work; exact `total` recomputed per page                                                                | R   | `storage/base.py:462` (`filter_datasets`); `total = len(filtered)` is `:537`, cursor path `:545-548` — re-read 2026-09-03 | 4390                  | High |
+| APD-DATA-019   | Every page does full-population work (**re-scoped 2026-09-07**: the cost is `list_all_metadata()`, not `total`)                        | R   | `storage/base.py:462` (`filter_datasets`); the O(N) walk is `list_all_metadata()` at 96.8%, cursor path `:545-548`; `total = len(filtered)` `:537` is 0.000012% and was the wrong target — see §4.1. JD-PERF-02 cache un-inerted by [data#381](https://github.com/pcalnon/juniper-data/pull/381) (114.8x at N=100); storage index still open, latent at the deployed N=21 | 4390                  | High |
 | APD-DATA-020   | **FIXED (data#289)** — `/v1` is a repeated literal in five places; no `API_VERSION` constant                                           | M   | `api/app.py:140-142`, `api/routes/datasets.py:138`, `:253`               | 3278                  | High |
 | APD-DATA-021   | **FIXED (data#290)** — `DatasetListFilter` declared and never used; route re-declares 12 params                                        | M   | `core/models.py:132-144` vs `api/routes/datasets.py:278-289`             | 4538                  | High |
 | APD-DATA-022   | No `responses={}` anywhere — entire error surface absent from OpenAPI                                                                  | M   | all route decorators                                                     | 5189                  | High |
@@ -784,12 +784,39 @@ owner declined. Bounding the input turned out to be the smaller change and the b
   > only lower the cap, and one `DatasetMeta.truncation` shape across both generators (`reason` / `unit` / `cap` / `requested` /
   > `imported` / `records_imported`). `equities_seq` reuses the same universe resolution and therefore inherits the bound **and**
   > the annotation.
-- **`-019` (full-population work per page).** Confirmed: `total = len(filtered)` (`storage/base.py:537`) materialises the entire
-  filtered set, then slices — **and it does so on the cursor path too** (`:545-548`), so `APD-DATA-011`'s keyset pagination did not
-  address this. That is the useful relationship to record: `-011` fixed pagination's **correctness** half (drift under concurrent
-  writes); `-019` is the untouched **performance** half. `LocalFSDatasetStore.list_datasets` still globs and sorts the whole
-  directory per page. A real fix needs a storage index so filtering and ordering stop requiring full materialisation, plus making
-  `total` estimated, cached or absent — the last of which is a response-shape change for existing clients.
+- **`-019` (full-population work per page).** The full-population work is real, and the relationship to `-011` holds: `-011` fixed
+  pagination's **correctness** half (drift under concurrent writes); `-019` is the untouched **performance** half, and it applies on
+  the cursor path too (`storage/base.py:545-548`), so keyset pagination did not address it.
+
+  > **RE-SCOPED 2026-09-07 (owner decision). This row named the wrong line, and the naming survived three re-verifications.**
+  >
+  > It said the cost was `total = len(filtered)` and proposed making `total` estimated, cached or absent. **`total` is an O(1)
+  > `len()` over a list that is already materialised.** Measured decomposition of `filter_datasets` at N=10,000 on
+  > `LocalFSDatasetStore`:
+  >
+  > | Component | ms | Share |
+  > |---|---:|---:|
+  > | `list_all_metadata()` — glob + JSON parse + pydantic | 1499.53 | **96.8%** |
+  > | the two sorts | 17.65 | 1.1% |
+  > | **`total = len(filtered)`** | **0.000183** | **0.000012%** |
+  >
+  > Removing `total` would save 0.00018 ms. The page itself needs the materialised, filtered, sorted list, because no store has an
+  > index — so **every `total`-shaped remedy is free of breakage *and* free of benefit.** (`total` also has **zero non-test
+  > consumers** across all six repos: juniper-data-client has no filter endpoint, and juniper-canopy has no `/api/datasets` route.
+  > Its only stated justification is a test docstring citing a caller's "progress bar", which exists nowhere.)
+  >
+  > **The actual remedy is the JD-PERF-02 metadata cache, which was inert in production.** `DatasetStore.__init__` creates the cache
+  > state and `_list_all_metadata_cached` degrades to an uncached walk when it is absent — and **six of seven stores never called
+  > `super().__init__()`**, including `LocalFSDatasetStore`, the store `api/app.py` wires. Its test suite stayed green because every
+  > test used a purpose-built stub that *did* call it. Fixed in
+  > [juniper-data#381](https://github.com/pcalnon/juniper-data/pull/381), together with the read-your-writes invalidation that
+  > wiring the cache alone would have broken, and a conformance suite over real stores. Measured after: **114.8× at N=100**, **92.9×
+  > at N=1,000**.
+  >
+  > **What remains under this row** is the O(N) floor the cache only *bounds*: `list_all_metadata()` is still a full walk on every
+  > miss, and a storage index is still the only thing that removes it. At the deployed **N=21** (measured from the live container and
+  > the host store; there is no retention policy, but observed growth is ~20 datasets over the project's life) `/filter` costs
+  > **~3 ms**, so this is latent, not live. **Do not re-file it as a `total` problem.**
 >
 > *(Corrected 2026-08-28: this sentence also listed `-005` + `-024` as open. Both have been `FIXED (data#295)` since 2026-08-26 — see their §4.1 rows and the §5.1 entry. The closure ran the §4 protocol's whole-file `grep -n 'APD-<ID>'` and this line still survived it, because the sentence names the IDs **inside a parenthetical about a different row's grouping** rather than as the subject of a status claim. **The fifth touch is necessary but not sufficient**: grep finds the mentions, but only reading each one decides whether a closure falsified it.)*
 
