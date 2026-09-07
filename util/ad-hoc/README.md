@@ -148,6 +148,16 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 - **Backup lives in the git dir** (`f039-topoprobe.f039bak`), never beside `dashboard_manager.py`. A work-tree bak is swept by `git add -A`.
 - **`curl` cannot tick a Dash interval.** Hold a live browser session with the soak script.
 - **`e2e_f039_duplicate_store_probe.py` exit 1 is not a verdict** — the probe could not run. `dcc.Store` has no DOM; `paths.strs` hides duplicates.
+- **That `paths.strs` blindness now has a lift: `2026-09-05_dash_layout_id_census.py`.** Dash serves the layout tree as JSON from the *server* at `/<prefix>_dash-layout`, before dash-renderer indexes
+  anything, so a duplicate id appears there as two nodes carrying one id — which `paths.strs`, a one-id-to-one-path map, cannot represent at all. Use it before reaching for the duplicate probe. It
+  settled the question for `metrics-panel-metrics-store` on 2026-09-05 (465 id-bearing nodes, 465 distinct, zero duplicates anywhere) and a clean census is a **refutation**, not an absence of evidence.
+  It reads the layout **as served**, so a component a callback adds later would not appear; every canopy panel declares its stores statically, but that bound is real.
+- **A response census must detach its listener.** `2026-09-04_f035_candidate_loss_redrive.py` attached `page.on("response", …)`, never removed it, and returned the dict the handler keeps mutating —
+  so its log printed an honest 30 s window while the JSON, dumped 48 s later at end of run, reported the whole listening lifetime. One run, two archived artifacts, 17 writes vs 46. Both censuses now
+  `remove_listener`, return a copy, and record `window_s` in the artifact. If a census does not stop counting when its window closes, it is not a census — and the two artifacts will disagree silently.
+- **`2026-09-05_f035_store_write_latency_probe.py`** times each store-writing round trip against the interval that re-requests it, because dash-renderer retires an in-flight call on re-request. Read its
+  `overlap_fraction` as the retirement **precondition**, never as retirement: on 2026-09-05 it read 0.69 while the store was constant-empty across 130 server-side comparisons, so nine unopposed
+  responses also failed to land. A number that explains most of a result is not the cause of it.
 
 Always `revert` before committing anything from the instrumented checkout.
 
@@ -160,6 +170,51 @@ Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFEREN
 A required name that never reports leaves `main` unmergeable with every visible check green (the 2026-08-10 fleet-union class). Re-run the auditor; do not quote the incident note's §1 counts. Human-mode exit 0 can still print `ERROR:` rows; `--json` fails closed on probe errors.
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
+
+## Worktree in-use probe (operational)
+
+`2026-09-02_worktree_inuse_probe.py` is an independent second opinion for a worktree sweep. The cwd-only liveness probe (`2026-08-20_worktree_liveness_probe.py`) and the P5 cleaner's `occupied()` gate miss an editor or a long `pytest` whose cwd is elsewhere while a file inside the tree is still open.
+
+- STRONG (cwd or an open fd inside the tree) → `IN USE`, exit 1 `REFUSE`.
+- WEAK (cmdline substring) → `review` / `CAUTION`, exit stays 0. The first run reported every tree in use because the probe named the paths as arguments; self and parent pids are excluded from WEAK by pid.
+- Empty argv exits 2 (the cwd-only probe exits 0 on that misuse).
+- Read-only. Sibling `foo-extra` is not inside `foo`. Unreadable `/proc` (other users) is counted, not treated as in-use.
+
+```bash
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree-dir> ...]
+```
+
+Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+## Canopy E2E finding triage (operational)
+
+`e2e_finding_triage.py` is the mechanical P0/P1 open-count for Phase 2's exit criterion. It reads only line-starting `**F-<AREA>-<NNN> — …**` headers in the evidence ledger.
+
+- `FIXED` / `HEALED` in the last 170 characters of the header → closed.
+- `ACCEPTED` in that same tail, and not also FIXED → owner-deferred. Third disposition: not FIXED, not OPEN.
+- `--open-only` hides closed rows; the totals block still counts every finding.
+- Always exits 0. A green shell is not "no open P0/P1".
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
+
+## F-CANOPY-037 render census (operational)
+
+`e2e_f037_render_census.py` re-drives the topology-graph paint that F-CANOPY-037 measured in 2 of 11 sessions. Default `--sessions` is 11; a single session is not a comparable claim. Exit 0 means every session produced PASS or FAIL (even if painted==0); exit 2 means the census failed to measure. All-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. Idle populated is VALID.
+
+The census does **not** start canopy. Bring up the isolated trio first (`util/isolated_stack.bash --up`), train a network, then:
+
+```bash
+python3 util/ad-hoc/e2e_f037_render_census.py
+```
+
+No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`). A/B a pre-merge checkout on `:8052` with `e2e_f037_ab_premerge_leg.bash`. `_find_juniper_root` must see **both** `juniper-canopy` and `juniper-cascor`; three hops from a nested worktree recorded `sha=None`.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-037 Render Census](../../docs/REFERENCE.md#f-canopy-037-render-census).
 
 ---
 

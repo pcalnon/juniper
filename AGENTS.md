@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-05
+**Last Updated**: 2026-09-06
 
 ---
 
@@ -161,6 +161,25 @@ python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
 python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
 python3 -m unittest -v tests/test_e2e_append_statuses.py
 python3 -m unittest -v tests/test_recurrence_kind_edges.py
+python3 -m unittest -v tests/test_e2e_topology_row_predicates.py
+python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
+python3 -m unittest -v tests/test_e2e_topology_step_order.py
+python3 -m unittest -v tests/test_compare_baseline_defects.py
+python3 -m unittest -v tests/test_work_countable_contract.py
+python3 -m unittest -v tests/test_termination_branch_precondition.py
+python3 -m unittest -v tests/test_run_suite_uncountable_report.py
+python3 -m unittest -v tests/test_worktree_inuse_probe.py
+python3 -m unittest -v tests/test_e2e_finding_triage.py
+python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
+python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
+python3 -m unittest -v tests/test_register_open_set.py
+python3 -m unittest -v tests/test_register_status_crosscheck.py
+python3 -m unittest -v tests/test_soak_next_probe_split.py
+python3 -m unittest -v tests/test_soak_run_probe_terminal.py
+python3 -m unittest -v tests/test_soak_run_probe_launch_guards.py
+python3 -m unittest -v tests/test_soak_handoff_consensus_checks.py
+python3 -m unittest -v tests/test_x7_offload_census.py
+python3 -m unittest -v tests/test_markdown_structure_delta.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.

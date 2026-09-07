@@ -118,11 +118,19 @@ unless stated otherwise.**
 - **The 25×–182× understatement is a COEFFICIENT-OF-VARIATION ratio, and it is specific to 20 s
   cells.** Raw sd ratio is 18.75–151.58×. At ≥60 s it **collapses to 0.86–1.25×**, where `drive` sd
   can *exceed* `step_sum` sd. Do not restate it as a general property of `drive`.
-- **The quiet-run drift floor is 15.0–20.5%** (`max/min − 1`, applied consistently). Earlier
-  sessions — including this one — quoted **13–20.5%**, which mixes two normalizations: the 13% is
-  `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks. The
-  underlying six values are correct; only the band was wrong. **The conclusion is unaffected and
-  slightly strengthened**, since the true lower bound is higher.
+- ~~**The quiet-run drift floor is 15.0–20.5%**~~ — **REFUTED 2026-09-05; the original 13–20.5% was
+  correct and stands.** This bullet claimed the band mixed normalizations, "the 13% is
+  `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks". Recomputed
+  from the six values in §5 / §8.4 of
+  [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md):
+  the two quiet 20 s runs (18.42 → 20.81 ms) give **12.98%** under `max/min − 1` and **11.48%** under
+  `(max−min)/max`, so the 13.0% figure is *already* `max/min − 1` — the same formula as the 20.5%.
+  The band was never mixed. Worse, **15.0% is the `modest load 4/16` run** (18.42 → 21.18 ms), a
+  LOADED measurement; promoting it to the lower bound of a *quiet* floor folds a load effect into the
+  noise band and makes §8.4's central claim circular (6 workers at +19.9% sitting *inside* a 20.5%
+  quiet band only means something while that band holds no loaded runs). **Do not "correct" the
+  13–20.5% string in source, tests or docs** — it is right in all 9 sites. Normalization is now
+  pinned in the sweep note itself so this cannot be re-derived.
 - **THE WORK GATE'S PREMISE IS SETTLED (2026-09-04, `ml#1733` `a0420375`) — it was UNDER-specified, not wrong.**
   `step_count` was claimed deterministic and contention-immune. Consensus validation produced a
   counterexample from the existing corpus, which I then reproduced directly. Cell `c006-9c53874e`,
@@ -309,6 +317,25 @@ instruments.
 `juniper-cascor/conf/experiments/spiral-smoke.yaml`; the three 2026-08-31/09-01 PF-1 results notes
 (correction banners); `notes/JUNIPER_2026-08-16_…PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`.
 
+### 7.1 Follow-on session, 2026-09-05 — decisions taken and shipped
+
+Four PRs, all owner-approved. **Two are corrections TO THIS DOCUMENT** (§9's numeric findings), and
+two close gaps §9 was right about.
+
+| PR | decision | changed |
+|---|---|---|
+| **ml#1758** | The P4 operator surface was **stale, not missing** — item 2 above has it backwards. It described the pre-`ml#1743` comparator: six closed defects listed as open, a closed asymmetry, exit 1 called "uninterpretable". Rewritten; CI-wiring prohibition **kept and re-grounded** on the owner decision (P1 §6). | `docs/REFERENCE.md`, `docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md`, `docs/DOCUMENTATION_OVERVIEW.md`, `docs/QUICK_START.md` |
+| **ml#1762** | Same staleness in the design record; the "invariance follows from the iteration cap" mechanism **withdrawn** (every PF-1 run terminates `early_stopped`, so none is cap-bound). | `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`, `notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md` |
+| **ml#1765** | **DECISION: pin the drift-band normalization; do NOT change the 13–20.5% string.** §9's "15.0–20.5%" is refuted (see the struck bullet in §2) — and so is **C4** (see §9). Both struck in place with the arithmetic inline; the normalization pinned next to the numbers. | `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`, this file |
+| **ml#1767** | **DECISION: ship the `metric_contract` correction.** All three gate tools still called `step_count` "deterministic and contention-immune" with **no branch condition** — and `make_baseline.py:254` writes that into `metric_contract` in **every `baseline.json`**, so each blessed baseline shipped a claim its own comparator will not rely on. | `util/experiments/make_baseline.py`, `util/experiments/compare_baseline.py`, `util/experiments/read_run_metrics.py` |
+
+**Why the two corrections matter more than the two fixes.** Acting on §9 as written would have
+changed the 13–20.5% string in **9 sites** (including every `baseline.json`) and made the
+upper-bound wording duration-conditional. Both changes would have been wrong. Neither error was
+detectable by reading §9 — only by re-running its arithmetic against the six source values in §5 /
+§8.4 of `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`.
+**A consensus lane checked the claims ABOUT the numbers, not the numbers.**
+
 ---
 
 ## 8. What this handoff does NOT cover
@@ -333,8 +360,12 @@ branch merged and deleted" (false — would have destroyed #1683), "Waves 0, 1 a
 and Wave 4 entirely, dropped the whole arc tail and retained-state section, and never named the P2
 plan its nine item references pointed at.
 
-**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
-**15.0–20.5%** above. **Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
+~~**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
+**15.0–20.5%** above.~~ — **this consensus finding was itself WRONG and is withdrawn (2026-09-05);
+see the struck bullet in §2.** Both endpoints are `max/min − 1` over quiet runs; 15.0% is the
+`modest load 4/16` measurement. A consensus lane can agree on a wrong recomputation — the arithmetic
+was never re-run against the six source values, only the *claim* about which formula produced them.
+**Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
 
 **Refuted structurally — the most consequential result.** Lane B1 broke the gate's core premise
 (§2 of this document) and found six ways `compare_baseline.py` reaches a wrong verdict. **C2 is now
@@ -353,12 +384,25 @@ should do:
 A1/A2 are one-line asymmetries — `compare_baseline` should adopt the refusals `make_baseline`
 already has.
 
-**C4, documentation over-reach**: "`drive` cannot serve as an upper bound on noise" is stated
+~~**C4, documentation over-reach**: "`drive` cannot serve as an upper bound on noise" is stated
 unconditionally in `util/experiments/read_run_metrics.py` and is **false above ~60 s**, where the
-`step_sum`/`drive` sd ratio is 0.86–1.25 across five suites out to 225.8 s. The quantization is
-**additive** (~4.3 s residual, near-constant), so its relative cost falls from 33% below 30 s to
-0.4% above 700 s. E-A/E-C cells at 120–670 s are in the faithful regime. No capability was lost —
-`drive` is still recorded — but the wording should be duration-conditional.
+`step_sum`/`drive` sd ratio is 0.86–1.25 across five suites out to 225.8 s.~~ — **REFUTED
+2026-09-05 by its own numbers; the unconditional wording is CORRECT and stands.** "Upper bound"
+means `drive` sd ≥ `step_sum` sd, i.e. ratio ≤ 1. The quoted range **0.86–1.25 straddles 1**, so
+above 60 s `drive` still runs in *both* directions — which is precisely the condition the source
+sentence gives for refusing to treat it as a bound. From §3 of this lane's own table:
+
+| run | condition | `drive` sd | `step_sum` sd | ratio | upper bound? |
+|---|---|---|---|---|---|
+| `20260901T101126Z` | **66 s**, quiet | 3.357% | 4.198% | **1.25** | **NO — understates** |
+| `20260901T103324Z` | 126 s, heavy 14/16 | 2.256% | 1.970% | 0.87 | yes — overstates |
+
+At 66 s — above the very threshold C4 names — `step_sum` sd **exceeds** `drive` sd, so `drive`
+understates real spread and cannot bound it. The finding conflates **faithful** (ratio ≈ 1) with
+**conservative** (ratio ≤ 1); only the latter licenses an upper bound. The rest of C4 is sound and
+unaffected: the quantization *is* additive (~4.3 s), its relative cost *does* fall with duration,
+and the 25×–182× figure *is* 20 s-specific — but "not a conservative approximation in either
+direction" is exactly what 0.86–1.25 demonstrates. **Do not make the wording duration-conditional.**
 
 **C3, recurrence uncountability: NOT refuted, but re-ground the reason.** The doc rejects `n_epochs`
 for being invariant to `d`/`n_steps`; the stronger and correct reason is that

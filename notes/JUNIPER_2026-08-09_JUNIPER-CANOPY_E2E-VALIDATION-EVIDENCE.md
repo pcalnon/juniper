@@ -10,6 +10,8 @@
 
 This file accumulates the arc's execution evidence phase by phase (plan §9). Matrix row statuses live in the matrix's own `status` column at Phase-1 close; this file holds transcripts, findings, and the PR ledger.
 
+**Triage this ledger mechanically** — `python3 util/ad-hoc/e2e_finding_triage.py` (see [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../docs/REFERENCE.md#canopy-e2e-finding-triage)). Disposition tokens (`FIXED` / `HEALED` / `ACCEPTED`) must sit in the finding **header**, in its last 170 characters. Body prose is invisible to the counter.
+
 ---
 
 ## Phase 0 — Prerequisites & stack fixes (2026-08-09) — COMPLETE
@@ -651,7 +653,7 @@ fails if anyone wires a consumer without restoring a writer.
 > |---|---|
 > | server, the handler's own endpoint | `{"history": [...]}`, **99 of 100 rows `phase:"candidate"`** |
 > | `ws-liveness-store` | `{'metrics_live': False, 'state_live': False}` — the WS demotion gate is **open**, so the REST branch is the one running |
-> | **writes to `metrics-panel-metrics-store`, parsed off `/_dash-update-component`** | **17 writes of 500 rows** in 30 s; `omitted=0`, `unparsed=0` |
+> | **writes to `metrics-panel-metrics-store`, parsed off `/_dash-update-component`** | **17 writes of 500 rows** in 30 s; `omitted=0`, `unparsed=0` *(correct for the window — but the `.json` archived beside it reads 46/`unparsed=7`; see the census-window correction below)* |
 > | store read **immediately before** those writes | `ok` via `paths.strs`, `len=0` |
 > | store read **immediately after** those writes | `ok` via `paths.strs`, **`len=0`** |
 > | `candidate-metrics-panel-loss-plot` | present, **zero traces**, after a 45 s budget |
@@ -702,6 +704,149 @@ fails if anyone wires a consumer without restoring a writer.
 > Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-05_f035_candidate_redrive.{txt,json}`
 > (bracketing reads + write census) and `…/2026-09-04_f035_candidate_redrive.{txt,json}` (the first
 > pass, kept because its weaker mention-count is the contrast that motivated parsing the bodies).
+
+---
+
+#### 2026-09-05, later — the open question is ANSWERED, the warning is DISCHARGED, and one instrument defect is repaired
+
+The block above closed with a question its own reader could not answer — *are the reader and the
+writer addressing the same store instance?* — and the F-039 topoprobe's report closed with a warning
+that had to be discharged before its verdict could be read. Both are now settled, and settling them
+turned up a defect in the re-drive instrument itself.
+
+**What was SERVING, not merely checked out.** Everything below was measured against a dedicated leg on
+`:8052` launched from the probe worktree at canopy **`8a43a33`** and running the topoprobe-instrumented
+`dashboard_manager.py`; the shared `:8050` leg was untouched. Naming the serving commit rather than the
+checkout is deliberate — a long-running leg serves the code it *imported*, and reading a merged fix into
+a process that predates it cost this arc a whole row census once already. Every `file:line` cited below
+was re-verified against canopy main **`785fb64`** after teardown and still resolves to the same
+statement, so the citations do not depend on which of the two commits the reader has to hand.
+
+**A. THE DUPLICATE-INSTANCE HYPOTHESIS IS REFUTED — from the one vantage point that can see it.**
+`state.paths.strs` maps one id to one path, so it cannot *represent* a duplicate; asking it this
+question was always going to return a confident non-answer. Dash serves the layout tree as JSON from
+the **server**, before dash-renderer indexes anything, so a duplicate id appears there as what it is.
+New instrument: `util/ad-hoc/2026-09-05_dash_layout_id_census.py`, against
+`/dashboard/_dash-layout` on the instrumented leg.
+
+| | |
+|---|---|
+| layout served | 165,807 bytes |
+| id-bearing nodes | **465** |
+| distinct ids | **465** |
+| duplicate ids, anywhere in the layout | **0** |
+| `metrics-panel-metrics-store` instances | **1**, at `children.11.children.1.children.0.children.0.children.children.11`, default `data=[]` |
+
+Corroborated by source: the id has exactly one declaration site,
+`metrics_panel.py:537` (`dcc.Store(id=f"{self.component_id}-metrics-store", data=[])`).
+`candidate_metrics_panel.py` declares no such store — its `SHARED_METRICS_STORE_ID` (line 63) is only
+ever *read*, as an `Input` at line 349. **There is one store. Reader and writer address it.**
+
+**B. THE TOPOPROBE'S WARNING IS DISCHARGED — the second writer is exonerated twice over.** The report
+demands: *"BEFORE concluding: discriminate by WRITER"*, naming `append_ws_metrics_store`
+(`allow_duplicate=True`, `dashboard_manager.py:3910`) as an ungated writer whose every write is
+"`no_update`-free by construction".
+
+- *Statically*, that characterisation is too strong in the direction that matters here.
+  `_append_ws_metrics_store_handler` (`dashboard_manager.py:6732`) opens
+  `if not ws_events: return dash.no_update`, and its only other return is
+  `current + ws_events` bounded to the window. **It cannot write an empty value at all**, so it
+  cannot be the thing holding the store at `[]`.
+- *Empirically*, it never ran. The appender fires only on a `ws-metrics-buffer` change; that store is
+  written by a **clientside** drain (`dashboard_manager.py:3602`) which returns `no_update` unless it
+  actually drained frames, and it bumps `gen` on every real drain. Bracketing the census window, the
+  buffer read `{'events': [], 'gen': 0, 'last_drain_ms': 0}` **before and after** — its mount default,
+  `gen` **0 → 0**. Consistent with `ws-liveness-store`'s `metrics_live: False`.
+
+The re-drive now records this as `ws_appender_fired: false` rather than leaving it to be inferred.
+**The liveness-gated REST poll is the sole writer**, and the topoprobe's verdict may be read.
+
+**C. THE SERVER'S OWN VIEW NEVER ADVANCES EITHER — this is the sharp fact.** The topoprobe logs the
+guarded handler's `State`, which is the handler's own Output handed back on the next tick. Over
+**130 comparisons** (`--target metrics`), every one is `eq=False` at a **constant `cur_len=2`** — the
+serialised `[]` — against `new_len=164570` offered each time.
+
+> If the browser had applied any of those writes, the following tick's `State` would carry 500 rows.
+> It carried `[]` one hundred and thirty times.
+
+So the response reaches the browser and **the browser does not apply it**. That is a stronger claim
+than the block above could make, and it is made from a server-side vantage point that shares no
+machinery with the `paths.strs` reader.
+
+**D. A CENSUS-WINDOW CORRECTION, and the instrument defect behind it.** The block above quotes
+"17 writes of 500 rows in 30 s; `omitted=0`, `unparsed=0`". That figure is **correct for the window**
+and matches the archived `.txt` exactly. The `.json` archived beside it, from the *same run*, reads
+**46 writes / `unparsed=7`**. Both are real: `_wire_census` and `_write_census` attached
+`page.on("response", …)` and **never detached**, and returned the very dict the handler keeps
+mutating — so the log printed the honest 30 s snapshot at t=91 s and the JSON, dumped at t=139 s
+after the script's 45 s wait on the loss plot, reported the whole listening lifetime. A census that
+does not stop counting when its window closes is not a census. Fixed in
+`util/ad-hoc/2026-09-04_f035_candidate_loss_redrive.py`: both censuses now `remove_listener`, return
+a copy, and record `window_s` in the artifact so the window is never again implied.
+
+Re-driven after the fix, artifacts coherent (`…_v2.{txt,json}`, both windows now agreeing):
+
+| measurement | result |
+|---|---|
+| server history | 100 rows, **93 `candidate`** / 7 `output` *(fixture regrown — see the F-CANOPY-037 notice)* |
+| `ws-liveness-store` | `{'metrics_live': False, 'state_live': False}` |
+| `ws-metrics-buffer`, bracketing | `gen` **0 → 0**, mount default both reads |
+| writes to the store, parsed, **30 s window** | **14 writes of 500 rows**; `omitted=0`, `unparsed=0` |
+| store read before / after those writes | `len=0` / **`len=0`** |
+| `candidate-metrics-panel-loss-plot` | present, **zero traces**, 45 s budget |
+
+**E. THE LEADING MECHANISM IS MEASURED — and it does NOT close the finding.** The arc already carries
+a mechanism with this exact signature: dash-renderer retires an **in-flight** call when the same
+callback is **re-requested**, and the retired response is discarded on arrival. `update_metrics_store`
+is driven by `fast-update-interval` at `FAST_UPDATE_INTERVAL_MS = 1000` (`canopy_constants.py:370`).
+New instrument: `util/ad-hoc/2026-09-05_f035_store_write_latency_probe.py`, 60 s window, timing every
+store-writing round trip at the browser.
+
+| | min | median | max |
+|---|---|---|---|
+| round-trip duration | 0.989 s | **1.827 s** | 4.71 s |
+| gap between store-writing requests | 1.128 s | **1.716 s** | 2.848 s |
+
+**29 writes of 500 rows; 20 of them (69%) were still in flight when a successor was issued.** The
+median round trip exceeds the median re-request gap, so on average a write is superseded before it
+lands — the retirement precondition, holding most of the time.
+
+**But it does not account for the result, and saying so is the point.** Nine of the 29 responses had
+no store-writing successor in flight, and the store still read `len=0` at the end of the window —
+and the server-side `State` was constant-empty across **130** comparisons, not 69% of them. Overlap
+this heavy would degrade freshness; it cannot by itself produce a store that *never* advances. So:
+
+- **Established**: one store instance; one active writer; full payloads on the wire; neither the
+  client's copy nor the server's `State` ever advancing; heavy request overlap.
+- **NOT established**: that renderer retirement is the cause. It is the leading hypothesis with
+  supporting arithmetic and an unexplained residual — nine unopposed responses that also failed to
+  land. Reporting it as the cause would be this arc's recurring error, a well-formed measurement of
+  an adjacent question returned in confident numbers.
+
+**The discriminating next measurement** is inside dash-renderer, not around it: instrument the store's
+`setProps`/reducer path in the browser to record whether the payload arrives at the renderer and is
+dropped, or never reaches it. `util/ad-hoc/e2e_f039_metrics_store_soak.py` and
+`e2e_f039_duplicate_store_probe.py` remain available; note the latter's `exit 1` means "could not
+run", not a verdict — and its question (duplicates) is now answered by **A**, so it is no longer the
+one to reach for.
+
+**Matrix effect: none.** M-CANDIDATES-07 stays **FAIL**; canopy#524's adapter stays correct and
+unreachable. What moves is the basis and the open-question list: the duplicate-instance question is
+**closed by refutation**, the writer discrimination is **done**, and the remaining unknown is narrowed
+from "why is the store empty" to "why does an applied-looking response not reach the store's state".
+
+**The instrumented leg is down.** The topoprobe was reverted (`revert` confirmed the checkout clean,
+zero `TOPOPROBE` occurrences, empty `git status`), the :8052 leg was stopped **by pid** (2235611) via
+`util/ad-hoc/2026-09-04_canopy_verify_instance.bash down 8052`, and the probe worktree
+`juniper-canopy--probe--f039-metrics--20260905-1200--probe` was removed and pruned.
+
+Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
+`2026-09-05_f035_candidate_redrive_v2.{txt,json}` (coherent re-drive),
+`2026-09-05_f035_layout_id_census.{txt,json}` (the duplicate refutation),
+`2026-09-05_f035_store_write_latency.{txt,json}` (the timing),
+`2026-09-05_f035_topoprobe_metrics_report.txt` (130 comparisons) and
+`2026-09-05_f035_topoprobe_canopy8052.txt` (the leg log it was read from — archived as `.txt`
+deliberately: `.gitignore:52` is `*.log`, which would have silently excluded it).
 
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.

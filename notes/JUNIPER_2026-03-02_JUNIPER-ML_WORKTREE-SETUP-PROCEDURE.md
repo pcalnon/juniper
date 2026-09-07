@@ -2,7 +2,7 @@
 
 **Purpose**: Standardized procedure for creating a git worktree when beginning a new task
 **Project**: juniper-ml
-**Last Updated**: 2026-02-25
+**Last Updated**: 2026-09-04
 
 ---
 
@@ -11,6 +11,8 @@
 Git worktrees provide task isolation by allowing multiple branches to be checked out simultaneously in separate directories. This keeps the main working directory on the default branch while task work proceeds in a dedicated checkout, preventing accidental commits to `main` and enabling easy context switching between tasks.
 
 For the Juniper ecosystem, all worktrees are centralized in `/home/pcalnon/Development/python/Juniper/worktrees/`.
+
+A `juniper-cascor--*` worktree is **not** the cascor-primary freeze: `util/ad-hoc/cascor_freeze_tell.py` excludes both this root and `<primary>/.claude/worktrees`. Operator surface: [`docs/REFERENCE.md` § Cascor Primary Freeze Tell](../docs/REFERENCE.md#cascor-primary-freeze-tell).
 
 ---
 
