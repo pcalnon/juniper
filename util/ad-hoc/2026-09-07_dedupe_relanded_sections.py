@@ -43,7 +43,6 @@ Exit: 0 when every named heading was resolved; 1 when one was ambiguous or not d
 from __future__ import annotations
 
 import argparse
-import sys
 from pathlib import Path
 
 MIN_DELTA = 4  # below this the line-count proxy is not evidence
