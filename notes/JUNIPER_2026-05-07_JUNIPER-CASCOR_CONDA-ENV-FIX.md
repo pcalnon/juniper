@@ -4,6 +4,8 @@
 **Author**: Paul Calnon (executed by Claude Code)
 **Scope**: `util/juniper_plant_all.bash`, `/opt/miniforge3/envs/JuniperCascor{,1}/etc/conda/{activate,deactivate}.d/`
 
+Operator surface (this regular-3.14 wheel-layout class is exit **4**, not P-5's exit **2**): [`docs/REFERENCE.md` § Conda Env Torch Shadow Diagnostic](../docs/REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5). Classify with `util/check_conda_env_torch.bash` before flipping `JUNIPER_CASCOR_CONDA`.
+
 ---
 
 ## 1. Symptom

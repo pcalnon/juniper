@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-03
+**Last Updated**: 2026-09-06
 
 ---
 
@@ -71,6 +71,7 @@ python3 -m unittest -v tests/test_wake_the_claude.py
 python3 -m unittest -v tests/test_env_repr_safety.py
 python3 -m unittest -v tests/test_worktree_cleanup.py
 python3 -m unittest -v tests/test_worktree_sweep_scripts.py
+python3 -m unittest -v tests/test_p5_worktree_cleanup.py
 python3 -m unittest -v tests/test_cleanup_session_worktrees.py
 python3 -m unittest -v tests/test_reap_pytest_orphans.py
 python3 -m unittest -v tests/test_kill_helpers.py
@@ -132,7 +133,53 @@ python3 -m unittest -v tests/test_run_suite.py
 python3 -m unittest -v tests/test_experiment_config_schemas.py
 python3 -m unittest -v tests/test_experiment_suite_yamls.py
 python3 -m unittest -v tests/test_p5_port_memory_budget.py
+python3 -m unittest -v tests/test_p5_fleet_state.py
+python3 -m unittest -v tests/test_resident_gap_triage.py
+python3 -m unittest -v tests/test_resident_gap_scan.py
+python3 -m unittest -v tests/test_hazard_triage.py
 python3 -m unittest -v tests/test_require_context_safely.py
+python3 -m unittest -v tests/test_matrix_set_verdicts.py
+python3 -m unittest -v tests/test_e2e_matrix_fill.py
+python3 -m unittest -v tests/test_e2e_matrix_rescore.py
+python3 -m unittest -v tests/test_e2e_unfilled_rows.py
+python3 -m unittest -v tests/test_e2e_f037_render_census.py
+python3 -m unittest -v tests/test_e2e_row_coverage.py
+python3 -m unittest -v tests/test_soak_probe_evidence.py
+python3 -m unittest -v tests/test_soak_wilson_resolving.py
+python3 -m unittest -v tests/test_soak_run_probe_stopping_rule.py
+python3 -m unittest -v tests/test_soak_ledger_status_token.py
+python3 -m unittest -v tests/test_soak_analyse_date_pool.py
+python3 -m unittest -v tests/test_run_suite_gate_metrics.py
+python3 -m unittest -v tests/test_list_runs_classify_guards.py
+python3 -m unittest -v tests/test_register_close_protocol.py
+python3 -m unittest -v tests/test_stats_summary_render.py
+python3 -m unittest -v tests/test_stats_summary_git_and_confirmed.py
+python3 -m unittest -v tests/test_canopy_poller_inventory.py
+python3 -m unittest -v tests/test_cascor_freeze_tell.py
+python3 -m unittest -v tests/test_ruleset_context_audit.py
+python3 -m unittest -v tests/test_snapshot_index_root_resolution.py
+python3 -m unittest -v tests/test_equities_symbol_cap_operator.py
+python3 -m unittest -v tests/test_e2e_append_statuses.py
+python3 -m unittest -v tests/test_recurrence_kind_edges.py
+python3 -m unittest -v tests/test_e2e_topology_row_predicates.py
+python3 -m unittest -v tests/test_e2e_topology_score_contracts.py
+python3 -m unittest -v tests/test_e2e_topology_step_order.py
+python3 -m unittest -v tests/test_compare_baseline_defects.py
+python3 -m unittest -v tests/test_work_countable_contract.py
+python3 -m unittest -v tests/test_termination_branch_precondition.py
+python3 -m unittest -v tests/test_run_suite_uncountable_report.py
+python3 -m unittest -v tests/test_worktree_inuse_probe.py
+python3 -m unittest -v tests/test_e2e_finding_triage.py
+python3 -m unittest -v tests/test_e2e_finding_triage_nested_bold.py
+python3 -m unittest -v tests/test_e2e_finding_triage_priority.py
+python3 -m unittest -v tests/test_register_open_set.py
+python3 -m unittest -v tests/test_register_status_crosscheck.py
+python3 -m unittest -v tests/test_soak_next_probe_split.py
+python3 -m unittest -v tests/test_soak_run_probe_terminal.py
+python3 -m unittest -v tests/test_soak_run_probe_launch_guards.py
+python3 -m unittest -v tests/test_soak_handoff_consensus_checks.py
+python3 -m unittest -v tests/test_x7_offload_census.py
+python3 -m unittest -v tests/test_markdown_structure_delta.py
 bash scripts/test_resume_file_safety.bash
 # doc-link validator regression tests live in juniper-doc-tools/tests/
 # and run under the dedicated `CI -- juniper-doc-tools` workflow.
@@ -383,95 +430,7 @@ For larger / cross-cutting PRs, the long-form template at [`notes/templates/TEMP
 
 ## Worktree Procedures (Mandatory -- Task Isolation)
 
-> **OPERATING INSTRUCTION**: All feature, bugfix, and task work SHOULD use git worktrees for isolation. Worktrees keep the main working directory on the default branch while task work proceeds in a separate checkout.
-
-### What This Is
-
-Git worktrees allow multiple branches of a repository to be checked out simultaneously in separate directories. For the Juniper ecosystem, all worktrees are centralized in **`/home/pcalnon/Development/python/Juniper/worktrees/`** using a standardized naming convention.
-
-The full setup and cleanup procedures are defined in:
-
-- **`notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md`** -- Creating a worktree for a new task
-- **`notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md`** -- Merging, removing, and pushing after task completion (V2 -- fixes CWD-trap bug)
-
-Read the appropriate file when starting or completing a task.
-
-### Worktree Directory Naming
-
-Format: `<repo-name>--<branch-name>--<YYYYMMDD-HHMM>--<short-hash>`
-
-Example: `juniper-ml--chore--update-deps--20260225-1430--519bda91`
-
-- Slashes in branch names are replaced with `--`
-- All worktrees reside in `/home/pcalnon/Development/python/Juniper/worktrees/`
-
-### When to Use Worktrees
-
-| Scenario                                    | Use Worktree? |
-| ------------------------------------------- | ------------- |
-| Feature development (new feature branch)    | **Yes**       |
-| Bug fix requiring a dedicated branch        | **Yes**       |
-| Quick single-file documentation fix on main | No            |
-| Exploratory work that may be discarded      | **Yes**       |
-| Hotfix requiring immediate merge            | **Yes**       |
-
-### Quick Reference
-
-**Setup** (full procedure in `notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md`):
-
-```bash
-cd /home/pcalnon/Development/python/Juniper/juniper-ml
-git fetch origin && git checkout main && git pull origin main
-BRANCH_NAME="chore/my-task"
-git branch "$BRANCH_NAME" main
-REPO_NAME=$(basename "$(pwd)")
-SAFE_BRANCH=$(echo "$BRANCH_NAME" | sed 's|/|--|g')
-WORKTREE_DIR="/home/pcalnon/Development/python/Juniper/worktrees/${REPO_NAME}--${SAFE_BRANCH}--$(date +%Y%m%d-%H%M)--$(git rev-parse --short=8 HEAD)"
-git worktree add "$WORKTREE_DIR" "$BRANCH_NAME"
-cd "$WORKTREE_DIR"
-```
-
-**Cleanup** (full procedure in `notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md`):
-
-```bash
-# Phase 1: Push current work
-cd "$OLD_WORKTREE_DIR" && git push origin "$OLD_BRANCH"
-# Phase 2: Create new worktree BEFORE removing old (prevents CWD-trap)
-git fetch origin
-git worktree add "$NEW_WORKTREE_DIR" -b "$NEW_BRANCH" origin/main
-cd "$NEW_WORKTREE_DIR"
-# Phase 3: Create PR (do NOT merge directly to main)
-gh pr create --base main --head "$OLD_BRANCH" --title "<title>" --body "<body>"
-# Phase 4: Cleanup
-git worktree remove "$OLD_WORKTREE_DIR"
-git branch -d "$OLD_BRANCH"
-git worktree prune
-# Phase 6: Sync to latest main (Case A — still in the continuity worktree): sync in place
-git fetch --all && git pull --ff-only origin main
-# Case B (terminal — no session worktrees left): git fetch --all && git checkout main && git pull --ff-only origin main
-# Phase 7 (always, after every merged-PR cleanup): restore the PRIMARY checkout to up-to-date main
-# (skip if its tree is dirty — F-6 stale-checkout guard)
-cd <path-to-repo-root> && git checkout main && git pull --ff-only origin main
-```
-
-**Automated cleanup** (via script):
-
-```bash
-util/worktree_cleanup.bash \
-  --old-worktree "$OLD_WORKTREE_DIR" \
-  --old-branch "$OLD_BRANCH" \
-  --parent-branch main
-```
-
-### Rules
-
-- **Centralized location**: All worktrees go in `/home/pcalnon/Development/python/Juniper/worktrees/`. Never create worktrees inside the repo directory.
-- **Clean before you start**: Ensure the main working directory is clean before creating a worktree.
-- **Push before you merge**: Always push the working branch to remote before merging (backup).
-- **Prune after cleanup**: Run `git worktree prune` after removing a worktree to clean metadata.
-- **Do not leave stale worktrees**: Clean up worktrees promptly after merging.
-
----
+Setup and cleanup procedures, directory naming, the when-to-use table, and `util/worktree_cleanup.bash`. **The mandate is not lost**: the always-loaded parent [`Juniper/CLAUDE.md`](../CLAUDE.md) § Worktree Procedures carries the operating instruction, the centralized worktree location and the naming convention. Moved to [`docs/REFERENCE.md` § Worktree Procedures Reference](docs/REFERENCE.md#worktree-procedures-reference) — read it when working on this area.
 
 ## Thread Handoff (Mandatory -- Replaces Thread Compaction)
 

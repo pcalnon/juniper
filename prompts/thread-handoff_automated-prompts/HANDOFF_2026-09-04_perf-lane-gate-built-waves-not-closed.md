@@ -1,4 +1,4 @@
-# HANDOFF 2026-09-04 — the premise is SETTLED; the guard that settled it shipped TWO fail-open holes
+# HANDOFF 2026-09-05 — the gate is BUILT, its premise SETTLED, and all six comparator defects CLOSED
 
 Successor to `HANDOFF_2026-09-01_perf-lane-p3-and-arc-tail.md`.
 
@@ -23,7 +23,7 @@ with a PROCESS check, not only ports:
 `pgrep -c -x sha256sum` and
 `ps -eo pid,cmd --no-headers | grep -E "run_suite|contention_load|headroom_sweep" | grep -v grep`.
 
-`origin/main` was `a0420375` when this was finalised (`63ca9306` at first draft; it moved repeatedly
+`origin/main` was `d5969022` when this was finalised (`63ca9306` at first draft; it moved repeatedly
 during validation and the determinism fix) — **re-check it, do not branch from a recorded sha.**
 
 ---
@@ -51,8 +51,12 @@ not because anything drifted.
 [`notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md)
 unless stated otherwise.**
 
-0. **FIRST — land peer PR `ml#1735`** (it closes the two fail-open holes `ml#1733` introduced, §2
-   of this document), then the remaining comparator defects (§9). The determinism blocker
+0. ~~Land `ml#1735`, then the comparator defects.~~ **DONE 2026-09-05.** `ml#1741` `d8c0fc81`
+   closed the two fail-open holes; `ml#1743` `d5969022` closed all six comparator defects
+   (A1/A2/A3/A4/A6/A7). `ml#1735` (Cursor fleet) was **superseded, not landed** — it branched from
+   `fix/step-count-determinism-guard`, and once `ml#1733` squash-merged and that branch was deleted
+   GitHub retargeted it to `main`, where it conflicts (`update-branch` → 422). Close it or let the
+   fleet rebase it into a no-op. The determinism blocker
    is **settled and merged** (`ml#1733`), but `compare_baseline.py` still PASSes on unmeasured
    cells (A1) and on `timed_out` cells (A2) — both one-line imports of refusals
    `make_baseline.py` already implements — PASSes on zero-work runs (A4), converts a real FAIL
@@ -61,7 +65,7 @@ unless stated otherwise.**
    wiring**, since a caller treating exit 2 as "cannot compare" would lose a real regression.
 1. **Free — land the remaining open lane PRs** (peer-authored; enumerate them yourself, the set
    moves). Item 3.1 is already in via #1683 `06e81d3a`, so `main` can read a recurrence run and the
-   three gate suites run **76 tests**.
+   three gate suites run **88 tests**.
 2. **Free — P4 (Documentation) is a whole PHASE that is missing and never started.** §1.1 of the
    phasing note
    ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](../../notes/JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md))
@@ -114,11 +118,19 @@ unless stated otherwise.**
 - **The 25×–182× understatement is a COEFFICIENT-OF-VARIATION ratio, and it is specific to 20 s
   cells.** Raw sd ratio is 18.75–151.58×. At ≥60 s it **collapses to 0.86–1.25×**, where `drive` sd
   can *exceed* `step_sum` sd. Do not restate it as a general property of `drive`.
-- **The quiet-run drift floor is 15.0–20.5%** (`max/min − 1`, applied consistently). Earlier
-  sessions — including this one — quoted **13–20.5%**, which mixes two normalizations: the 13% is
-  `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks. The
-  underlying six values are correct; only the band was wrong. **The conclusion is unaffected and
-  slightly strengthened**, since the true lower bound is higher.
+- ~~**The quiet-run drift floor is 15.0–20.5%**~~ — **REFUTED 2026-09-05; the original 13–20.5% was
+  correct and stands.** This bullet claimed the band mixed normalizations, "the 13% is
+  `(max−min)/max` on the 20 s runs, the 20.5% is `max/min−1` on the sweep's quiet blocks". Recomputed
+  from the six values in §5 / §8.4 of
+  [`JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md):
+  the two quiet 20 s runs (18.42 → 20.81 ms) give **12.98%** under `max/min − 1` and **11.48%** under
+  `(max−min)/max`, so the 13.0% figure is *already* `max/min − 1` — the same formula as the 20.5%.
+  The band was never mixed. Worse, **15.0% is the `modest load 4/16` run** (18.42 → 21.18 ms), a
+  LOADED measurement; promoting it to the lower bound of a *quiet* floor folds a load effect into the
+  noise band and makes §8.4's central claim circular (6 workers at +19.9% sitting *inside* a 20.5%
+  quiet band only means something while that band holds no loaded runs). **Do not "correct" the
+  13–20.5% string in source, tests or docs** — it is right in all 9 sites. Normalization is now
+  pinned in the sweep note itself so this cannot be re-derived.
 - **THE WORK GATE'S PREMISE IS SETTLED (2026-09-04, `ml#1733` `a0420375`) — it was UNDER-specified, not wrong.**
   `step_count` was claimed deterministic and contention-immune. Consensus validation produced a
   counterexample from the existing corpus, which I then reproduced directly. Cell `c006-9c53874e`,
@@ -151,8 +163,9 @@ unless stated otherwise.**
   FAILing (exit 1). Use **`pf1-2026-09-04b`**; `pf1-2026-09-04` predates the guard and is correctly
   refused.
 
-  **BUT `ml#1733` SHIPPED TWO FAIL-OPEN HOLES. Peer PR `ml#1735` fixes both — land it.** Found by
-  validating the fix rather than the original claim:
+  **`ml#1733` SHIPPED TWO FAIL-OPEN HOLES — both CLOSED in `ml#1741` (`d8c0fc81`).** Recorded because
+  the shapes recur, and because both were found by validating the FIX rather than re-validating the
+  original claim:
 
   1. **The truncated-termination guard CANNOT FIRE on real data.** It matches
      `{timed_out, torn_down_early, stalled}` against **`completion_reason`** — but those are
@@ -167,7 +180,9 @@ unless stated otherwise.**
      all-null candidate refuses. The baseline side is unconditional and does fail closed; the doc's
      earlier "fails closed on both sides" was wrong.
 
-  **Do not CI-wire the gate until `ml#1735` lands.**
+  **The gate is now safe to CI-wire on its own merits** — but whether the run tier gates at all
+  remains an open OWNER decision (§6 of the P1 design), and `run_suite`'s exit code is still
+  deliberately independent of the verdict.
 
   **One caveat on the census itself**: the 29 divergent configs partition into 74 branches, **54 of
   them singletons**, where within-branch agreement is definitionally guaranteed. Only **20 branches
@@ -206,7 +221,7 @@ python3 util/experiments/compare_baseline.py --baseline pf1-2026-09-04b \
 |---|---|
 | `rev-parse origin/main` | `63ca9306` **or later** |
 | `gh pr list` | several open lane PRs, peer-authored; the set moves — enumerate, do not trust a count |
-| three gate suites | **76 OK** (27 + 24 + 25) after `ml#1733`; will change again with `ml#1735` |
+| three gate suites | **88 OK** (27 reader + 24 baseline + 37 comparator) after `ml#1743` |
 | `compare_baseline` | `verdict: PASS`, `step_count baseline=1770.0 candidate=1770.0`, exit 0 |
 
 **Stop conditions.** If the comparator does not say PASS on the suite its own baseline was cut from,
@@ -289,7 +304,7 @@ so `tests/test_app_smoke.py::test_docs_require_auth_when_enabled` fails locally 
 
 **juniper-ml** — #1570 `abf15824`, #1578 `ee48ec44`, #1587 `aa0a8653`, #1592 `24aef672`,
 #1600 `03d2bf12`, #1601 `8ff925db`, #1605 `fbe82c04`, #1613 `24e448e3`, #1622 `3116147e`,
-#1643 `255603ef`, #1683 `06e81d3a`, #1710 `6d9725ef`, #1733 `a0420375`. **juniper-cascor** — #618 `2dec835`. **Open at hand-off**: `ml#1735` (fixes #1733's two holes) plus a large and moving set of peer PRs — enumerate with `gh pr list`, do not trust a count.
+#1643 `255603ef`, #1683 `06e81d3a`, #1710 `6d9725ef`, #1733 `a0420375`, #1739 `52f83db3`, #1741 `d8c0fc81`, #1743 `d5969022`. **juniper-cascor** — #618 `2dec835`. **Open at hand-off**: `ml#1735` (fixes #1733's two holes) plus a large and moving set of peer PRs — enumerate with `gh pr list`, do not trust a count.
 
 **Files created**: `util/experiments/read_run_metrics.py`, `make_baseline.py`, `compare_baseline.py`;
 `tests/test_read_run_metrics.py`, `tests/test_make_baseline.py`, `tests/test_compare_baseline.py`;
@@ -301,6 +316,25 @@ instruments.
 `util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml`;
 `juniper-cascor/conf/experiments/spiral-smoke.yaml`; the three 2026-08-31/09-01 PF-1 results notes
 (correction banners); `notes/JUNIPER_2026-08-16_…PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`.
+
+### 7.1 Follow-on session, 2026-09-05 — decisions taken and shipped
+
+Four PRs, all owner-approved. **Two are corrections TO THIS DOCUMENT** (§9's numeric findings), and
+two close gaps §9 was right about.
+
+| PR | decision | changed |
+|---|---|---|
+| **ml#1758** | The P4 operator surface was **stale, not missing** — item 2 above has it backwards. It described the pre-`ml#1743` comparator: six closed defects listed as open, a closed asymmetry, exit 1 called "uninterpretable". Rewritten; CI-wiring prohibition **kept and re-grounded** on the owner decision (P1 §6). | `docs/REFERENCE.md`, `docs/DEVELOPER_CHEATSHEET_JUNIPER-ML.md`, `docs/DOCUMENTATION_OVERVIEW.md`, `docs/QUICK_START.md` |
+| **ml#1762** | Same staleness in the design record; the "invariance follows from the iteration cap" mechanism **withdrawn** (every PF-1 run terminates `early_stopped`, so none is cap-bound). | `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PERF-LANE-P2-PLAN.md`, `notes/JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PERF-LANE-P1-DESIGN.md` |
+| **ml#1765** | **DECISION: pin the drift-band normalization; do NOT change the 13–20.5% string.** §9's "15.0–20.5%" is refuted (see the struck bullet in §2) — and so is **C4** (see §9). Both struck in place with the arithmetic inline; the normalization pinned next to the numbers. | `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`, this file |
+| **ml#1767** | **DECISION: ship the `metric_contract` correction.** All three gate tools still called `step_count` "deterministic and contention-immune" with **no branch condition** — and `make_baseline.py:254` writes that into `metric_contract` in **every `baseline.json`**, so each blessed baseline shipped a claim its own comparator will not rely on. | `util/experiments/make_baseline.py`, `util/experiments/compare_baseline.py`, `util/experiments/read_run_metrics.py` |
+
+**Why the two corrections matter more than the two fixes.** Acting on §9 as written would have
+changed the 13–20.5% string in **9 sites** (including every `baseline.json`) and made the
+upper-bound wording duration-conditional. Both changes would have been wrong. Neither error was
+detectable by reading §9 — only by re-running its arithmetic against the six source values in §5 /
+§8.4 of `notes/JUNIPER_2026-09-02_JUNIPER-ECOSYSTEM_PF1-INSTRUMENT-RESOLUTION-AND-HEADROOM-SWEEP.md`.
+**A consensus lane checked the claims ABOUT the numbers, not the numbers.**
 
 ---
 
@@ -326,8 +360,12 @@ branch merged and deleted" (false — would have destroyed #1683), "Waves 0, 1 a
 and Wave 4 entirely, dropped the whole arc tail and retained-state section, and never named the P2
 plan its nine item references pointed at.
 
-**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
-**15.0–20.5%** above. **Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
+~~**Refuted numerically**: the “13–20.5%” drift band, a mixed-normalization artifact — corrected to
+**15.0–20.5%** above.~~ — **this consensus finding was itself WRONG and is withdrawn (2026-09-05);
+see the struck bullet in §2.** Both endpoints are `max/min − 1` over quiet runs; 15.0% is the
+`modest load 4/16` measurement. A consensus lane can agree on a wrong recomputation — the arithmetic
+was never re-run against the six source values, only the *claim* about which formula produced them.
+**Qualified**: the 25×–182× figure is a CV ratio specific to 20 s cells.
 
 **Refuted structurally — the most consequential result.** Lane B1 broke the gate's core premise
 (§2 of this document) and found six ways `compare_baseline.py` reaches a wrong verdict. **C2 is now
@@ -346,12 +384,25 @@ should do:
 A1/A2 are one-line asymmetries — `compare_baseline` should adopt the refusals `make_baseline`
 already has.
 
-**C4, documentation over-reach**: "`drive` cannot serve as an upper bound on noise" is stated
+~~**C4, documentation over-reach**: "`drive` cannot serve as an upper bound on noise" is stated
 unconditionally in `util/experiments/read_run_metrics.py` and is **false above ~60 s**, where the
-`step_sum`/`drive` sd ratio is 0.86–1.25 across five suites out to 225.8 s. The quantization is
-**additive** (~4.3 s residual, near-constant), so its relative cost falls from 33% below 30 s to
-0.4% above 700 s. E-A/E-C cells at 120–670 s are in the faithful regime. No capability was lost —
-`drive` is still recorded — but the wording should be duration-conditional.
+`step_sum`/`drive` sd ratio is 0.86–1.25 across five suites out to 225.8 s.~~ — **REFUTED
+2026-09-05 by its own numbers; the unconditional wording is CORRECT and stands.** "Upper bound"
+means `drive` sd ≥ `step_sum` sd, i.e. ratio ≤ 1. The quoted range **0.86–1.25 straddles 1**, so
+above 60 s `drive` still runs in *both* directions — which is precisely the condition the source
+sentence gives for refusing to treat it as a bound. From §3 of this lane's own table:
+
+| run | condition | `drive` sd | `step_sum` sd | ratio | upper bound? |
+|---|---|---|---|---|---|
+| `20260901T101126Z` | **66 s**, quiet | 3.357% | 4.198% | **1.25** | **NO — understates** |
+| `20260901T103324Z` | 126 s, heavy 14/16 | 2.256% | 1.970% | 0.87 | yes — overstates |
+
+At 66 s — above the very threshold C4 names — `step_sum` sd **exceeds** `drive` sd, so `drive`
+understates real spread and cannot bound it. The finding conflates **faithful** (ratio ≈ 1) with
+**conservative** (ratio ≤ 1); only the latter licenses an upper bound. The rest of C4 is sound and
+unaffected: the quantization *is* additive (~4.3 s), its relative cost *does* fall with duration,
+and the 25×–182× figure *is* 20 s-specific — but "not a conservative approximation in either
+direction" is exactly what 0.86–1.25 demonstrates. **Do not make the wording duration-conditional.**
 
 **C3, recurrence uncountability: NOT refuted, but re-ground the reason.** The doc rejects `n_epochs`
 for being invariant to `d`/`n_steps`; the stronger and correct reason is that

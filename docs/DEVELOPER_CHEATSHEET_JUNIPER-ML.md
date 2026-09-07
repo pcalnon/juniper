@@ -1,6 +1,6 @@
 # Developer Cheatsheet — juniper-ml
 
-**Version**: 1.0.34
+**Version**: 1.0.61
 **Date**: 2026-09-04
 **Project**: juniper-ml
 
@@ -32,23 +32,110 @@
 | `util/install_duplicati_timer.bash`                    | Install (copy, not symlink) the `systemd --user` Duplicati backup lane; does **not** enable the timer |
 | `systemctl --user enable --now duplicati-backup.timer` | Enable the overnight timer **after** a first full backup and a restore drill |
 | `systemctl --user list-timers duplicati-backup.timer`  | Confirm the next `duplicati-backup.timer` fire time |
+| `util/juniper-backup.bash --dry-run`                   | Preview per-repo `.tbz2.gpg` archives (writes nothing) |
+| `util/juniper-backup.bash`                             | Build-once, replicate ciphertext to every attached configured drive |
+| `gpg -d ARCHIVE.tbz2.gpg \| tar -xjf -`                | Restore one repo archive (bzip2; needs a recipient YubiKey) |
 | `util/experiment_stack.bash --dry-run --up --cascor`   | Preview a per-run experiment stack (ports 8110–8289; no side effects) |
 | `util/experiment_stack.bash --up --cascor --config PATH` | Bring up data+cascor for one experiment run (`--recurrence` for LMU) |
 | `python util/experiments/run_experiment.py --config PATH --run-dir RUN_DIR` | Drive one YAML against the run's `ports.json` (plots + stats + manifest) |
+| `python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml --dry-run` | Expand a PF suite; inspect cells before a live run |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE=1 python util/experiments/run_suite.py --suite util/experiments/suites/perf/pf1-cascor-spiral-repeats.yaml` | Live PF-1 (bridge required for p50/p95 scrape) |
+| `python util/experiments/run_suite.py --suite util/experiments/suites/p4/e-a-cascor-budget-sweep.yaml --dry-run` | Expand a P4 campaign suite (no writes); see [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Sound since #1743; CI-wiring is an open **owner** decision. |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR --dry-run` | Validate a Q-8 baseline; writes nothing. No `--force`. |
+| `python3 -m unittest -v tests/test_read_run_metrics.py` | Perf-lane reader regressions (last-row count, fingerprint) |
+| `python3 -m unittest -v tests/test_make_baseline.py` | Baseline refusals (work invariant, mixed workload, no `--force`) |
+| `python util/experiments/run_suite.py --suite PATH` | Drive a multi-cell suite; `aggregate.csv` + `REPORT.md` carry `step_count` / mean step beside de-ratified `wall_seconds` |
+| `python util/experiments/run_suite.py --suite PATH --compare-baseline TAG` | Same, plus a reporting-only comparator verdict in `REPORT.md` (FAIL still exits 0) |
+| `python util/experiments/run_suite.py --suite PATH --dry-run` | Preview suite expansion + `--up` / drive / `--down` (writes nothing) |
+| `python util/experiments/run_suite.py --suite PATH --resume SUITE_ID` | Re-run non-`succeeded` cells only |
+| `python util/experiments/read_run_metrics.py --run RUN_DIR --json` | Read ratified perf metrics; recurrence → `work_countable: false` (use JSON; the table is cascor-shaped) |
+| `jq '.outcome.timings' $RUN_DIR/artifacts/results/stats.json` | Read Wave 2.6 timings; recurrence train/crossval live here, not under `.recurrence` |
+| `jq '.cascor.training_step_duration.basis, .provenance.metrics_scraped.scrape_confirmed' $RUN_DIR/artifacts/results/stats.json` | Per-poll (not per-step) p50/p95; scrape_confirmed is tri-state |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified `step_count` / `mean_step_seconds` (not `wall_seconds` / `timings.drive`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
+| `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
+| `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
+| `python3 -m unittest -v tests/test_list_runs.py`       | Lister/pruner state + `--prune` safety pins |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step probe` | Score Topology-tab rows against isolated `:8051` (`STEPS` names only) |
+| `util/ad-hoc/2026-09-04_canopy_verify_instance.bash up SRC [PORT]` | Second canopy from a worktree (default `:8052`); does not restart `:8051` |
+| `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified perf metrics (last-row `step_count` / `step_sum` + `completion_reason`) |
+| `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless a suite as a named Q-8 baseline (operator-only; no `--force`) |
+| `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split compare vs a baseline (exit 0/1/2). Same-branch FAIL is a real move; branch flip REFUSES. **Do not wire to CI.** |
 | `python util/agent_suite_doctor.py --json`             | Custom-agent suite health check (OK/WARN/FAIL; discovery fail-closed) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
+| `python3 util/ruleset_scope_guard.py` | Assert this repo's rulesets are not scoped `~ALL` (Quality Gate hard need) |
+| `python3 util/ruleset_scope_guard.py --fleet` | Same check across all 9 Juniper repos |
+| `python3 -m unittest -v tests/test_ruleset_scope_guard.py` | Hermetic gate for the ~ALL-scope guard |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + heal-first merge order |
 | `juniper-symbol-loss-check --base ORIGIN --head HEAD` | AST symbol-loss screen (same CLI as `main-verify`) |
 | `util/reap_pytest_orphans.bash --dry-run`              | List orphaned Juniper pytest multiprocessing children (no kill) |
+| `python3 util/soak_run_probe.py --dry-run`             | Preview next pointer-follow soak probe (no `claude` required) |
+| `python3 util/soak_run_probe.py`                       | Run least-covered soak probe; writes `scoring_packet.md` |
+| `python3 util/soak_ledger.py status`                   | Soak verdict + escalations (exit 1 is often by design) |
+| `python3 -m unittest -v tests/test_soak_ledger.py`     | Soak ledger regressions (`util/` is not pre-commit-gated) |
+| `python3 util/soak_run_probe.py --probe-id ID [--force]` | Run a named soak probe; `--force` if verdict is terminal |
+| `python3 -m unittest -v tests/test_soak_run_probe.py`  | Soak wrapper regressions (`util/` is not pre-commit-gated) |
+| `python3 util/ad-hoc/cascor_freeze_tell.py`            | Cascor-primary freeze tell (exit 1 = in force; 0 ≠ no importer) |
+| `python3 util/soak_run_probe.py --probe-id FULL-SLUG`  | Run a named soak probe (full slug; do not `--force`) |
 | `python util/env_floor_drift_check.py --repo-root PATH --env NAME` | Floor-drift: installed `juniper-*` vs pyproject floors (I-2) |
+| `util/check_conda_env_torch.bash JuniperCascor1` | Classify P-5 / May-7 torch._C shadow (exit 0/1/2/3/4; does not rebuild) |
 | `python util/fleet_triage/predict_merge.py --pr N --json` | Predicted-merge triage for one open PR (detached clone; never pushes) |
 | `python util/fleet_triage/predict_merge.py --batch --json` | Batch triage + same-file cluster map + merge order |
+| `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py . --min-score 3` | Rank source comments that are hazard-shaped and resident nowhere |
+| `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py ../juniper-cascor --self-check --agents /tmp/pre609.md` | Positive control: cascor `max_epochs` split must score ≥ 3 and rank top 5 |
+| `python3 util/ad-hoc/2026-08-28_hazard_triage.py juniper-canopy --min-score 2` | Rank *already-resident* `AGENTS.md` blocks (`gh api` on GitHub `main`) |
+| `python util/snapshot_index.py --scan --root ROOT` | Append-only index of `ROOT/*.h5` (`snapshots_index.jsonl`) |
+| `python util/snapshot_index.py --root ROOT --stats` | Summarise the index (needs `--scan` first) |
+| `python util/snapshot_classify.py --root ROOT --stats` | Index-stage population table (~1s; two axes) |
+| `python util/snapshot_classify.py --root ROOT --stage load --sample 300` | Load-stage cost probe (`--write` refuses `--sample`) |
+| `python util/snapshot_classify.py --root ROOT --from-sidecar --category fails_to_load` | Query stored load verdicts (do not re-derive) |
+| `python util/snapshot_backfill.py --root ROOT --write` | Consolidate labelled record (`observed`/`measured`/`inferred`/`population`) |
+| `python util/snapshot_backfill.py --root ROOT --explain NAME` | Print one snapshot's provenance; identity is never invented |
+| `python3 -m unittest -v tests/test_snapshot_index.py tests/test_snapshot_classify.py tests/test_snapshot_backfill.py` | Sidecar-chain regressions (no `--prune` on any tool) |
 | `python util/snapshot_attribute.py --null-only` | Print per-dataset untrained floors (no sidecar write) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_w6_dataset_driver.py --steps 1,2,4,7` | W6 dataset COLD-migration driver (stops before restart-confirm wipe) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg16_dataset_driver.py --step start,toolbar,selector` | §3.6 Dataset View driver (`--step` is required; select is inert) |
 | `python util/snapshot_attribute.py --sample 300 --seed 4242 --json` | Sampled attribution probe (`--seed` samples snapshots, **not** generators) |
 | `python3 -m unittest -v tests/test_snapshot_attribute.py` | Attribution regressions incl. dataset-instance pin (#1333) |
 | `python util/ad-hoc/2026-09-04_x7_offload_census_v2.py` | X7 exploratory census (after #1631; the canopy gate is authority for `main.py`) |
+| `LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_seg17_topology_driver.py --step topostate` | Score M-TOPOLOGY-13/-18 alone (do not append after `topo`) |
+| `python3 util/ad-hoc/2026-08-25_p5_port_memory_budget.py measure-growth . --days 30 --ref origin/main` | 30-day `AGENTS.md` burn (median / p90 / max); planning slack, not a CI input |
+| `python3 util/ad-hoc/2026-08-26_p5_fleet_state.py` | Nine-repo memory-budget census from GitHub API (chars, not bytes) |
+| `python util/memory_budget_check.py --json` | This checkout's ceiling / chars / headroom (CI gate only) |
+| `python util/ad-hoc/e2e_f039_topoprobe_instrument.py apply --checkout CANOPY --target metrics` | Instrument a canopy store writer (revert before commit) |
+| `LIBTORCH= LD_LIBRARY_PATH= /opt/miniforge3/envs/JuniperCanopy1/bin/python util/ad-hoc/e2e_f039_metrics_store_soak.py` | Hold a live tab so the metrics store can tick |
+| `python util/ad-hoc/e2e_f039_topoprobe_instrument.py report --log LOG --target metrics` | Read the **whole** TOPOPROBE series, not its head |
+| `python3 util/memory_index_check.py` | Check the Claude Code `MEMORY.md` index (200 lines / 25k bytes; new-row hook ≤ 120) |
+| `python3 util/memory_index_check.py --accept` | Grandfather current slugs + record one growth sample (always exit 0) |
+| `python3 -m unittest -v tests/test_memory_index_check.py` | Hermetic index-gate suite (CI cannot see `~/.claude`) |
+| `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` | Fleet required-context audit (BLOCKING / Tier 1 / path-gated; read-only) |
+| `python util/ad-hoc/2026-08-10_ruleset_context_audit.py --json --repo juniper-ml` | Same, one repo, JSON (exit 1 on BLOCKING **or** probe error) |
+| `python3 util/ad-hoc/2026-08-20_require_context_safely.py --status` | Census required contexts on the 9-repo roster (never writes) |
+| `python3 util/ad-hoc/2026-08-20_require_context_safely.py --repo juniper-ml --context 'Memory Budget' --amend-integration-id` | Dry-run re-pin of an already-required context (#1612) |
+| `python3 -m unittest -v tests/test_require_context_safely.py` | Hermetic ruleset-writer gate (find_ruleset, roster, amend pre-flight) |
+| `python3 util/ad-hoc/e2e_unfilled_rows.py`             | List placeholder E2E matrix `status` cells (ledger, not the estimator) |
+| `python3 util/ad-hoc/e2e_matrix_fill.py --verdicts TSV` | Dry-run fill of C2.*/M-* status cells (pass `--write` to apply) |
+| `LD_LIBRARY_PATH= python util/ad-hoc/e2e_f027_queues.py --tab 'Candidate Metrics'` | F-CANOPY-027 queued-vs-unwired probe (live isolated canopy; `JuniperCanopy1`; `JUNIPER_E2E_CANOPY_URL` default `http://127.0.0.1:8051`) |
+| `python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py WT [WT ...]` | Wider in-use check: STRONG cwd/open-fd exit 1; WEAK cmdline is CAUTION only |
+| `python3 util/ad-hoc/e2e_finding_triage.py`                | Canopy E2E ledger triage (header-only; ACCEPTED ≠ FIXED ≠ OPEN) |
+| `python3 util/ad-hoc/e2e_finding_triage.py --open-only`    | Same, hide FIXED/ACCEPTED rows (totals still include them) |
+| `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 11-session topology-paint census (isolated stack; does not judge the rate) |
+| `python3 util/ad-hoc/register_open_set.py` | Re-derive defect-register open/fixed counts (`**FIXED` token; cwd = repo root) |
+| `python3 util/ad-hoc/register_status_crosscheck.py` | Third reading of §2 / §4 / §5.1 (`AGREE` / `DISAGREE`; any cwd) |
+| `python3 util/requirements_consolidate.py --check-roundtrip` | Requirements corpus gate (`by-area` only; exit 0/1) |
+| `python3 util/requirements_consolidate.py --check-views` | Derived `by-repo` / `by-status` must match the `by-area` projection |
+| `python3 util/requirements_consolidate.py --merge PATH.yaml` | Preview a v5 refresh (default dry-run; add `--apply` to write) |
 | `./claudey`                                            | Launch default interactive Claude session       |
+| `python3 util/ad-hoc/e2e_f037_render_census.py`        | F-CANOPY-037 topology-graph paint census (default 11 sessions; exit 0 is not a paint PASS) |
+
+Tip: `register_open_set.py` and `grep -cE '\*\*FIXED'` read the same §4-shaped rows — they can agree and both miss a close that never reached §2 / §5.1. Run `register_status_crosscheck.py` after every four-touch close. `register_open_set.py` uses a relative `notes/…` path (`FileNotFoundError` unless cwd is the repo root); the crosscheck is `__file__`-relative. Token is `**FIXED` only. [REFERENCE — Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol).
+
+**Cascor-primary freeze:** `python3 util/ad-hoc/cascor_freeze_tell.py`. Exit 1 = a user-owned process holds `/home/pcalnon/Development/python/Juniper/juniper-cascor` — do not edit it. Exit 0 is "no user-owned importer", not "no importer" (root-owned `/proc/<pid>/{fd,environ,maps}` are invisible). Sibling `juniper-cascor-client` / `-worker` and both worktree roots are not holds. [REFERENCE.md § Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell).
 
 ---
 
@@ -212,22 +299,38 @@ bash util/ad-hoc/worktree_sweep_apply.bash --dry-run < /tmp/juniper-worktree-swe
 bash util/ad-hoc/worktree_sweep_apply.bash --include-ignored < /tmp/juniper-worktree-sweep.tsv
 ```
 
+**Before removing a worktree you did not just leave:** cwd-only liveness first, then the wider in-use probe (open files + argv). STRONG (cwd or an open fd inside the tree) exits 1 `REFUSE`. WEAK (cmdline substring) prints `CAUTION` and stays exit 0 — the probe's own argv used to report every tree `IN USE`. Empty argv exits 2 (the cwd-only probe exits 0 on that misuse).
+
+```bash
+python3 util/ad-hoc/2026-08-20_worktree_liveness_probe.py "$OLD_WORKTREE_DIR"
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py "$OLD_WORKTREE_DIR"
+```
+
+Full contract: [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
 ---
 
 ## Data Contract
 
-NPZ format: keys `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full` (all `float32`).
+**Shipped NPZ keys** (still required): `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full` (all `float32`). Sequence artifacts add `{dt,target_dt}_{train,test,full}`.
+
+**Design (closed, not on the wire):** `*_full` leaves the contract (decision 11); the third partition is `X_val` / `y_val`, never `X_eval`. Required-fix 0 has not started. Tolerate `X_full` on stored artifacts; do not write new code that requires it. Recurrence YAML `dataset.split` is still `{train, test, full}` — `"validation"` is exit 2.
 
 ```python
 from juniper_data_client import JuniperDataClient
 client = JuniperDataClient(base_url="http://localhost:8100")
 dataset_id = client.create_dataset("spiral", {"n_points": 200, "noise": 0.1})
 npz = client.download_artifact_npz(dataset_id)
+# npz.files includes X_full today; do not index it with partition-derived indices
 ```
 
-Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`
+Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`, `equities`, `equities_seq`. Default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols unless `allow_truncation` is set — [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
+
+Full shipped-vs-design split: [REFERENCE — Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract).
 
 REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip, case-insensitive `http(s)://` default, require `hostname` (not `netloc`), drop trailing `/` and `/v1`. Hostless values raise `Juniper*ConfigurationError` at init. Cascor WS streams (`CascorTrainingStream` / `CascorControlStream`) and `FakeCascorClient` stay `rstrip("/")` only. Extras floors do not yet require the new wheels — see [REFERENCE — HTTP Client Base-URL](REFERENCE.md#http-client-base-url-contract).
+
+Tip: `csv_import` refuses sources over 128 MiB with HTTP **422** until `dataset.params.allow_truncation` or `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION`. `file_path` is relative to `JUNIPER_DATA_IMPORT_DIR` (default `/data/imports` — export a real directory before `experiment_stack --up`). Cascor cannot stage it. `equities` `max_symbols` still silent-slices (`generator.py:286`). [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap).
 
 ---
 
@@ -253,6 +356,7 @@ REST `base_url` (data / cascor / recurrence HTTP clients on GitHub main): strip,
 | AGENTS.md date bump    | **You bump it**; CI verifies on PRs touching `AGENTS.md` (`agents-md-touch-up.yml`; no bot commit) |
 | Shared-package CI      | Path-scoped `ci-<pkg>.yml` under `.github/workflows/` (six packages; see REFERENCE)         |
 | Open-PR budget alarm   | Daily 14:00 UTC `pr-budget-alarm.yml` (report-only); `gh workflow run pr-budget-alarm.yml`  |
+| Ruleset context audit  | `python util/ad-hoc/2026-08-10_ruleset_context_audit.py` (read-only; see tip below)         |
 | Doc links (CI parity)  | `juniper-check-doc-links --exclude templates --exclude history --exclude legacy --cross-repo skip` |
 | Doc links (full local) | `juniper-check-doc-links --cross-repo check`                                                |
 | Re-run main-verify     | `gh workflow run main-verify.yml --repo pcalnon/juniper-ml` (dispatch; catch-up BASE still applies) |
@@ -272,6 +376,13 @@ commit trailer in BASE..HEAD — the per-PR `allow-symbol-loss` label is WARN-on
 `NEEDS-UPDATE-BRANCH` means behind-main; `DAMAGED-FIX-FIRST` is gate **or** symbol **or** docs `fail`.
 Skip local pre-commit with `JUNIPER_FLEET_SKIP_PRECOMMIT=1`. Full contract:
 [REFERENCE.md § Fleet Triage and Sequence Safety](REFERENCE.md#fleet-triage-and-sequence-safety).
+
+**Ruleset context audit:** a required name that never reports leaves `main` unmergeable with every
+visible check green (2026-08-10 fleet-union of 30). Re-run the auditor; do not quote the note's
+§1 counts. Text-mode exit 0 can still print `ERROR:` (`--json` fails closed). `advisory_predicate`
+subtracts the live required set so a promoted check (ml#1011 `Sequence Safety`) stays in Tier 1.
+Writer is `require_context_safely.py`, not this script.
+[REFERENCE.md § Ruleset Context Audit](REFERENCE.md#ruleset-context-audit).
 
 Meta-package publish flow: build + `twine check`, TestPyPI upload with attestations, TestPyPI install verification, then PyPI upload.
 
@@ -444,6 +555,21 @@ an awaited `httpx.AsyncClient`. Do **not** reintroduce a module-global expressio
 health endpoints X7 is defined by. Both scans read `main.py` only; the metrics relay is a named miss.
 Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census).
 
+**Topology step order / W-id facts (#1695):** `--step` is order-preserving on one page. `topo` fills the raw-topology store, so a later `topostate` scores M-18 `INDETERMINATE` — harness artifact. Re-drive `--step topostate` alone. `W4-01..17` / `W1-12..14` **are** matrix §4 steps (17 and 19 numbered steps) — F-E2E-007 claimed they never existed and was withdrawn; F-037 stays OPEN on its undriven `ws-cascade-add-buffer` growth trigger. Triage takes the first severity token in the header. [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
+
+**Memory-budget slack (planning):** `headroom` from `memory_budget_check.py` is `ceiling - chars` and is **not**
+a CI failure when it sits below planning slack. `measure-growth` prints `median` / nearest-rank `p90` / `max`
+and has no required-slack field — size slack as `max(largest 30-day growing commit, 2000)`, never from p90.
+Pass `--ref origin/main` after a fetch. `--ratchet` after a cut leaves zero headroom. Full contract:
+[REFERENCE — Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning).
+
+**F-039 store probe:** a correct `/api/topology` body with an empty DOM is a store-apply
+contradiction, not starvation. Instrument server-side (`e2e_f039_topoprobe_instrument.py`), hold a
+live tab (`e2e_f039_metrics_store_soak.py` — `curl` cannot tick a Dash interval), and **read the
+whole series**. Topology converges (`eq=False` ×4 then `eq=True` ×11); a head-only reading produced
+"permanently empty." `--target topology` refuses on current canopy. Revert before committing.
+Full contract: [REFERENCE — F-039 Store Probe](REFERENCE.md#f-039-store-probe).
+
 ---
 
 ## Environment Variables
@@ -454,6 +580,7 @@ Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFEREN
 | `WTC_LOGS_DIR`                 | `logs/`            | Headless mode log directory                             |
 | `WTC_DEBUG`                    | `0`                | Enable launcher debug output                            |
 | `CLAUDE_SKIP_PERMISSIONS`      | `0`                | Add `--dangerously-skip-permissions` to default wrapper |
+| `JUNIPER_CONDA_DIR`            | `/opt/miniforge3`  | Conda root for `util/check_conda_env_torch.bash` (and plant/floor defaults) |
 | `JUNIPER_CASCOR_HOST`          | `localhost`        | Host stack cascor bind host for `util/juniper_plant_all.bash` |
 | `JUNIPER_CASCOR_PORT`          | `8201`             | Host stack cascor listen port for `util/juniper_plant_all.bash` |
 | `JUNIPER_DATA_HOST`            | `127.0.0.1`        | Host stack data-service bind host for `util/juniper_plant_all.bash` (loopback default; set `0.0.0.0` to expose) |
@@ -468,8 +595,12 @@ Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFEREN
 | `JUNIPER_E2E_DATA_PORT`        | `8101`             | Isolated-stack juniper-data port (`util/isolated_stack.bash`) |
 | `JUNIPER_E2E_CASCOR_PORT`      | `8202`             | Isolated-stack juniper-cascor port |
 | `JUNIPER_E2E_CANOPY_PORT`      | `8051`             | Isolated-stack juniper-canopy port |
+| `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Playwright dataset-driver target (not derived from `JUNIPER_E2E_CANOPY_PORT`) |
+| `JUNIPER_E2E_CANOPY_LOG`       | `/tmp/juniper-e2e/logs/juniper-canopy.log` | Server-log byte-offset reads for W6 stage/cancel evidence |
 | `JUNIPER_E2E_HEALTH_TIMEOUT`   | `60`               | Per-service health wait for isolated `--up` (2s poll; not `HEALTH_CHECK_INTERVAL`) |
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
+| `JUNIPER_E2E_CANOPY_URL`       | `http://127.0.0.1:8051` | Topology-driver target (Playwright) |
+| `JUNIPER_E2E_SEG17_RESULTS`    | `$JUNIPER_E2E_RUN_DIR/seg17_results.json` | Topology-driver merged JSON |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `CASCOR_HOST`                  | `localhost`        | CasCor query-helper target host for `util/get_cascor_*.bash` |
 | `CASCOR_PORT`                  | `8201`             | CasCor query-helper target port for `util/get_cascor_*.bash` |
@@ -481,16 +612,26 @@ Hardcoded canopy path. Full contract: [REFERENCE — X7 Off-Loop Census](REFEREN
 | `JUNIPER_E2E_RUN_DIR`          | `/tmp/juniper-e2e` | Scratch dir for data venv / logs / pidfiles |
 | `JUNIPER_E2E_DATA_EXTRAS`      | `api`              | juniper-data pip extras (`api,mnist` for D2/I-5) |
 | `JUNIPER_E2E_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for isolated cascor/canopy activate |
-| `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `util/experiment_stack.bash` (not `/tmp`) |
+| `JUNIPER_EXP_RUN_ROOT`         | `~/.local/state/juniper-experiments` | Durable per-run root for `util/experiment_stack.bash` (not `/tmp`); also the query-time join for `snapshot_index.py --resolve-datasets` / `--dataset-id` |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset              | `1`/`true`/`yes`/`on` adds `--grafana-bridge` to every suite `--up` (not a YAML key) |
 | `JUNIPER_EXP_LOCK_ROOT`        | `${XDG_RUNTIME_DIR:-/tmp}/juniper-experiments` | Ephemeral port lockdirs (`8110`–`8289`) |
 | `JUNIPER_EXP_PROJECT_DIR`      | parent of juniper-ml | Ecosystem root — **set in git worktrees** |
 | `JUNIPER_EXP_HEALTH_TIMEOUT`   | `90`               | Per-service health wait for experiment `--up` (cold-start sized) |
 | `JUNIPER_EXP_CONDA_DIR`        | `/opt/miniforge3`  | Conda root for experiment direct env-bin launch |
+| `JUNIPER_SUITE_GRAFANA_BRIDGE` | unset (off)        | `1`/`true`/`yes`/`on` adds `--grafana-bridge` to every suite `--up` (not a suite key — PF-1 `config_sha256`) |
+| `JUNIPER_EXP_PROMETHEUS_URL`   | `http://127.0.0.1:9090` | Where `_metrics_scraped` asks `scrape_confirmed` |
+| `JUNIPER_EXP_CASCOR_SRC_DIR`   | unset              | Cascor `src/` used by `run_suite` for the parallel version floor |
 | `JUNIPER_REAP_PROC_ROOT`       | `/proc`            | Proc root for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_REAP_KILL_CMD`        | `kill`             | Kill binary for `util/reap_pytest_orphans.bash` (tests override) |
 | `JUNIPER_CASCOR_SNAPSHOTS_DIR` | `~/Development/python/Juniper/juniper-cascor/cascor-snapshots` | Dual-use: cascor write dir **and** snapshot-tool `--root` default. Do **not** redirect for the sidecar chain — pass `--root`. |
-| `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_attribute.py` |
+| `JUNIPER_CASCOR_SRC`           | `~/Development/python/Juniper/juniper-cascor/src` | Override cascor source tree for `snapshot_classify.py --stage load` and `snapshot_attribute.py` |
 | `JUNIPER_DATA_ROOT`            | `~/Development/python/Juniper/juniper-data` | Override juniper-data tree for generator imports |
+| `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` | `14` | Data-service ceiling for `equities` / `equities_seq`. A request may only lower this. `experiment_stack.bash` does **not** set it. |
+| `JUNIPER_DATA_EQUITIES_ALLOW_TRUNCATION` | `false` | Deployment-wide opt-in to a prefix cut (OR with the request flag). |
+| `JUNIPER_DATA_EQUITIES_CACHE_DIR` | `~/.cache/juniper_data/equities` | Equities OHLCV/SEC cache. Experiment `data_up` sets `$RUN_DIR/equities-cache`. |
+| `JUNIPER_DATA_IMPORT_DIR`      | `/data/imports`    | Prefix `csv_import` `file_path` is resolved against. `experiment_stack` `data_up` does not set this. |
+| `JUNIPER_DATA_CSV_IMPORT_MAX_BYTES` | `134217728` (128 MiB) | Deployment ceiling; a request `max_bytes` may only lower it (`gt=0`). |
+| `JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION` | `false`     | Deployment-wide opt-in to a partial csv_import (logical OR with the request). |
 | `JUNIPER_FLEET_SKIP_PRECOMMIT` | unset              | When set, `predict_merge` skips the pre-commit battery (screens still run) |
 
 Pitfall: `util/juniper_plant_all.bash` uses the `JUNIPER_CASCOR_*` names, while the `util/get_cascor_*.bash` query helpers use legacy `CASCOR_*` names.
@@ -504,7 +645,33 @@ Tip: `util/isolated_stack.bash` is kill-by-port (not `JuniperProject.pid`). Afte
 Post-[#785](https://github.com/pcalnon/juniper-ml/pull/785), `activate_conda` restores `set -u` after conda activate (pre-fix left nounset off for the rest of `--up`).
 Full contract: [REFERENCE — Isolated Stack E2E](REFERENCE.md#isolated-stack-e2e-utilities).
 
+Tip: F-CANOPY-027 is **12-slot dash-renderer starvation**, not missing wiring (FIXED canopy#507/#509/#511). Terminal render callbacks lose `sortPriority` DESC arbitration.
+Do **not** add a new Interval/poller (F-027 rule; canopy#524 shared `metrics-panel-metrics-store`). Isolated stack only (`JuniperCanopy1`; empty `LD_LIBRARY_PATH`).
+Queues/ready/slots inherit `JUNIPER_E2E_CANOPY_URL` (no `--base-url`). See [REFERENCE — F-CANOPY-027 Poller Starvation Probes](REFERENCE.md#f-canopy-027-poller-starvation-probes).
+
 Tip: `util/experiment_stack.bash` is the **per-run** launcher (data `8110–8139` / cascor `8230–8259` / recurrence `8260–8289`) — not isolated-stack and not `plant_all`. Never canopy; never `JuniperProject.pid`; never repo `.env`. Pidfiles come from post-health `ss` (F-6), not `$!`. From a worktree set `JUNIPER_EXP_PROJECT_DIR`. Drive with `python util/experiments/run_experiment.py --config … --run-dir …` (exit `0`–`4`). Full contract: [REFERENCE — Experiment Stack](REFERENCE.md#experiment-stack-utilities).
+
+Tip: `compare_baseline.py` is a **split** gate (exact `step_count`, ungated speed). The #1710 counterexample is
+**settled**: a corpus census (333 runs) showed all 29 divergences are explained by `completion_reason`, and #1733 made
+the termination branch part of the precondition — a branch flip now REFUSES (2) instead of FAILing (1). #1741 + #1743
+closed the writer/comparator asymmetry, so the comparator now refuses unmeasured / `timed_out` / zero-work cells too.
+**Still do not wire it to CI** — not because it is unsound, but because *whether the run tier gates at all* is an
+unmade owner decision (§6 of the P1 design).
+Full contract: [REFERENCE — Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate).
+
+Tip: default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols (data#354). Cost is per request, so the cap is in **symbols**, not bytes. Set `symbols: [AAPL, …]` (E-H already does) or `allow_truncation: true`. A request may only *lower* `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS`. `experiment_stack.bash` sets the cache dir, not the cap. Full contract: [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
+
+Tip: do **not** gate on `aggregate.csv` `wall_seconds` or `manifest.timings.drive` (poll-quantized).
+`python util/experiments/read_run_metrics.py SUITE_DIR` reads the last `metrics_series.csv` row.
+`step_count` is exact and fail-on-mismatch (#1613); speed is reported only.
+`config_sha256` is not workload identity (it sees `experiment.description`).
+`make_baseline` is operator-invoked, has no `--force`, and refuses mixed fingerprints.
+See [REFERENCE — Perf-lane metrics](REFERENCE.md#perf-lane-metrics-and-baselines).
+
+Tip: `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` is the split comparator (#1622).
+Identity (`workload_fingerprint`) first — a config edit is REFUSED (exit `2`), not a work FAIL (exit `1`). Speed cannot fail the gate.
+`--accept-work-change` blesses a work change only (cannot override a refusal; whitespace-only is exit `2`). Prefer a new baseline tag.
+Full contract: [REFERENCE — Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator).
 
 Tip: on a failed `*_up` leg, `do_up` auto-calls `teardown_run` (because `ports.json` is written before launches). Expect `bring-up failed — tearing the partial run back down`, then inspect `$RUN_DIR/logs/` + `teardown.json` before retrying. Pidfile refuse → kill-by-port on the recorded port only (open #923).
 
@@ -515,7 +682,16 @@ Post-[#782](https://github.com/pcalnon/juniper-ml/pull/782), invalid/zero interv
 
 Tip: `python util/env_floor_drift_check.py --repo-root PATH [--env NAME|--site-packages DIR]` — precedence is `--site-packages` then `--env` then `ecosystem.yaml` `used_by`; exit `2` means resolution failed (not a floor finding). Multi-site keeps the **highest** installed version. Coverage: [#796](https://github.com/pcalnon/juniper-ml/pull/796) / [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Environment Floor Drift](REFERENCE.md#environment-floor-drift-check).
 
+Tip: `util/check_conda_env_torch.bash ENV` classifies `import torch` / `torch._C` — it does not rebuild. Exit **2** is P-5 free-threaded (`cp*t` + regular wheel); exit **4** is the May-7 regular-3.14 wheel-layout class. A free-threaded **warning** with exit 0 is not a failure. Floor/editable can stay green because they never import torch. See [REFERENCE — Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5).
+
 Tip: after a crashed Juniper pytest session, run `util/reap_pytest_orphans.bash --dry-run` first. The awk gate keeps only current-user python whose cmdline has `JuniperC*` or `Juniper/worktrees/`; `skipped` is a ps→gone / missing-`PPid:` race, not a kill. See [REFERENCE.md § Pytest Orphan Reaper](REFERENCE.md#pytest-orphan-reaper).
+
+Tip: pointer-follow soak — `python3 util/soak_run_probe.py --dry-run` then run; **score with `--reveal` only after**.
+Default pick is least-covered (pooled estimate). For characterisation / a relocation decision pass `--probe-id`.
+The 2026-09-04 runs (#1616) showed the strata are real (permutation p=0.0017) but membership is not resolved at n=2–4.
+Keep `stream.jsonl` if `parse_events` crashes — a string `message` raises after the session is spent.
+`status` exit 1 is often an open escalation, not a broken tool.
+Full contract: [REFERENCE — Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak).
 
 Tip: `python util/editable_install_drift_check.py --fix --json` is the live mutation path (`action=FIXED` on success). `ERROR` (pip/`OSError`) truncates detail to 500 chars and continues the plan — re-scan still exits `1` while orphans remain. Preview with `--dry-run` first. Coverage: [#802](https://github.com/pcalnon/juniper-ml/pull/802). Full contract: [REFERENCE — Editable Install Drift](REFERENCE.md#editable-install-drift-check).
 
@@ -529,10 +705,15 @@ Tip: systemd plant does **not** track units in `STARTED_PIDS` — a mid-plant he
 
 Tip: systemd chop soft-fails per unit and always exits `0` without touching the pidfile / `KILL_WORKERS` path — do not expect orphaned-worker cleanup in that mode.
 
+Tip: F-CANOPY-037 measured paint in 2 of 11 sessions — `python3 util/ad-hoc/e2e_f037_render_census.py` (default 11). Exit 0 means every session produced PASS or FAIL, even if painted==0; all-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `:8051`). Full contract: [REFERENCE — F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census).
+
 Tip: `util/install_duplicati_timer.bash` **copies** the Duplicati runner/units (a worktree symlink dies with `git worktree remove`) and does **not** `enable --now`.
 Linger must be `yes`; `~/.config/duplicati-backup/env` must be mode `600` with `PASSPHRASE=`. `--no-auto-compact=true` is load-bearing.
 A skip overwrites `result=OK`, so the next skip always escalates. Distinct from `util/juniper-backup.bash`.
 Full contract: [REFERENCE — Scheduled Duplicati Backup Lane](REFERENCE.md#scheduled-duplicati-backup-lane).
+
+Tip: `util/juniper-backup.bash` writes per-repo `.tbz2.gpg` (bzip2). Restore with `gpg -d FILE | tar -xjf -`, not `-xzf`. `--dry-run` must exit without writing. Exit 4 is PARTIAL (already-verified copies stay). Unattended verify is `--list-packets` only — it does not prove the tar is intact. Distinct from the Duplicati `$HOME` lane.
+Full contract: [REFERENCE — Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup).
 
 Tip: before merging a Cursor-fleet batch, run `python util/fleet_triage/predict_merge.py --batch --json`.
 Prefer heal PRs first (title/branch tokens `restore`/`heal`/`repair`/`fix-first` sort ahead of colliding
@@ -541,7 +722,9 @@ feat PRs); never treat script exit `0` as “all clean” — read each `verdict
 count) but honors `Allow-Docs-Rewrite` trailers (#926). Docs-only PRs skip the pre-commit battery.
 See [REFERENCE.md § Fleet Triage](REFERENCE.md#fleet-triage-and-sequence-safety).
 
-Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` / `Fleet PR Lint` are **advisory** (not in Quality Gate `needs:`). Labels `allow-symbol-loss` / `docs-rewrite` only demote the PR job via `--advisory`; post-merge `main-verify` needs commit trailers. G4 uses `--from-ref` on PR/merge_group and `--all-files` on push. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
+Tip: flood CI gates (#869/#880) — per-PR `Sequence Safety` is a **required** `juniper-ml-rules` context, even though it is absent from Quality Gate `needs:` and the job banner still says advisory.
+`Fleet PR Lint` is the one that is still truly advisory (never fails). Labels `allow-symbol-loss` / `docs-rewrite` green the PR job via `--advisory`; post-merge `main-verify` needs commit trailers.
+G4 uses `--from-ref` on PR/merge_group and `--all-files` on push. Full contract: [REFERENCE.md § Flood-Remediation CI Gates](REFERENCE.md#flood-remediation-ci-gates).
 
 Tip: `gpg: KEYTOCARD failed: Invalid value` for ed448 on a YubiKey 5 is expected — card has no Curve448. Do not burn Admin PIN retries; follow the ed25519/cv25519 subkey layout in [REFERENCE — YubiKey GPG](REFERENCE.md#yubikey-gpg-provisioning). Stub pinentry must greet with Assuan `OK` (#914). An Ed448 *creation* refusal needing `--compliance=gnupg` is the Ubuntu/Debian FreePG-patched build, not upstream GnuPG.
 
@@ -573,7 +756,11 @@ Tip: on a failed `*_up` leg, isolated-stack `do_up` auto-calls `do_down` — exp
 
 Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disables `set -e` inside each body — critical steps need `|| return 1` or a health timeout with a live listener false-greens `--up` and skips teardown. A `--grafana-bridge` failure after healthy services tears the run down; a **staging** failure (missing `--config`) still exits between `allocate_port` and `ports.json`, so clear stale `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` by hand (open #979).
 
+Tip: NPZ still requires `X_full` / `y_full`. The partition design **drops** the `*_full` family (decision 11) but required-fix 0 has not started — tolerate the key, do not require it in new code, and do not index it with partition indices. Recurrence `dataset.split: validation` is exit 2 (`RECURRENCE_SPLITS` is `{train, test, full}`). Keys will be `X_val` / `y_val`, never `X_eval`. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract).
+
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
+
+Tip: PF-1 repeats are a **matrix axis**, not `include` entries (`include` does not inherit `matrix`). `max_epochs` and `output_epochs` must both be `4000`. `scrape_confirmed` is not `target_file_written` — five bridged PF-1 runs wrote the file while Prometheus held zero series. Thresholds are unratified; PF-4/PF-8 are not driver suites. See [REFERENCE — PF Scenario Suites](REFERENCE.md#pf-scenario-suites).
 
 Tip: juniper-service-core invariants — `RequestBodyLimitMiddleware` always stream-caps POST/PUT/PATCH (`Content-Length` is a hint only); auth runs before rate limiting and 429s must pass `exc.headers` through; control-WS reject logs stay single-line via `_sanitize_for_log`; `ws_control_rate_limit_per_sec=0` yields `retry_after=3600` instead of dividing by zero; `/ws/workers` closes **4001** on bad auth and **4008** on a bad registration shape. See [REFERENCE — juniper-service-core](REFERENCE.md#juniper-service-core).
 
@@ -581,13 +768,24 @@ Tip: REST client `base_url` on GitHub-main data/cascor/recurrence clients is nor
 
 Tip: `predict_merge --pr` **hard-fails** (exit `2`) when `gh` exits nonzero or returns non-JSON, while `--batch` soft-`ERROR`s that row and keeps going. A deleted `.py` stays in `true_delta` for the symbol screen but is filtered out of the pre-commit battery, so a pure-deletion PR can be gate-clean and still `DAMAGED-FIX-FIRST`.
 
+Tip: snapshot sidecar chain is index → classify → attribute → backfill. Pass `--root`; do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR`. Classify `--write` refuses `--sample`; `--from-sidecar` is required to read `fails_to_load`. Backfill `formerly_broken` on zero-node rows is a **population** claim (`380/380` of `15927`), not a per-file fact. See [REFERENCE — Snapshot Sidecar Chain](REFERENCE.md#snapshot-sidecar-chain).
+
 Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` only samples which snapshots to score; `--dataset-seed` (default `DATASET_SEED=20260824`) pins generators that declare `seed=None`. spiral keeps its own seed. Do not export `JUNIPER_CASCOR_SNAPSHOTS_DIR` for the sidecar chain — pass `--root`. See [REFERENCE — Snapshot Attribution Dataset Pin](REFERENCE.md#snapshot-attribution-dataset-pin).
+
+Tip: P4 `include` cells do not inherit `matrix`. Oversize cascor stall is pool ≥ 16 **or** cap ≥ 64 (`stall_seconds` > 120). `per_run_timeout_seconds` must sit **above** the driver wall (equal loses the manifest). `e-j-h2h-wide-cap128` is n=2 — the description still says 3. Recurrence P4 cells report; they do not gate. See [REFERENCE — P4 Campaign Suites](REFERENCE.md#p4-campaign-suites).
+
+Tip: `MEMORY.md` truncates silently newest-first at 200 lines / 25,000 UTF-8 bytes. Run `python3 util/memory_index_check.py` on the host that writes `~/.claude` — CI never sees the real file. The 120 cap is the **hook** (`len` after the `)`), not the line. `--accept` grandfathers and always exits 0; it does not evict. See [REFERENCE — MEMORY.md Index Check](REFERENCE.md#memorymd-index-check).
+Tip: after an `AGENTS.md` cut, re-run `python3 util/ad-hoc/2026-08-31_resident_gap_triage.py <repos> --min-score 3 --json OUT`. The scored **total will rise** — relocation removes resident identifiers, so the gap predicate starts matching them. Health is the score ≥ 3 count (and whether anything *new* appears there), not the total. `2026-08-28_hazard_triage.py` alone cannot find what was never in `AGENTS.md`. Full contract: [REFERENCE — Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage).
 
 
 ### Host Stack Troubleshooting
 
 | Symptom | Fast Check |
 |---------|------------|
+| Gap-triage total went up after a successful cut | Expected — cutting widens the gap. Read score ≥ 3 / new rows, not the total. |
+| `hazard_triage` missed a known-real source comment | It only ranks `AGENTS.md` on GitHub `main`. Use `2026-08-31_resident_gap_triage.py` for source gaps. |
+| `hazard_triage` ignores local `AGENTS.md` edits | It fetches via `gh api` `?ref=main`, not the checkout. |
+| Huge candidate counts on juniper-ml | Confirm `SKIP_DIRS` (`.claude` / `worktrees`) — pre-#1519 walked in-repo worktrees. |
 | `@claude` mention did nothing | Job `if:` needs the literal `@claude` in that event's body (or issue title); `issues: assigned` still needs it |
 | Copied `notes/templates/ci/claude.yml` onto live | Template snapshot lags Dependabot (checkout v6.0.2 / action v1.0.107); restore `.github/workflows/claude.yml` from `main` |
 | L2/L3 auditor green after permissions widen | Expected — bash is structure-only; `LiveClaudeWorkflowContractTests` pins the map |
@@ -598,7 +796,9 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Local triage stuck in pre-commit | `JUNIPER_FLEET_SKIP_PRECOMMIT=1` (screens still run). |
 | Startup exits before launching services | Check the preflight output for missing `curl`, `ss`, conda, sibling repo directories, or occupied ports. |
 | Mid-plant abort / health timeout | Service log under that repo's `logs/`; pidfile is already removed — free leftover listeners with `ss -tlnp` before re-planting. |
-| Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`; keep the default `JuniperCascor1` env unless a replacement is known-good. |
+| Cascor health times out | Inspect `juniper-cascor/logs/juniper-cascor_*.log`. If it dies on `import torch`, run `util/check_conda_env_torch.bash` first — exit **2** is P-5 FT, exit **4** is May-7. Keep default `JuniperCascor1`. |
+| Freeze tell exit 0, then editing primary corrupts a service | Exit 0 ≠ no importer — root-owned holds are invisible. Confirm with privileged `lsof` on `PRIMARY/src` before editing. |
+| Freeze tell flags `juniper-cascor-client` / a worktree | Live tell uses an exact prefix; siblings and both worktree roots are not holds. A remaining hit is importing the **primary**. |
 | Worker binary missing | Run `conda activate JuniperCascor1 && pip install juniper-cascor-worker`. |
 | `chop_all` cannot find `JuniperProject.pid` | Confirm `plant_all` finished in `nohup` mode and rerun with `JUNIPER_PROJECT_DIR` set to the same project root; for systemd mode, stop with `util/juniper_chop_all.bash --systemd`. |
 | Doctor green but Template Agent grounding dead | Re-run without `--no-discovery`; fix `util/prompt_discovery/cli.py` until it emits `schema_version` + `provenance.head_sha`. |
@@ -613,12 +813,59 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Isolated `--up` unset-var / odd conda failure | Need #785 nounset restore; check `JUNIPER_E2E_CONDA_DIR`. |
 | Isolated ports still busy after `--down` | Re-run `--down` or kill the `pid=` from `ss -tlnpH`; `--dry-run` never kills. |
 | Isolated health timeout | Inspect `/tmp/juniper-e2e/logs/*.log` (or `$JUNIPER_E2E_RUN_DIR/logs`); raise `JUNIPER_E2E_HEALTH_TIMEOUT` only after fixing the service. |
+| E2E matrix neighbouring row now PASS | Hand-edit, or `set_verdicts` on a row with an escaped pipe. Use fill/rescore; dry-run first. See [REFERENCE](REFERENCE.md#canopy-e2e-matrix-writes). |
+| `set_verdicts` wrote with no prompt | No dry-run. Review `--from` / `--set` before invoking. |
+| Planned next segment from `e2e_row_coverage.py` | Estimator. Use `e2e_unfilled_rows.py` against the ledger. |
+| Isolated canopy live but Candidate Metrics / Decision Boundary / Topology frozen at mount defaults | 12-slot starvation, not unwired. `e2e_f027_queues.py` first (queued-and-stuck vs never queued). Do **not** add a new Interval. See [REFERENCE — F-CANOPY-027](REFERENCE.md#f-canopy-027-poller-starvation-probes). |
+| Finding triage still shows an OPEN P0 after the body says FIXED | Disposition is the last 170 chars of the **header**, not the body. Put `FIXED` / `HEALED` / `ACCEPTED` in `**F-… — …**`. |
+| Finding triage counts ACCEPTED as still blocking Phase 2 | ACCEPTED is owner-deferred, not OPEN. `--open-only` hides it; totals still list `accepted`. |
+| Finding triage exit 0 with open P0/P1 | Always exits 0. Read the totals block. |
+| One green topology paint "closes" F-037 | Need 11 sessions. Census exit 0 with `painted==0` is a measured miss, not a harness fail. `scope=invalid` means train first. [F-CANOPY-037](REFERENCE.md#f-canopy-037-render-census). |
+| `list_runs.py` empty but runs exist | Default `--run-root` ignores `JUNIPER_EXP_RUN_ROOT`; pass `--run-root`. Non-convention names are invisible. |
+| `WOULD PRUNE` / nothing deleted | Need `--prune --yes` without `--dry-run`. `up?` is never pruned (`SKIP (live recorded pid)`). |
+| `topo` PASS, depth label still `"0 of 40"` | Expected on `main` — M-06's `OR` can pass on the stats bar; M-07 never asserts the label. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
+| `topoevents` M-12 FAIL, `plotly_click_events=0` | Expected on `main` — empty-space click is unreachable. Do not `gd.emit`. |
+| `topo` FAIL, depth label still `"0 of 40"` | Expected until F-CANOPY-042 lands in the product — M-06 now requires **both** halves; M-07 requires `"all"`. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-driver). |
+| `topoevents` M-12 BLOCKED / no Clear button | Build predates `-clear-selection`. Empty-space `plotly_click_events=0` is recorded, not a FAIL. Do not `gd.emit`. |
+| `unknown step(s)` from the topology driver | Name is not in `STEPS`. `topostate` / `topoexport` are valid; `w1grow` / `toposel` are not. |
+| W6 `--steps 1-9` exits `2` | No range parser. Use `1,2,4,7`. Default includes cancel (`7`); restart modal needs `1,2,4,10`. |
+| Live network wiped after "full W6" | You confirmed restart. The driver refuses `#restart-confirm-button` on purpose. |
+| Dataset driver import dies with `_PyObject_NextNotImplemented` | Prefix `LD_LIBRARY_PATH=`. Not a Playwright failure. |
 | Experiment `--up` misuse / exit `2` | Need one action + `--cascor` and/or `--recurrence`. |
 | Experiment health timeout | Check `$RUN_DIR/logs/`; default wait is `90s` (cold recurrence). Set `JUNIPER_EXP_PROJECT_DIR` in worktrees. |
+| Default `equities` create hangs / 30 s client timeout | Omitted `symbols` → all 503 S&P names (~34 min). Set `dataset.params.symbols`. `max_symbols` is a **silent** slice (`generator.py:286`). See [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap). |
 | Experiment `bring-up failed` / partial stack | `do_up` already ran `teardown_run` — read `teardown.json` + logs; confirm lockdirs gone before retry. |
+| Suite report only useful number is `wall_seconds` | Pre-#1643 artifact — re-run on current `run_suite`; `wall_seconds` is de-ratified (~5% Grafana-bridge move). |
+| `--compare-baseline` FAIL / missing tag but suite exits 0 | Expected (reporting only). Read `REPORT.md`; run `compare_baseline.py` for its 0/1/2 exits. |
+| Mean-step column 1000× the CSV | Report table is ms; `aggregate.csv` is seconds. |
+| Driver exit `2` csv_import `422` | Source over 128 MiB without opt-in, or cascor tried to stage csv_import. [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap). |
+| csv_import `FileNotFoundError` on `--up` | `JUNIPER_DATA_IMPORT_DIR` default is `/data/imports`. Export a real on-host directory; `file_path` is relative to it. |
 | Experiment `pidfile path refused` | Pid-reuse refuse → kill-by-port on the recorded port only; WARNING means inspect `ss` before reuse (open #923). |
+| In-use probe reports every tree `IN USE` | That was the first-run failure mode — the probe's own argv. WEAK cmdline must not set the exit code; only cwd/open-fd is STRONG. |
+| In-use probe `CAUTION` / `review` | A process names the path in argv but is not sitting in the tree. Glance; do not treat as `REFUSE`. |
+| In-use probe exit 2 | No worktree arguments — it printed usage. The cwd-only liveness probe exits 0 on the same misuse. |
+| Liveness probe `clear` but an editor still has a file open | Expected: cwd-only. Re-run the 2026-09-02 in-use probe (open fd is STRONG). |
 | Experiment teardown left listeners / wrong kill | Confirm F-6 pidfiles (`record_listener_pid` after health); `--down` keeps `artifacts/`. |
+| Gating experiment speed on `wall_seconds` / `timings.drive` | De-ratified — `python util/experiments/read_run_metrics.py SUITE_DIR` (last histogram row). |
+| `make_baseline` exit `2` `NOT invariant` / `different workloads` | Not repeats, or fingerprints diverged (#1613). New `--tag`; no `--force`; `--accept-warnings` does not waive work. |
+| `config_sha256` differs across PF-1 repeats | Expected — it hashes `experiment.description`. Use `workload_fingerprint` (`description`/`name` stripped, `seed` kept). |
 | Driver exit `1` stalled/timed_out | Cascor stall detector / wall budget; recurrence `timed_out` = train socket budget. See `manifest.json`. |
+| P4 cell `stalled` at ~130 s while healthy | Missing `stall_seconds` > 120 on pool ≥ 16 **or** cap ≥ 64. See [REFERENCE — P4](REFERENCE.md#p4-campaign-suites). |
+| P4 `timed_out` with no `manifest.json` | `per_run_timeout_seconds` ≤ driver wall — raise the subprocess ceiling. |
+| Quoted 3-seed spread at P4 cap 128 | Stale `suite.description`. n = 2 (`r0`/`r1`). |
+| `make_baseline` exit 2 on P4 E-D…E-G | Expected — recurrence work is not countable (#1683). |
+| Driver exit `2` / API `422` on default `equities` | Universe > 14 symbols. Set `dataset.params.symbols` to a short list, or `allow_truncation: true` (writes `DatasetMeta.truncation`). |
+| Requested `max_symbols: 50` still caps at 14 | Request may only lower the ceiling. Raise `JUNIPER_DATA_EQUITIES_MAX_SYMBOLS` on the data service. |
+| Cascor YAML with `generator: equities_seq` | Expected `ConfigError` — not in `STAGEABLE_GENERATOR_ALIASES`. Use the recurrence path or flat `equities`. |
+| `compare_baseline` exit `2` / `REFUSED` | Identity or host mismatch, not a work regression. Do not treat as FAIL. Cut a new baseline for a config edit. |
+| `compare_baseline` exit `1` / `FAIL` | Same workload, `step_count` moved — the gate firing. A one-step difference is enough. |
+| `--accept-work-change` printed but exit is `2` | Waiver had no effect (cannot mask a refusal). Prefer a new baseline tag. |
+| Speed "regression" with matching `step_count` | Expected PASS — speed is never gated (13–20.5% host drift floor). |
+| F-037 census exit 0, painted 0 | Measured, not a paint PASS. Read `scope`/`populated`. Train a network if `hidden_units` was 0. See [REFERENCE](REFERENCE.md#f-canopy-037-render-census). |
+| F-037 `sha=None` / one session "green" | Walk-up root needs both sibling repos; sample size 11 is the finding (`1/1` is not a claim). |
+| `register_open_set.py` `FileNotFoundError` | Cwd is not the repo root — the register path is relative. `cd` to juniper-ml, or run `register_status_crosscheck.py`. |
+| Register `AGREE` but a §4 cell is still OPEN | Whole-file `table_fixed` scan, or an ID-free count/rank sentence. Read the §4 row. [Close protocol](REFERENCE.md#defect-register-close-protocol). |
+| Driver exit `2` `dataset.split` / `from_dataset_split` | Recurrence allow-list is `{train, test, full}`. `"validation"` is refused; `X_val` is design-closed, not shipped. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract). |
 | `chop_all` logs `ERROR: PID file is empty` | Zero-byte pidfile is the empty arm of the same early wire (cleanup then `exit 1`). Re-plant; do not hand-create an empty file. |
 | Missing/empty pidfile but workers still up | Early wire already invoked cleanup; set `KILL_WORKERS=1` on that chop to opt into the pgrep reap before abort. |
 | Chop WARNING `cmdline does not match … skipping` | Stale/reused PID — `validate_pid` refused the kill; not a stop failure. Pidfile still truncates when `STOP_FAILURES == 0`. |
@@ -629,24 +876,45 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Duplicati timer silent after logout | Linger was `no` — the original failure class. Confirm `list-timers duplicati-backup.timer` |
 | Duplicati `FATAL` unmounted dest / tmpfs tempdir | Mount the backup volume; point `DUPLICATI_TEMP_DIR` at any disk-backed path (the runner refuses a RAM-backed one outright, and `/tmp` is tmpfs here) |
 | Duplicati skip then next run escalates | Expected — skip overwrites `result=OK`. Inspect `~/.local/state/duplicati/{last-run.status,failures.log}` |
+| `juniper-backup` restore `tar` fails | Use `-xjf`, not `-xzf`. Archives are bzip2 (`.tbz2.gpg`). |
+| `juniper-backup` exit 4 PARTIAL | A device/copy failed; already-verified archives stay. Re-run makes a new UUID. |
+| `juniper-backup` `FATAL: gpg recipient not found` | Both `ENCRYPT_KEYS` UIDs must resolve in the local keyring before tar starts. |
+| `juniper-backup` `SKIP … is not a mount point` | Drive unattached (would fill `/`). Attach it, or pass `--dest DIR`. |
+| Soak `parse_events` AttributeError after a spent session | `message` was a string, not a dict. Re-parse saved `stream.jsonl`; do not re-run. Type guard: #1616. |
+| Soak channel says follow but the task names the pointer path | Mechanical false-positive (P06 `--dest docs/REFERENCE.md`). Verify the doc was actually read. |
+| Soak `--dry-run` exits 2 with no preview | Ledger verdict is `BET-FAILING` / `HOLDS-AT-*`. Pass `--force`; the refuse is before the dry-run branch. |
+| Soak `--probe-id P19` → `no such probe` | Bare ids do not resolve. Use the full slug (`P19-port-check-fail-opens`). |
+| Soak `probe-run --outcome miss` rejected | Missing `--class` (`discoverability` / `hazard` / `pointer-defect`). |
+| Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
+| Soak probe reaped / no `status.json` | Pidfile was under `reports/soak/runs/` (unscanned) or interpreter was `JuniperC*`. Use `/usr/bin/python3`. |
 | `predict_merge` exit `2` | Bad args / non-git `--repo-root` / missing `gh` / unresolved branch ref — not a damage finding. |
 | Fleet `DAMAGED` on intentional docs rewrite | Add `Allow-Docs-Rewrite: <path>` or `*` in BASE..RESULT (#926); wrong-path trailers do not waive. |
 | Mixed `--systemd` / pidfile modes | Match plant and chop modes; systemd never writes `JuniperProject.pid`. |
 | Plant WARNING `invalid health-check interval` / stuck health wait | Unset `HEALTH_CHECK_INTERVAL` or set a positive integer (default `2`); `0` was a busy-loop. |
 | `env_floor_drift_check` exits `2` | Resolution failed (`resolve_site_dirs`) — fix `--site-packages` / `--env` / `ecosystem.yaml` `used_by`; not a `BELOW_FLOOR`. |
+| `check_conda_env_torch` exit `2` | P-5 free-threaded shadow — use `*1` or rebuild regular CPython; do not treat as May-7. |
+| `check_conda_env_torch` exit `4` | May-7 `torch/_C/` namespace package on regular 3.14 — keep `JuniperCascor1`; do not run the P-5 FT rebuild. |
+| `check_conda_env_torch` exit `3` on `JuniperData` | Expected — that env has no torch. |
+| Floor/editable green, `import torch` fails | Those checkers never import torch. Classify with `util/check_conda_env_torch.bash`. |
 | Unexpected `BELOW_FLOOR` after upgrade | Multi-interpreter env may still hold a lower tree — tool reports the highest across site-packages; upgrade or remove the stale tree. |
 | `--fix` JSON shows `ERROR` mid-plan | Inspect `error` (stderr/`OSError`, ≤500 chars); fix env python / pip cause; re-run `--fix`. Other items may already be `FIXED`. |
-| Sequence Safety red, Quality Gate green | Advisory by design — download `sequence-safety-report`; waive with trailers or (owner) labels |
+| Sequence Safety red, Quality Gate green | Expected split: QG omits it; the ruleset still requires `Sequence Safety`, so the PR is BLOCKED. Download `sequence-safety-report`; waive with trailers (labels green the PR check only) |
 | Label greens Sequence Safety; `main-verify` fails | Put `Allow-Symbol-Loss:` / `Allow-Docs-Rewrite:` on a landed commit; labels are PR-only |
 | Merge queue stalled (no required check) | Confirm `ci.yml` **and** `codeql.yml` `on.merge_group` still present; `Analyze (python)` must re-post |
 | `Analyze (python)` red: version mismatch | `init`/`autobuild`/`analyze` SHAs split — align to one SHA; keep Dependabot group `codeql-action` |
 | Checks green, merge `BLOCKED` (CodeQL) | Unresolved CodeQL review thread (not in the check rollup) — fix the finding in code |
+| `ruleset_scope_guard` exit 1 (`~ALL`) | Re-scope to `~DEFAULT_BRANCH` or restore dependabot/Copilot bypass rows deliberately. `~ALL` re-arms `creation` on every branch. |
+| `ruleset_scope_guard` exit 2 | Not clean — probe failed or no rulesets found. Re-run; do not assume the rulesets are fine. |
 | Waiting for results from CodeQL | Ruleset `code_scanning` has no SARIF yet — wait for `Analyze (python)`; restore `merge_group` if a queued merge never gets a context |
 | Tiny PR still fails global doc-link hook | G4: `pass_filenames: false` hooks still run repo-wide under `--from-ref` |
 | `KEYTOCARD failed: Invalid value` (ed448) | Hardware — YubiKey 5 OpenPGP has no Ed448; use ed25519/cv25519 subkeys. See [REFERENCE](REFERENCE.md#yubikey-gpg-provisioning). |
 | Stub pinentry “No pinentry” / dead agent | Assuan greeting must be `OK …` (#914); check `util/ad-hoc/2026-08-03_yubikey_test_pinentry.bash`. Throwaway creds only. |
 | Ed448 keygen fails under gpg 2.4 | Ubuntu/Debian FreePG-patched build (not upstream) — add `--compliance=gnupg` (or `compliance gnupg` in ceremony `gpg.conf`). |
 | Every `push:main` Quality Gate red; advisory job "skipped" | An advisory job was added to `required-checks.needs` — remove it; promote via branch ruleset instead. |
+| `ALREADY REQUIRED` from require_context_safely | Add path no-op — use `--amend-integration-id` to change `integration_id` (#1612). Do not hand-roll a PUT. |
+| Amend `REFUSING: app N has not been observed publishing` | Wrong publisher — Actions is `15368`; never pin `Memory Budget` to Bandit `57789`. |
+| PR BLOCKED, checks all SUCCESS, nothing pending | Required context pinned to an app that never reports, or required before it published — re-pin/un-require via the writer, then `update-branch`. |
+| `--require-observed` unknown on require_context_safely | Not a flag; observed-only is the default. |
 | Security job skipped → Quality Gate red | The security arm must stay `== "failure"`, not `!= "success"`. |
 | Initial / force-push tip skipped the battery | The path detector must fail-open to `run=true` when no base resolves — read the `Detect relevant path changes` log. |
 | Weekly security scan green with a known CVE | Audit step must stay `pip-audit --strict --desc on`; dropping `--strict` softens findings. |
@@ -654,22 +922,77 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | No Monday lockfile PR | A clean tree is a no-op; confirm Actions → Update Lockfiles still runs `juniper-generate-dep-docs`. |
 | `test_ci_tools_drift` red after a ci-tools bump | Widen the `<Y` ceiling in `lockfile-update.yml` + `ci.yml` + `docs-full-check.yml` in the same PR. |
 | `Verify AGENTS.md Last Updated` fails | You changed `AGENTS.md` without bumping `**Last Updated**:`. Set it to today's UTC date and push. |
+| Soak `--dry-run` exits 2 with no preview | Pre-#1690 refuse-before-dry-run. After #1690 a terminal verdict still previews (NOTE on stderr). Do not pass `--force` just to see the preview. |
+| Soak real run exits 2 with `REFUSING` | Ledger is `BET-FAILING` / `HOLDS-AT-*`. `--force` overrides a real run only; disable the timer if the pooled question is done. |
+| Soak `--probe-id P19` → `no such probe` | Use the full slug (`P19-port-check-fail-opens`). |
+| Soak `status` exits 1 with an otherwise healthy rate | Open escalation or `BET-FAILING` — do **not** `resolve` to green the exit code. |
 | X7 census / gate count dropped but a twin still blocks | Module-global expression exemption — must be site-local. See [REFERENCE](REFERENCE.md#x7-off-loop-census). |
 | `ruff --select ASYNC` green on canopy `backend.*` | Expected. Opaque calls are invisible; trust the slice-1a gate, not ruff. |
 | v1 census flags awaited `httpx` / disagrees with the gate | Name-matching on overloaded `client`. Use v2 to explore; the canopy gate is authority for `main.py`. |
+| `--check-roundtrip` green, views still drift | Round-trip never reads `by-repo` / `by-status`. Run `--check-views`. |
+| `--merge` printed a report but wrote nothing | Default is dry-run. Pass `--apply`. |
+| Regenerated requirements from the ledger; Detail gone | Restore from git. `by-area` is the corpus of record. See [REFERENCE](REFERENCE.md#requirements-snapshot-consolidation). |
+| Requirements source paths point at `.claude/worktrees` | `ECOSYSTEM_ROOT` missed the sibling repos. Do not treat a green round-trip as proof the paths are right. |
+| Estimator lists remaining rows the ledger calls UNFILLED 0 | Trust the ledger — those status cells are already filled (often `PASS` with no TSV token). |
+| Estimator remaining is 0 but the ledger still lists ids | Estimator over-credited a range or a `pending …` record. Re-drive the ledger list. |
+| W-ids in estimator unmatched / remaining | Not `C2.` / `M-`. The ledger ignores them; do not invent matrix rows from TSV tokens. |
 | Gate is 0, canopy still blocks ~123 s unattended | `main.py`-only scope. Inspect `extract_network_topology()` in the metrics relay by hand. |
 | Census `FileNotFoundError` on `CANOPY_MAIN` | Hardcoded `/home/pcalnon/Development/python/Juniper/juniper-canopy/src/main.py` — retarget it. |
+| M-TOPOLOGY-18 `INDETERMINATE` after `topo,…,topostate` | Store already filled. Re-drive `--step topostate` alone. See [REFERENCE](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids). |
+| "The `W4-*` IDs don't exist" | They do — matrix §4, 17 numbered steps. Grep `### W4`, not `W4-09`. F-E2E-007 made this claim and was withdrawn. |
+| Triage reports P0/P1 on a LEDGER note | First severity token in the header won — do not name another severity in the prose. |
+| `Memory Budget` green but headroom < "required slack" | Expected. Slack is planning-only (`measure-growth` `max`, floored at 2,000). Do not relocate. |
+| A note's required-slack is not `max` or 2,000 | Not an instrument output — re-run `measure-growth --ref origin/main`. |
+| `--ratchet` after a cut, next PR fails | Ratchet leaves zero headroom. Hand-edit `current + slack`. |
+| `measure-growth` disagrees with GitHub main | Default `--ref` is `HEAD`. Fetch and pass `--ref origin/main`. |
+| `memory_index_check` exit 2 `not found` | Default path is the **primary** checkout slug under `~/.claude/projects/…/memory/MEMORY.md`. Pass `--memory-file` or `--skip-if-absent`. |
+| First index check flags every row | Empty / missing `conf/memory_index_baseline.json` slugs. Review hooks, then `--accept` once. |
+| Long slug "fails" a 120-byte line budget | Cap is the hook, not the line. See [REFERENCE](REFERENCE.md#memorymd-index-check). |
+| `--accept` then still over 25k / 200 | Expected — accept does not evict. Demote detail; keep STATUS on the row. |
+| Gate is 0, helpers / adapter still block | `HELPER` miss or `main.py`-only scope. Trust the post-#567 gate + callgraph, not v2. |
+| Adding `threading.local()` "for C5" | Remedy refuted. T-A4 pins no per-request session mutation. |
 | `AGENTS.md` date not auto-bumped | Fork PR (skipped by design), missing `**Last Updated**:` field (warning only), or the date is already today. |
 | A shared-package workflow edit never runs its CI | `paths:` must still list the workflow file itself. |
 | Coverage gap map "passes" on a hollow module | Look for a dropped `--enforce` or a newly broad `--omit`. |
+| Isolated topology / metrics store empty, wire correct | Read the whole TOPOPROBE series; do not trust `_store()` or the first four lines. See [REFERENCE](REFERENCE.md#f-039-store-probe). |
+| `e2e_f039_topoprobe_instrument.py` `REFUSING` on `--target topology` | Expected — handler no longer receives the client's `State`. Probe `metrics` or add the `State`. |
+| `python3 tests/<file>.py` reports fewer cases than `-m unittest` | A `TestCase` class sits after `if __name__ == "__main__": unittest.main()` — direct execution never loads it. #1612: 8 vs 12 on `test_require_context_safely.py`. Move `__main__` to EOF. |
 | Isolated `bring-up failed` / partial trio | `do_up` already ran `do_down` — read the logs, confirm the ports are free, then retry. |
 | Isolated `--up` logs `ERROR: conda activate '…' failed` | Expected fail-closed path — fix the env name or `JUNIPER_E2E_CONDA_DIR`, then retry. |
 | Experiment `--up` green but ports/locks stuck | OR-list false-green — confirm the `\|\| return 1` pins; `--down <RUN_ID>`, then clear stale `*.lock`. |
 | Experiment `grafana bridge failed — tearing the run back down` | Expected `--grafana-bridge` teardown; install `socat`/`docker` or omit the flag. |
 | Experiment port range exhausted after a failed `--config` | Staging aborted between `allocate_port` and `ports.json` (open #979) — clear `*.lock` under `JUNIPER_EXP_LOCK_ROOT` with no live listener. |
+| `compare_baseline` FAIL, same YAML / seed / host | Interpretable since #1733/#1743 — branch, `outcome`, measurement and coverage all checked out. Investigate the change; waive only once you know why. |
+| `compare_baseline` REFUSED "different branches" / "no completion_reason" | Not a regression. Candidate terminated differently, or the baseline predates the #1733 guard (`pf1-2026-09-04`). Use `pf1-2026-09-04b` or re-cut. |
+| `compare_baseline` PASS with empty series / `timed_out` cells | **No longer possible** — A1/A2 refuse both. If you see it, the reader drifted; stop. |
+| `compare_baseline` REFUSED after a real work miss | **No longer possible** — A3 gives FAIL precedence. A real miss exits 1 even with an unreadable sibling `--suite`. |
+| `compare_baseline` REFUSED "covered N of M" / "DUPLICATE fingerprint" | A6/A7 — partial scenario coverage, or two blessed scenarios sharing a workload. Run the rest, or re-cut from distinct workloads. |
+| `compare_baseline` FAIL, same YAML / seed / host / same `completion_reason` | Real work move after #1733. Cut a new tag or waive; do not add the tool to `ci.yml`. See [REFERENCE](REFERENCE.md#perf-lane-work-gate). |
+| `compare_baseline` FAIL and reader has no `TRUNCATING_TERMINATIONS` | Pre-#1733 checkout — a branch flip is still a false FAIL. Confirm `completion_reason` by hand. |
+| `compare_baseline` REFUSED, no `completion_reason` on the baseline | Expected for tags cut before #1733. Re-cut under a new name. |
+| `compare_baseline` REFUSED, "only WITHIN a termination branch" | Branch flip, not a regression. Compare like with like. |
+| `compare_baseline` PASS with empty series | Expected today — unmeasured rows are dropped. `make_baseline` would have refused. |
+| `make_baseline: already exists` | No `--force`. Choose a new tag. |
 | Plot `skipped` with a `ValueError` reason, exit `0` | No-renderable-data SKIP, not an acceptance failure — see `jq '.driver.plots' $RUN_DIR/manifest.json`. |
 | Driver exit `1` `matplotlib unavailable` | Install matplotlib or drop `outputs.plots`; other render exceptions and fetch failures also fail acceptance. |
+| Suite exit `2` unknown execution key | Typo (`stall_second` / `max_wall_second`) — allow-list is exact. |
+| Suite exit `2` cascor parallel | Need launched cascor ≥ 0.10.0 (`JUNIPER_EXP_CASCOR_SRC_DIR`) or `mode: sequential`. Unreadable version refuses. |
+| Suite `--only` one cell, exit `1`, cell succeeded | Aggregate scores the full expansion; unselected cells are not-run. |
+| Suite `--resume` re-ran a failure | Expected — only `succeeded` is skipped. |
+| Suite bridged vs unbridged hashes differ | Use `JUNIPER_SUITE_GRAFANA_BRIDGE=1`; do not put the bridge in the YAML. |
 | `residuals.png` has only 2 panels | Optional `target_dt_*` missing or length-mismatched — pred/truth still plotted; not a SKIP. |
+| PF-1 `--dry-run` shows ≠5 cells or mixed budgets | Repeats leaked into `include`, or the 4000/4000 epoch pair was split. Stop. |
+| PF-1 `scrape_confirmed: false`, file present | Cell died before file_sd + scrape (15 s + 15 s). Need `(10, 10)` + 4000/4000 and `JUNIPER_SUITE_GRAFANA_BRIDGE=1`. |
+| PF-1 `drive` ~15 s / 32 steps | Smoke pair (50/50) won — set **both** `max_epochs` and `output_epochs` to 4000. |
+| PF-3 `stalled` at ~120 s while candidates train | Missing `execution.stall_seconds` > 120, or wall still inherited 600 from `spiral-smoke`. |
+| PF-3 `timed_out` / `exit_code: null` / no manifest | `per_run_timeout_seconds` ≤ wall budget — suite killed the driver. |
+| Green PF-5/6/7 treated as a work-gate | Thresholds unratified. Those files measure fit time. Instruments, not verdicts. |
+| `make_baseline` / `compare_baseline` says "no countable work" | Recurrence suite — expected refuse (#1683). Report via `read_run_metrics.py --run RUN_DIR --json`; do not bless a speed-only baseline. |
+| Recurrence `work_invariant` is false on identical-looking cells | Third state: `work_countable` is false, so the invariant is false because the question does not apply. Use `--json`. |
+| `stats.json` `wall_seconds` looks like the SPEED half | De-ratified `timings.total` (plots + bring-up). Cascor SPEED is `mean_step_seconds` via `read_run_metrics`. |
+| Recurrence `stats.recurrence` has no duration | Expected — train/crossval seconds are `outcome.timings`. `n_epochs` is not a work count. |
+| `scrape_confirmed` is null / `target_file_written` is true | Unreachable Prometheus ≠ zero series. Five PF-1 runs wrote a target and Prometheus held nothing. |
+| `python util/experiments/stats_summary.py` does nothing useful | No `__main__`. The driver writes the files; you `jq` them. |
 | HTTP 429 missing `Retry-After` | `SecurityMiddleware` must pass `exc.headers` into the `JSONResponse`. |
 | `Juniper*ConfigurationError: base_url must include a host` | Hostless constructor URL (`""`, `http://`, `http://user:secret@`) — fix the URL, not the service. |
 | `HTTPS://host` talks HTTP / hostname `https` | Wheel predates case-insensitive scheme matching; install client GitHub main or wait for the next PyPI cut. |
@@ -681,9 +1004,24 @@ Tip: snapshot attribution is not reproducible until juniper-ml#1333. `--seed` on
 | Worker WS closes 4001 / 4008 | 4001 = API-key auth enabled (send `X-API-Key`); 4008 = registration shape (string `worker_id` + dict `capabilities`). |
 | `--batch` row `verdict=ERROR` | Soft-fail for that tip only; the other PRs in the report remain valid. `--pr` would have exited `2` instead. |
 | Deleted `.py` gate-clean but `DAMAGED` | The battery skipped the missing path while the symbol screen saw `LOST` — expected. |
+| `snapshot_index` / classify / backfill: `h5py is required` | `conda activate JuniperCascor1` — all four tools import `h5py` via `snapshot_index`. |
+| `no index … run --scan first` | Index is a prerequisite. `--scan` is append-only over `ROOT/*.h5`. |
+| `--category fails_to_load` empty after a load `--write` | Re-derived from the index. Use `--from-sidecar`. |
+| Classify `--write` exits 2 | `--sample` with `--write` is refused so a partial sidecar cannot replace the full one. |
+| `--stage train` exits 2 | Unimplemented. Unset / real-archive `JUNIPER_CASCOR_SNAPSHOTS_DIR` fails first (`create_snapshot` hazard). |
+| Quoted `formerly_broken` on every zero-node file | Population claim (`380/380` of `15927`). `--explain` shows `not_verified_here`. |
 | Two identical attribution runs differ | Unpinned generators (need #1333). `--seed` samples snapshots; `--dataset-seed` pins data. |
 | Sidecar chain wrote into scratch / empty archive | `JUNIPER_CASCOR_SNAPSHOTS_DIR` was redirected — unset it and pass `--root`. |
 | `--write` exits 2 before scoring | `--sample` / `--min-hidden` / `--from-sidecar` with `--write` is refused so the sidecar cannot cover a subset. |
+| `main` BLOCKED, every check green | Required context never reports — run `2026-08-10_ruleset_context_audit.py --repo <repo>` before adding another. |
+| Context audit text exit 0 with `ERROR:` | Human mode ignores probe failures; use `--json` (exit 1) or re-run that `--repo`. |
+| Promoted check missing from Tier 1 | `advisory_predicate` must subtract the live required set (ml#1011 class). |
+| Quoted 23/200 blocking from the 2026-08-10 note | Historical. Re-run; do not strip a ruleset from a one-shot empty sample. |
+| Suite exit `2` unknown `execution:` key | Typo (`stall_second`). R-6 (`tests/test_experiment_suite_yamls.py`) catches this on shipped suites. |
+| Suite exit `2` cascor parallel | Launched cascor below 0.10.0 or version unreadable — sequential, or retarget `JUNIPER_EXP_CASCOR_SRC_DIR`. |
+| Suite cells `stalled` ~130 s then finish | Candidate-phase inert stall — set `execution.stall_seconds`; size `per_run_timeout_seconds` above the wall. |
+| `--resume` re-runs a green cell | Only `registry.jsonl` `succeeded` is skipped; missing resume dir is exit `2`. |
+| Repeats ran the smoke config | `include` does not inherit `matrix` — put the repeat axis on `matrix` (PF-1). |
 
 ## Quick Reference Tables
 
@@ -719,16 +1057,50 @@ Metric pattern: `<namespace>_<subsystem>_<metric>_<unit>` -- namespaces: `junipe
 ## Cross-References
 
 - [Ecosystem Guide](../AGENTS.md) -- project map, dependency graph, conventions
+- [Resident-Hazard Gap Triage](REFERENCE.md#resident-hazard-gap-triage) -- three scanners; the candidate count grows after a cut
 - [juniper-ml REFERENCE](REFERENCE.md) -- package metadata, extras, version history
+- [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- seeded probes, characterisation vs least-covered, scoring pitfalls
+- [Perf-Lane Split Comparator](REFERENCE.md#perf-lane-split-comparator) -- identity first, work exact / speed reported, exit 0/1/2, waiver cannot mask REFUSED
+- [CSV Import Byte Cap](REFERENCE.md#csv-import-byte-cap) -- 128 MiB, 422 until opt-in, experiment-stack `IMPORT_DIR` pitfall
+- [Defect Register Close Protocol](REFERENCE.md#defect-register-close-protocol) -- `**FIXED` token, cwd pitfall, third reading vs the two §4 counters
+- [Train / Val / Test Partition Contract](REFERENCE.md#train--val--test-partition-contract) -- shipped `*_full` vs design-closed `X_val`
+- [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default 503-name universe, per-request cost, silent `max_symbols` slice
+- [Recurrence Work Is Not Countable](REFERENCE.md#recurrence-work-is-not-countable) -- PF-5/6/7 report-only; `work_countable` third state; baseline/compare refuse
+- [Suite Report Gate Inputs](REFERENCE.md#suite-report-gate-inputs) -- `run_suite` P2 1.4: both gate inputs in `aggregate.csv` / `REPORT.md`; `--compare-baseline` reporting only
+- [Run lister / pruner](REFERENCE.md#run-lister--pruner-list_runspy) -- `list_runs.py` directory-truth scan; `--prune` ≠ `--down`
+- [Suite Driver](REFERENCE.md#suite-driver) -- `run_suite.py` expansion, resume, cascor parallel floor, Grafana env toggle
+- [Experiment Stats Summary](REFERENCE.md#experiment-stats-summary-ss83) -- `stats.json` / `summary.md` read-path; de-ratified wall; scrape_confirmed tri-state
 - [Claude Code Action](REFERENCE.md#claude-code-action) -- live `claude.yml` pin, `@claude` `if:`, ungrouped Dependabot bumps
 - [CodeQL Analysis](REFERENCE.md#codeql-analysis) -- `Analyze (python)`, SHA group, `merge_group` divergence
 - [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- canopy gate is authority for `main.py` (count 58); v1 is the name-matching negative example
+- [PF Scenario Suites](REFERENCE.md#pf-scenario-suites) -- Wave 7.3 instruments; PF-1 matched epoch pair + matrix-axis repeats; PF-4/PF-8 are not driver suites
+- [Topology Step Order and Blast-Radius IDs](REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids) -- `topostate` first or alone; the W4/W1 blast-radius IDs are real matrix §4 steps (F-E2E-007 claimed otherwise and was withdrawn)
+- [P4 Campaign Suites](REFERENCE.md#p4-campaign-suites) -- 19 YAML catalog; include ≠ matrix; cap-128 H2H is n=2; recurrence P4 cells do not gate
+- [Perf-Lane Work Gate](REFERENCE.md#perf-lane-work-gate) -- `read_run_metrics` / `make_baseline` / `compare_baseline`; sound since #1743; CI-wiring is an open owner decision, not a soundness bar
+- [Memory-Budget Slack (Planning)](REFERENCE.md#memory-budget-slack-planning) -- headroom is not a CI input; size slack from `measure-growth` `max`, floored at 2,000
+- [Equities Symbol Cap](REFERENCE.md#equities-symbol-cap) -- default `equities` is 422 at 14 symbols; unit is symbols because cost is per request
+- [F-039 Store Probe](REFERENCE.md#f-039-store-probe) -- apply / soak / report / revert; read the whole series; `--target topology` refuses
+- [Conda Env Torch Shadow](REFERENCE.md#conda-env-torch-shadow-diagnostic-p-5) -- exit **2** is P-5 free-threaded; exit **4** is May-7 wheel layout
+- [MEMORY.md Index Check](REFERENCE.md#memorymd-index-check) -- local `MEMORY.md` gate; hook-not-line; CI cannot see `~/.claude`
+- [Canopy E2E Topology Driver](REFERENCE.md#canopy-e2e-topology-driver) -- `e2e_seg17_topology_driver.py`; `STEPS` is the authority; M-06/M-07/M-12 can PASS the easier half
+- [Juniper Project-Tree Backup](REFERENCE.md#juniper-project-tree-backup) -- per-repo `.tbz2.gpg` (restore `-xjf`); not the Duplicati `$HOME` lane
+- [Ruleset Context Audit](REFERENCE.md#ruleset-context-audit) -- required-context classifier; 2026-08-10 class; text-mode 0 can still carry `ERROR:`
+- [Canopy E2E Finding Triage](REFERENCE.md#canopy-e2e-finding-triage) -- header-only parser; ACCEPTED is a third disposition
+- [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session topology-paint instrument; exit 2 = failed to measure; idle populated is VALID
+- [X7 Off-Loop Census](REFERENCE.md#x7-off-loop-census) -- shipped count is 58; v1 is the name-matching negative example; C5 remedy refuted
+- [Pointer-Follow Soak](REFERENCE.md#pointer-follow-soak) -- unprimed probe loop; do not run n≈8–10; `--force` is an open owner decision; full slugs; `--class` on miss
+- [Requirements Snapshot Consolidation](REFERENCE.md#requirements-snapshot-consolidation) -- `by-area` is the corpus of record; ledger has no `detail`; `--check-roundtrip` is by-area only
+- [Canopy E2E Unfilled-Rows Ledger](REFERENCE.md#canopy-e2e-unfilled-rows-ledger) -- plan re-drives from the matrix status cells, not the TSV estimator
 - [Deprecated Master Cheatsheet](../notes/legacy/DEVELOPER_CHEATSHEET-ORIGINAL.md) -- archived monolithic cross-project reference (relocated to `notes/history/` in 2026-04, consolidated into `notes/legacy/` 2026-05-05)
+- [Cascor Primary Freeze Tell](REFERENCE.md#cascor-primary-freeze-tell) -- exact-prefix hold test; exit 0 is "no user-owned importer"
 - [Worktree Setup](../notes/JUNIPER_2026-03-02_JUNIPER-ML_WORKTREE-SETUP-PROCEDURE.md) | [Worktree Cleanup V2](../notes/JUNIPER_2026-06-25_JUNIPER-ML_WORKTREE-CLEANUP-PROCEDURE-V2.md)
+- [Canopy E2E Matrix Writes](REFERENCE.md#canopy-e2e-matrix-writes) -- fill / set-verdicts / rescore; do not plan from `e2e_row_coverage.py`
+- [F-CANOPY-027 Poller Starvation Probes](REFERENCE.md#f-canopy-027-poller-starvation-probes) -- 12-slot dash-renderer starvation (FIXED canopy#507/#509/#511); do not add a new Interval
+- [F-CANOPY-037 Render Census](REFERENCE.md#f-canopy-037-render-census) -- 11-session `topodiag` tally; exit 0 is not a paint PASS
 - [SOPS Usage Guide](../notes/JUNIPER_2026-03-02_JUNIPER-ECOSYSTEM_SOPS-USAGE-GUIDE.md) -- complete secrets management reference
 
 ---
 
-**Last Updated:** 2026-09-04
-**Version:** 1.0.34
+**Last Updated:** 2026-09-05
+**Version:** 1.0.61
 **Maintainer:** Paul Calnon

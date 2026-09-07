@@ -576,6 +576,32 @@ def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]", comparison: "st
 
     counts = {g.get("step_count") for g in gate.values() if g.get("step_count") is not None}
     fingerprints = {g.get("workload_fingerprint") for g in gate.values() if g.get("workload_fingerprint")}
+    # ASK `summarise`, do not re-derive. `len(counts) == 1` is the vacuous form ml#1776
+    # removed from `summarise` -- it is True for one measured cell beside one unmeasured
+    # one, so a half-measured suite printed HOLDS here long after the gate itself stopped
+    # saying so. Re-deriving a predicate next to the function that owns it is how the two
+    # drift apart with nothing failing.
+    from experiments import read_run_metrics as _rrm
+
+    _rows = [dict(g, run_id=cid) for cid, g in gate.items()]
+    _summary = _rrm.summarise(_rows)
+    if _rows and not _summary.get("work_countable", True):
+        # `_rows and` is load-bearing. `summarise([])` reports work_countable False because
+        # it saw no countable kind, and without this guard an EMPTY gate would print the
+        # recurrence third state instead of the cascor-unmeasured one (#1685).
+        #
+        # Recurrence exposes no work counter; BROKEN would claim these cells disagreed
+        # about something that was never counted.
+        _work_state = "not countable"
+        _work_detail = f"kind {_summary.get('kinds')} has no work counter"
+    elif _summary.get("work_invariant"):
+        _work_state = "HOLDS"
+        _work_detail = f"step_count {sorted(int(c) for c in counts)}"
+    else:
+        _work_state = "BROKEN"
+        _work_detail = f"step_count {sorted(int(c) for c in counts) if counts else 'not measured'}"
+        if counts and len(counts) == 1:
+            _work_detail += f" measured on {len(counts)} of {len(_rows)} cell(s)"
     lines += [
         "",
         "## Gate inputs",
@@ -585,11 +611,22 @@ def aggregate(suite_dir: Path, suite: dict, cells: "list[dict]", comparison: "st
         "**`step_count`** (work, compared exactly); **mean step duration** is reported and never gated,",
         "because this host's own drift floor is 13–20.5%.",
         "",
-        f"- **work invariant**: {'HOLDS' if len(counts) == 1 else 'BROKEN'} — step_count {sorted(int(c) for c in counts) if counts else 'not measured'}",
+        f"- **work invariant**: {_work_state} — {_work_detail}",
         f"- **single workload**: {'yes' if len(fingerprints) == 1 else 'NO'} — fingerprint {sorted(f[:12] + '...' for f in fingerprints) if fingerprints else 'unknown'}",
     ]
-    if len(counts) > 1:
+    if _work_state == "BROKEN":
         lines.append("- These cells are **not repeats of each other**; a baseline must not be cut from them.")
+    if _work_state == "not countable":
+        # Say what WAS measured. "The gate does not apply" is only half an answer; the
+        # third state exists because the run is still worth reporting.
+        _epochs = sorted({str(g.get("n_epochs")) for g in gate.values() if g.get("n_epochs") is not None})
+        _stopped = sorted({str(g.get("stopped_reason")) for g in gate.values() if g.get("stopped_reason")})
+        _windows = sorted({str(g.get("n_windows")) for g in gate.values() if g.get("n_windows") is not None})
+        lines.append(
+            f"- **reported instead**: n_epochs {_epochs or 'unknown'}, stopped_reason {_stopped or 'unknown'}, "
+            f"n_windows {_windows or 'unknown'} — these are INPUT size and readout type, not work done, "
+            f"so they are reported and never gated."
+        )
     if comparison is not None:
         lines += ["", "## Baseline comparison", "", "```text", comparison, "```", ""]
         lines.append("The suite's own exit code does NOT reflect this verdict — whether the run tier gates is a")

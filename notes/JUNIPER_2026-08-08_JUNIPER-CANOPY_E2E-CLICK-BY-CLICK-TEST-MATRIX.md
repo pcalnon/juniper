@@ -8,6 +8,7 @@
 **Status**: **DRAFT — AWAITING OWNER APPROVAL**
 **Date**: 2026-08-08
 **Companion document**: `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md` (the master plan; scope, phases, stack bring-up, exit criteria)
+**Operator write path**: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../docs/REFERENCE.md#canopy-e2e-matrix-writes) — fill / set-verdicts / rescore. Do not hand-edit status cells.
 
 **Validation record**:
 
@@ -459,7 +460,7 @@ Tab: `dashboard_manager.py:2182-2186`. Renderer: `candidate_metrics_panel.py` (p
 | M-CANDIDATES-04 | `candidate-metrics-panel-progress-section` (:147)                                 | passive                       | Hidden unless `candidate_epoch` **and** `candidate_total_epochs` are present; then `-epoch-progress` (:138) shows `e/T` (`:270-288`).     | —                                                                                          | DOM           | AUTO              | B    | —  | PASS (re-validated @ f9defb4) |
 | M-CANDIDATES-05 | `candidate-metrics-panel-candidate-toggle` (:165)                                 | click                         | Toggles `-pool-collapse` (:171) and flips `-toggle-icon` (:160) between ▼/▶ (`:326-342`).                                                 | —                                                                                          | DOM           | AUTO              | B    | —  | PASS |
 | M-CANDIDATES-06 | `candidate-metrics-panel-pool-info` (:170)                                        | passive                       | "No active candidate pool" placeholder, or the pool display (`:290-311`).                                                                 | —                                                                                          | DOM, VIS      | AUTO              | B    | —  | PASS (re-validated @ f9defb4) |
-| M-CANDIDATES-07 | `candidate-metrics-panel-loss-plot` (:182)                                        | passive                       | Theme-aware candidate loss figure (`:313-324`).                                                                                           | —                                                                                          | VIS           | AUTO              | B    | —  | FAIL |
+| M-CANDIDATES-07 | `candidate-metrics-panel-loss-plot` (:182)                                        | passive                       | Theme-aware candidate loss figure (`:313-324`). **Re-driven 2026-09-05 on canopy `94220f0`: still FAIL, and the owed re-drive is now DONE.** The store is *written* — 17 captured writes of 500 rows — and reads `len=0` immediately before and after them (see F-CANOPY-035). | —                                                                                          | VIS           | AUTO              | B    | —  | FAIL |
 | M-CANDIDATES-08 | `candidate-metrics-panel-history-toggle` (:197)                                   | click                         | Toggles `-history-collapse` (:205) + `-history-icon` (:194) (`:394-408`).                                                                 | —                                                                                          | DOM           | AUTO              | B    | —  | PASS |
 | M-CANDIDATES-09 | `candidate-metrics-panel-history-section` (:202)                                  | passive                       | Rendered from `-pool-history-store` (:213), capped at `MAX_POOL_HISTORY_ENTRIES` (`:344-392`).                                            | —                                                                                          | DOM, VIS      | AUTO              | B    | —  | FAIL |
 | M-CANDIDATES-10 | `{"type":"candidate-metrics-panel-history-pool-header","index":<epoch>}` (:679)   | click a per-epoch card header | **Nothing.** No callback exists anywhere in the repo for this pattern (sole occurrence at `:679`). `cursor: pointer` is styled but inert. | none                                                                                       | DOM, NET, CON | **DEAD-EXPECTED** | B    | —  | BLOCKED |
@@ -487,8 +488,14 @@ no highlight animation is active (`:406-413`).
 > rows here. *Correction 2026-09-02: those walkthrough ids are NOT "tracked in the plan document" —
 > `W4-` and `W1-1` appear **zero** times in
 > `JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-FRONTEND-VALIDATION-PLAN.md`. They exist only in this matrix
-> and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`. A reader who went looking in
-> the plan would find nothing and could reasonably conclude the ids had been retired.*
+> and in `JUNIPER_2026-08-09_JUNIPER-CANOPY_E2E-VALIDATION-EVIDENCE.md`. They are DEFINED as the numbered steps of
+> §4's `### W4` (17 steps, `:1005-1023`) and `### W1` (19 steps) scripts; the `W<n>-NN` token form is
+> simply the section plus the ordinal, as used for 98 W-verdicts across `reports/e2e/*/statuses.tsv`.*
+>
+> *Correction 2026-09-04: the sentence above originally ended "…could reasonably conclude the ids had
+> been retired" — a speculation about a hypothetical reader, appended to a true fact. On 2026-09-04 a
+> reader did exactly that and filed F-E2E-007 on it. **A correction that is factually right can still
+> mis-steer when it appends a speculative consequence.** Clause removed.*
 >
 > ---
 >
@@ -590,6 +597,21 @@ no highlight animation is active (`:406-413`).
 > after it when driven against unchanged parent code**, which is the tightening rather than a
 > regression, and is the only reason their new PASS means anything.
 >
+> **CONFIRMED ON MERGED MAIN, 2026-09-04 — and F-CANOPY-037 is now CLOSED (2026-09-05) on a live
+> growth drive; see its entry.** The
+> four steps above were re-driven end to end against canopy main **`94220f0`**, which carries both fixes
+> *plus* another session's canopy#567 (every synchronous network call moved off the event loop — a
+> change that could plausibly have disturbed rendering):
+> `topo` **9 PASS**, `topoevents` **4 PASS**, `topostate` **2 PASS**, `topoexport` **1 PASS** —
+> **16 PASS / 0 FAIL across every scoreable row.** -11 and -16 stay BLOCKED on their own causes.
+>
+> **M-TOPOLOGY-18 needed a control and got one.** In the combined run it scored **INDETERMINATE**
+> (`empty_in_node_graph=False`), because its precondition — the raw-topology store still empty — is
+> destroyed by `topo`, which opens the Weight Matrix for M-TOPOLOGY-03. Re-driven **alone against the
+> same build** it scored **PASS** (`empty_in_node_graph=True`, filled in 6.6 s). The row reporting
+> INDETERMINATE rather than FAIL is the scorer working; the ordering hazard is now pinned in three
+> places in `util/ad-hoc/e2e_seg17_topology_driver.py`. **These steps are not order-independent.**
+>
 > **UPDATE, 2026-09-03 — M-TOPOLOGY-14 is scored, and it is a FAIL.** The `topoexport` step finds the
 > camera button (9 modebar buttons; they are `<BUTTON class="modebar-btn">`, **not** `<a>` — an earlier
 > probe's `a.modebar-btn` selector is why the modebar once read as present-but-empty) and verifies the
@@ -636,6 +658,13 @@ no highlight animation is active (`:406-413`).
 >   **UNRESOLVED, not refuted**.
 > - **-16 additionally needs a fixture with growth headroom**; the live network is saturated at 40/40
 >   and was deliberately left that way on 2026-09-02 to preserve the 2/40/2/944 baseline.
+>   **SUPERSEDED 2026-09-05: the owner lifted that hold.** The fixture was grown to
+>   **2/48/2/1324** (`max_hidden_units` 48) to drive F-CANOPY-037's growth trigger, and is
+>   saturated again so it stays stable. Rows above quoting `2/40/2/944` were measured against the
+>   old fixture and remain valid for it — a new reading of `48` is not a regression. The prior
+>   state is restorable from snapshot `snapshot_20260905T103912Z`. To make this row drivable,
+>   `PATCH /v1/training/params {"max_hidden_units": 52}` then `POST /v1/training/start` — the
+>   network is grown, never rebuilt (`POST /v1/network` destroys it; do not use it).
 >
 > **Do not read the earlier "5 PASS / 4 FAIL" run as evidence against these nine.** That drive measured
 > a canopy process started 2026-09-01 15:39 that had never loaded canopy#558 or #561 — see the evidence

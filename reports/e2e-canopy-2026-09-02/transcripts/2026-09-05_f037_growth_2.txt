@@ -1,0 +1,11 @@
+[t=    619ms] navigating to http://127.0.0.1:8052
+[t=  13895ms]   welcome modal dismissed
+[t=  37391ms]   start: server hidden=44 dom={'input': '0', 'hidden': '0', 'output': '0', 'conn': '0'} buffer={'ok': True, 'via': 'paths.strs', 'value': {'events': [], 'gen': 0, 'last_drain_ms': 0}}
+[t=  47643ms]   [t=5.0] DOM hidden-count now '0'
+[t=  49993ms]   [t=5.0] *** ws-cascade-add-buffer gen None -> 0 (events=0) ***
+[t=  54999ms]   [t=17.6] *** SERVER GREW: hidden 44 -> 48 ***
+[t=  62297ms]   [t=17.6] *** ws-cascade-add-buffer gen 0 -> 6 (events=1) ***
+[t= 102712ms]   [t=65.3] rebuild wrote network-visualizer-graph.figure  (#1)
+[t= 112008ms]   [t=70.8] DOM hidden-count now '48'
+[t= 467767ms]   end: server hidden=48 dom={'input': '2', 'hidden': '48', 'output': '2', 'conn': '1324'} counters={'buffer_writes': 0, 'rebuild_writes': 1, 'responses': 1114}
+[t= 467895ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f037_growth2.json

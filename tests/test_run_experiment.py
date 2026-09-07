@@ -32,7 +32,11 @@ for BOTH the run's juniper-data and cascor (their endpoint sets are disjoint). C
   unreachability (exit 3, ``torn_down_early``);
 * G-6 ``check_g6_shape`` None/missing ``input_size`` fail-closed (anti-silence when shape
   fields are absent, not only wrong-size mismatch);
-* ``parse_metric_samples`` rejects non-finite NaN / ±Inf (silent stats/plot poison class).
+* ``parse_metric_samples`` rejects non-finite NaN / ±Inf (silent stats/plot poison class);
+* csv_import operator surface (APD-DATA-018): ``create_dataset`` 422→ConfigError / exit 2
+  on both paths (create runs before stage; 500 stays RunFailed); csv_import is
+  registered-available but not a cascor staging target, so a successful create still
+  cannot ``POST /v1/training/dataset``.
 """
 
 from __future__ import annotations
@@ -130,6 +134,10 @@ class _ScriptedState:
         self.status_die_after: int | None = None
         self.eval_metrics_present = True
         self.artifact_kind = "tabular"
+        # Recurrence create_dataset path. 201 is the happy path; 422 is the csv_import
+        # byte-cap class (ConfigError / exit 2); any other 5xx must stay RunFailed.
+        self.create_status = 201
+        self.create_detail = "csv_import source exceeds max_bytes"
         self.lock = threading.Lock()
 
 
@@ -249,6 +257,11 @@ class _StubHandler(BaseHTTPRequestHandler):
                         {"name": "irregular_sine", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "checkerboard", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         {"name": "arc_agi", "version": "1.0.0", "description": "", "available": True, "schema": {}},
+                        # Registered and available — but not a cascor staging target. Must be
+                        # present so a csv_import cascor YAML fails in stage_dataset, not in
+                        # preflight ("not registered" is also exit 2 and would false-green an
+                        # accidental alias-map addition).
+                        {"name": "csv_import", "version": "1.0.0", "description": "", "available": True, "schema": {}},
                         # The one unavailable generator. `install_hint` is present only when the
                         # arm asks for it: juniper-data omits it for generators declaring no hook,
                         # and a release older than W-4 omits it entirely.
@@ -357,6 +370,9 @@ class _StubHandler(BaseHTTPRequestHandler):
         body = self._read_body()
         self._record("POST", body)
         if path == "/v1/datasets":
+            if state.create_status != 201:
+                self._send(state.create_status, json.dumps({"detail": state.create_detail}).encode("utf-8"))
+                return
             generator = (body or {}).get("generator", "spiral")
             meta = {
                 "dataset_id": "ds-stub123",
@@ -569,6 +585,43 @@ class ConfigValidationTest(unittest.TestCase):
         """No warning when the caller never asks for an output budget at all."""
         self.assertEqual(self._load(_base_config()).get("validation_warnings", []), [])
 
+    def test_missing_validation_split_override_is_recorded(self) -> None:
+        """Section 6.1 rule 2: a run that defeats cascor's refusal must be MARKED.
+
+        With ``JUNIPER_CASCOR_ALLOW_MISSING_VALIDATION_SPLIT`` set, cascor accepts an
+        artifact with no ``X_val`` and early-stops on ``X_test`` -- so the run's reported
+        f1 / roc_auc are selected on the split they are reported from. The design permits
+        that, behind an explicit switch, and requires it to be recorded. This is the
+        recording, and ``make_baseline.py`` already refuses to bless a warned run without
+        ``--accept-warnings``, so it is a gate rather than a log line.
+        """
+        with mock.patch.dict(os.environ, {rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV: "1"}, clear=False):
+            config = self._load(_base_config())
+        warnings = config.get("validation_warnings", [])
+        self.assertEqual(len(warnings), 1, f"expected exactly one override warning, got {warnings}")
+        self.assertIn("SELECTED-ON", warnings[0])
+        self.assertIn(rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV, warnings[0], "the warning must name the variable to unset")
+
+    def test_missing_validation_split_override_off_is_silent(self) -> None:
+        """Absent, empty and explicitly-false must all stay silent.
+
+        A warning that fires on ``=0`` would train every reader to ignore it, and one that
+        fired on absence would mark every clean run. Both halves are checked because a
+        truthiness test on the raw string would pass the first and fail the second.
+        """
+        for value in (None, "", "0", "false", "no"):
+            # patch.dict snapshots and restores, so mutating inside the block is safe --
+            # and no copy of the environment is built. test_env_repr_safety.py forbids
+            # raw environ-derived mappings: they leak secrets through frame-local reprs,
+            # and its scanner reads the source text, so even naming one in a comment trips
+            # it (which is how this comment came to be worded around the construct).
+            with mock.patch.dict(os.environ, {}, clear=False):
+                os.environ.pop(rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV, None)
+                if value is not None:
+                    os.environ[rx.CASCOR_ALLOW_MISSING_VALIDATION_SPLIT_ENV] = value
+                config = self._load(_base_config())
+            self.assertEqual(config.get("validation_warnings", []), [], f"value {value!r} must not warn")
+
     def test_valid_config_loads(self) -> None:
         config = self._load(_base_config())
         self.assertEqual(config["kind"], "cascor")
@@ -694,14 +747,48 @@ class ConfigValidationTest(unittest.TestCase):
         self._assert_rejects(cfg, "unknown key(s) in predict")
 
     def test_recurrence_bad_dataset_split_rejected(self) -> None:
+        """``validation`` stays rejected -- the artifact key is ``X_val``, so the value is ``val``."""
         cfg = _recurrence_config()
         cfg["dataset"]["split"] = "validation"
         self._assert_rejects(cfg, "dataset.split")
 
     def test_recurrence_bad_predict_split_rejected(self) -> None:
+        """Same on the predict key. Two guards, two tests -- E-12 of the rollout plan."""
         cfg = _recurrence_config()
         cfg["predict"]["from_dataset_split"] = "validation"
         self._assert_rejects(cfg, "predict.from_dataset_split")
+
+    def test_recurrence_val_split_accepted_on_both_keys(self) -> None:
+        """``val`` is now a selectable partition -- on BOTH keys.
+
+        Widening ``RECURRENCE_SPLITS`` without this is untested: the two rejection tests
+        above pass whether or not ``val`` was added, because they only ever assert that
+        ``validation`` is refused. A guard's accept set has to be checked separately from
+        its reject set or half of it is never exercised.
+        """
+        cfg = _recurrence_config()
+        cfg["dataset"]["split"] = "val"
+        cfg["predict"]["from_dataset_split"] = "val"
+        config = self._load(cfg)
+        self.assertEqual(config["dataset"]["split"], "val")
+        self.assertEqual(config["predict"]["from_dataset_split"], "val")
+
+    def test_rejection_message_names_val_so_a_typo_is_recoverable(self) -> None:
+        """The error must list ``val``, or a user who typed ``validation`` cannot fix it.
+
+        The guard prints ``sorted(RECURRENCE_SPLITS)``, so this also fails if ``val`` is
+        removed from the set -- which is the point: the message and the set cannot drift.
+        """
+        cfg = _recurrence_config()
+        cfg["dataset"]["split"] = "validation"
+        with self.assertRaises(rx.ConfigError) as ctx:
+            self._load(cfg)
+        self.assertIn("'val'", str(ctx.exception))
+
+    def test_recurrence_splits_holds_exactly_the_npz_partitions(self) -> None:
+        """The accept set is the NPZ partition names, and ``validation`` is not one of them."""
+        self.assertEqual(rx.RECURRENCE_SPLITS, frozenset({"train", "val", "test", "full"}))
+        self.assertNotIn("validation", rx.RECURRENCE_SPLITS)
 
     def test_recurrence_crossval_needs_n_folds(self) -> None:
         cfg = _recurrence_config()
@@ -1325,6 +1412,42 @@ class StagingPathTest(_StubTestCase):
         self.assertTrue(any("not cascade-correlation staging targets" in line for line in logs.output))
         self.assertEqual(self._posts("/v1/training/start"), [])
 
+    def test_csv_import_is_not_a_cascor_staging_target(self) -> None:
+        """APD-DATA-018: after a successful create, cascor still refuses to stage csv_import.
+
+        Drive order is preflight → create_dataset → stage_dataset. A small file
+        therefore creates on juniper-data and then dies as misuse, not as a 5xx
+        and not as a staged start. csv_import must be listed as available on the
+        stub: if it were missing, preflight "not registered" is also exit 2 and
+        would false-green an accidental STAGEABLE_GENERATOR_ALIASES addition
+        (the stub accepts any dataset_type).
+        """
+        self.assertNotIn("csv_import", rx.STAGEABLE_GENERATOR_ALIASES)
+        cfg = _base_config()
+        cfg["dataset"] = {"generator": "csv_import", "params": {"file_path": "small.csv"}}
+        with self.assertLogs(rx.log, level="ERROR") as logs:
+            code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+        self.assertTrue(any("csv_import" in line and "not cascade-correlation staging targets" in line for line in logs.output))
+        created = self._posts("/v1/datasets")
+        self.assertEqual(len(created), 1)
+        self.assertEqual(created[0]["generator"], "csv_import")
+        self.assertEqual(self._posts("/v1/training/dataset"), [])
+        self.assertEqual(self._posts("/v1/training/start"), [])
+
+    def test_csv_import_cascor_create_422_exits_2_before_stage(self) -> None:
+        """Byte cap fires at POST /v1/datasets on the cascor path too (create is first)."""
+        self.state.create_status = 422
+        cfg = _base_config()
+        cfg["dataset"] = {"generator": "csv_import", "params": {"file_path": "oversize.csv"}}
+        with self.assertLogs(rx.log, level="ERROR") as logs:
+            code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+        self.assertTrue(any("POST /v1/datasets rejected (422)" in line for line in logs.output))
+        self.assertEqual(len(self._posts("/v1/datasets")), 1)
+        self.assertEqual(self._posts("/v1/training/dataset"), [])
+        self.assertEqual(self._posts("/v1/training/start"), [])
+
 
 class CliArmsTest(_StubTestCase):
     def test_recurrence_missing_dataset_exits_2(self) -> None:
@@ -1443,6 +1566,41 @@ class RecurrencePathTest(_StubTestCase):
         self.state.train_status = 422
         code, _ = _invoke(self._config(), self.run_dir)
         self.assertEqual(code, rx.EXIT_MISUSE)
+
+    def test_create_dataset_422_is_config_error(self) -> None:
+        """APD-DATA-018: oversized csv_import without opt-in is misuse, not a 5xx."""
+        self.state.create_status = 422
+        with self.assertRaises(rx.ConfigError) as caught:
+            rx.create_dataset(
+                self.server.base_url,
+                {"generator": "csv_import", "params": {"file_path": "oversize.csv"}, "persist": True, "tags": ["experiment"]},
+            )
+        message = str(caught.exception)
+        self.assertIn("422", message)
+        self.assertIn("csv_import source exceeds max_bytes", message)
+
+    def test_create_dataset_500_is_run_failed(self) -> None:
+        """A transport/server failure must not collapse into the 422 misuse path."""
+        self.state.create_status = 500
+        self.state.create_detail = "internal"
+        with self.assertRaises(rx.RunFailed) as caught:
+            rx.create_dataset(
+                self.server.base_url,
+                {"generator": "csv_import", "params": {"file_path": "oversize.csv"}, "persist": True, "tags": ["experiment"]},
+            )
+        self.assertIn("500", str(caught.exception))
+
+    def test_csv_import_create_422_exits_2_before_train(self) -> None:
+        """Recurrence path: the byte cap fires at POST /v1/datasets, not at /v1/train."""
+        self.state.create_status = 422
+        cfg = _recurrence_config()
+        cfg["dataset"] = {"generator": "csv_import", "split": "train", "params": {"file_path": "oversize.csv"}}
+        with self.assertLogs(rx.log, level="ERROR") as logs:
+            code, _ = _invoke(_write_config(self.tmp, cfg), self.run_dir)
+        self.assertEqual(code, rx.EXIT_MISUSE)
+        self.assertTrue(any("POST /v1/datasets rejected (422)" in line for line in logs.output))
+        self.assertEqual(len(self._posts("/v1/datasets")), 1)
+        self.assertEqual(self._posts("/v1/train"), [])
 
     def test_train_budget_timeout_exits_1(self) -> None:
         # Q-2 for the synchronous train: the wall budget is the request's socket timeout.

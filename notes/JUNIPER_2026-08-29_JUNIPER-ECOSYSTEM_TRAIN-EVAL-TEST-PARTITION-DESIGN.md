@@ -5,9 +5,15 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-03
+**Last Updated**: 2026-09-04
 **Status**: DESIGN — **the partitioning question is CLOSED.** Decisions 1-8 settled 2026-08-29/31
 (§9.2); 11 settled 2026-09-02 (§9.5); **9, 10 and 12 settled 2026-09-03 (§9.6)**.
+
+> **Operator surface (2026-09-04):** shipped-vs-design split, this-repo consumers
+> (`RECURRENCE_SPLITS`, experiment fixtures, `snapshot_attribute.load_datasets`), and required-fix 0
+> scope live in [`docs/REFERENCE.md` § Train / Val / Test Partition Contract](../docs/REFERENCE.md#train--val--test-partition-contract).
+> Required-fixes 1–4 plus juniper-data#316 are **shipped**. Required-fix 0 (`*_full` removal) is the
+> only remaining item and has **not started**.
 
 > **What the partition design now says, in full:**
 >
@@ -25,8 +31,10 @@
 > questions they investigated — prefix stability, per-run class membership, which guard to use — are
 > answered or dissolved. Read §9.6 first; go back to §9.3/§9.4 only for the evidence behind it.
 >
-> **Four required fixes are listed in §9.6.4**, all filed (juniper-data#314, #317, #319, #320),
-> alongside decision 11's own scope. Required-fix 2's companion row-reuse gate was **dropped
+> **Four required fixes are listed in §9.6.4.** Fixes 1–4 are **shipped** (juniper-data#314 / data#323,
+> #317 / data#318, #319 / data#322, #320 / data#343; circular-import #316 / data#333 also closed).
+> Required-fix 0 — drop `X_full` / the `*_full` family — is the only remaining item (decision 11,
+> scoped in §9.5.4) and has not started. Required-fix 2's companion row-reuse gate was **dropped
 > 2026-09-03** — with partitions index-disjoint by construction it had nothing to catch, and the
 > invariant it encoded is unsatisfiable on ordinary low-cardinality data (§9.6.4).
 
@@ -393,7 +401,7 @@ cross-field validators reject only `train_ratio + test_ratio > 1.0`.
 | # | question | **decision** |
 | --- | --- | --- |
 | 6 | **D-1** — what does `X_full` mean under three partitions? | ~~**`X_full` is ASSEMBLED, not split.**~~ **RETIRED 2026-09-02 by decision 11.** `X_full` is removed from the contract, so the question it answered no longer exists. Recorded rather than deleted because §9.3's prefix-stability analysis was reasoning *from* it. The ruling's surviving content is the ordering it implied: partitions are produced directly, not carved from a pre-existing whole. |
-| 7 | **Normalisation fit scope** | **STANDS: fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. ~~Consequence: `X_full` is deliberately NOT uniformly normalised.~~ **That consequence is moot under decision 11** — with no `X_full` there is no mixed-scale array to warn about. The fit-scope ruling itself is unaffected, and juniper-data#314 (three generators fitting on the full set) remains a live defect against it. |
+| 7 | **Normalisation fit scope** | **STANDS: fit on `train` only; apply those statistics unchanged to `val` and `test`.** No quantity derived from the reported partition may reach the training data — the same invariant §5 states for the reported score, applied to the scaler. ~~Consequence: `X_full` is deliberately NOT uniformly normalised.~~ **That consequence is moot under decision 11** — with no `X_full` there is no mixed-scale array to warn about. The fit-scope ruling itself is unaffected, and juniper-data#314 / data#323 **shipped** the three-generator leak fix. |
 | 8 | **D-2** — how is additive sizing implemented? | **Dataset-level row counts.** The ratios denote absolute rows of the realised dataset, identically for every generator regardless of its native size knob (`n_points_per_spiral`, `n_points_per_quadrant`, `n_samples_per_class`, `n_samples`). `n_points_per_spiral=500, n_spirals=2` with `100/40/30` means `n_train=1000, n_val=400, n_test=300` — 1700 rows total. This resolves the plan's open question *"what '40 % of train' means for a per-spiral knob"*: it means rows, never per-spiral units. |
 | 9 | **P-1** — how is cross-snapshot comparability obtained? | ~~P-1b: name-keyed seed substreams~~ **REVERSED 2026-09-03. BOTH P-1a AND P-1b ARE ABANDONED.** The current approach stands: partitions are produced by `shuffle_and_split` (tabular) / `temporal_split_index` (sequence), which are **index-disjoint by construction**. Neither prefix stability nor per-partition substreams is pursued. The §9.4 review established that P-1b was never shipped, buys nothing measurable for i.i.d. generators, and is worse for lattice ones; abandoning it removes a hazard rather than leaving one to guard. See §9.6. |
 | 10 | **Which P-1b guard closes the duplicate-row leak?** | ~~G-a — de-duplicate at assembly~~ **COLLAPSED 2026-09-03 — the question no longer exists.** G-a, G-b and G-c all guarded a leak introduced by P-1b; with decision 9 reversed there is no such leak. Disjointness is achieved by construction, not by a guard. **A different and narrower check survives** as required-fix 2 of §9.6: a post-hoc degeneracy assertion on the produced partitions — see §9.6.4 for the caveat that makes it not simply G-a under another name. |
@@ -888,8 +896,8 @@ Dropping `X_full` **collapses** parts of §9 rather than changing them:
   partitions. With no `X_full`, the question does not arise — and neither does the
   `full == train + test` length identity that generated it, nor the plan's options (a)–(d).
 - **Decision 7's consequence is moot.** The fit-on-`train` ruling stands; the warning that *"`X_full`
-  is deliberately not uniformly normalised"* has no referent. (juniper-data#314 remains a live defect
-  against decision 7 itself.)
+  is deliberately not uniformly normalised"* has no referent. (juniper-data#314 / data#323 **shipped**
+  the three-generator leak fix against decision 7 itself.)
 - **§9.4.4's ordering defect dissolves.** Lane B2's objection — that the proposal probes `X_full` to
   choose the strategy that *produces* `X_full` — cannot arise when nothing produces `X_full`.
 - **The §9.3.1 prefix-stability measurements keep their evidential value but lose their subject.**
@@ -1072,7 +1080,8 @@ partitioning one.
   content.
 - The `partition_provenance` schema is described, not specified. Field names, types and the legality
   table are implementation work.
-- No code has moved for any of §9.6. Every required fix is filed or to-file, none is started.
+- No code has moved for decision 11's required-fix 0 or for decision 12's `partition_provenance`
+  schema. Required-fixes 1–4 (and juniper-data#316) are **shipped**; only `*_full` removal remains.
 
 ## 10. Naming — SETTLED: `X_val` / `y_val`, **not** `X_eval`
 

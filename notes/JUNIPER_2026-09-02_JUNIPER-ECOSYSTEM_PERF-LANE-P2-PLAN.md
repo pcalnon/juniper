@@ -1,5 +1,19 @@
 # Performance lane — P2 Planning: work items, sized and sequenced
 
+Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 traps, PF-3 stall/wall, PF-4/PF-8 not driver suites): [`docs/REFERENCE.md` § PF Scenario Suites](../docs/REFERENCE.md#pf-scenario-suites).
+
+> **Operator surface (2026-09-05, supersedes the 2026-09-04 banner).** The work-gate tools
+> (`read_run_metrics` / `make_baseline` / `compare_baseline`) shipped, and the premise consensus
+> validation ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) attacked is now
+> **settled**: `step_count` was not *wrong*, it was **under-specified**. A corpus census over 333
+> runs / 153 distinct configs found 29 of the 79 repeated configs divergent, and **all 29 are
+> explained by `completion_reason` — none remains divergent within a termination branch**. `ml#1733`
+> made the branch part of the precondition (a flip now REFUSES, exit 2, rather than FAILing), and
+> `ml#1741` + `ml#1743` closed the two fail-open holes and all six comparator defects (A1–A4, A6, A7).
+> **Do not wire the exact-match work gate to CI** — but the reason has changed: it is now an unmade
+> **owner** decision (*whether the run tier gates CI at all*, §6 of the P1 design), not a soundness
+> bar. Operator contract: [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
+
 **Closes P2** of the four-phase gate in §1.1 of the phasing note
 ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md)),
 whose deliverable is *"work items with repo, size, and dependencies — the §14-style wave table this
@@ -15,7 +29,13 @@ Wave 1 below wrong. A P2 authored before P3 would have been a plan to build the 
 
 **Scope.** This document enumerates and sequences. It ratifies no thresholds (P3's job, and §7 of
 the instrument-resolution results records the decisions already taken) and writes no operator docs
-(P4's job).
+(P4's job). Item 1.4's operator surface now lives in
+[`docs/REFERENCE.md` § Suite Report Gate Inputs](../docs/REFERENCE.md#suite-report-gate-inputs)
+(juniper-ml#1643).
+
+**Operator surface (item 3.1).** Recurrence work is **not countable**: `n_epochs` is degenerate
+(1-or-200 by readout type), `n_windows` is input size, and the tooling refuses to baseline or gate
+on speed alone. Runbook: [`docs/REFERENCE.md` § Recurrence Work Is Not Countable](../docs/REFERENCE.md#recurrence-work-is-not-countable).
 
 ---
 
@@ -123,8 +143,19 @@ intended as **its own PR** unless noted.
 
 **Why 0.2 → 0.3 is a hard edge and not a formality.** Every number in the instrument-resolution
 results, including the 804/4012 invariance that justifies the work gate, was measured under the
-uncorrected budget. The invariance is very likely to survive — it follows from the iteration cap,
-not the epoch budget — but "very likely" is not the standard for the one property the gate rests on.
+uncorrected budget. The invariance is very likely to survive — but "very likely" is not the standard
+for the one property the gate rests on.
+
+> **Correction (2026-09-05).** The stated cause above was wrong and is **withdrawn**. This sentence
+> originally read "it follows from the iteration cap, not the epoch budget". It does not: **every**
+> PF-1 run, at both 20 s and 65 s, terminates `early_stopped`, so **none is cap-bound** and the cap
+> cannot be what makes the count invariant. The 21-cell invariance is a real empirical regularity
+> with a misattributed mechanism. The mechanism actually established by the `ml#1733` census is the
+> **termination branch**: `step_count` is exact and deterministic *given how training ended*, and
+> divergence appears only when the branch moves (or `max_wall_seconds` truncates the histogram).
+> This matters beyond bookkeeping — the baseline `pf1-2026-09-04` was cut from an early-stopping
+> workload, i.e. the same class as the counterexample, which is precisely why the guard, not the
+> cap, is what makes the comparison safe.
 
 **Measured 2026-09-02, and it is bigger than this plan first assumed.** The correction was probed on
 two live cells before touching the shared config (`util/ad-hoc/2026-09-02_output_epochs_impact_suite.yaml`,

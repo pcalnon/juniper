@@ -5,17 +5,25 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-01
-**Status**: PLAN v3 — **round 3 returned NOT RESOLVED on all four targets; four of its seven findings
-have since moved.** §9 is still the live record and is **not** folded into §§2–7, which remain
-v3-as-reviewed rather than v3-as-corrected. **Still do not implement from this document.**
+**Last Updated**: 2026-09-05
+**Status**: PLAN v3 — **LARGELY DISCHARGED 2026-09-05.** The third partition now exists end to end,
+producer through consumer: juniper-data#353/#358/#361/#367, juniper-data-client#187,
+juniper-cascor#620. Of the seven findings S-1/S-3/S-4 are closed and S-4 was resolved
+**not-a-defect**; of the ten risks R-1/R-5/R-7/R-8 are closed. The finding and risk tables below
+carry the per-row evidence and dates.
+
+**Still do not implement from this document.** §9 remains the live record and is **not** folded
+into §§2–7, which are v3-as-reviewed rather than v3-as-corrected — that has not changed, and the
+chunks that have *not* shipped (6 cascor CLI, 8 canopy §6.4 UI, 9 `validation_warnings`, and
+decision 11's `*_full` removal) are still described here in their v3-as-reviewed form. Read
+`JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md` §9.5/§9.6 first.
 
 | finding | state |
 | --- | --- |
-| S-1 cascor has no test slot | **PARTLY CLOSED** — cascor#614 built the machinery, cascor#616 populates it from the **inline** path. The **artifact** ingress still needs the ecosystem change (Chunk 4). |
+| S-1 cascor has no test slot | **CLOSED 2026-09-05** — cascor#614 built the machinery, cascor#616 populated it from the **inline** path, and cascor#620 (Chunk 4) opened the **artifact** ingress: `_artifact_to_tensors` returns six tensors and `_eval_split` returns `(None, None)` rather than falling back to train. |
 | S-2 D-1's premise is false | **CLOSED** — D-1 re-posed and **ruled** 2026-08-31, with D-2 and a normalisation sub-ruling. See §3's banner and design §9.2. |
-| S-3 `NPZ_SPLITS` owned by no chunk | **CONFIRMED** from source 2026-09-01. Still unhomed. |
-| S-4 §6a rejects sequence val artifacts | OPEN. |
+| S-3 `NPZ_SPLITS` owned by no chunk | **CLOSED 2026-09-04** — homed in juniper-data-client#187, which set `NPZ_SPLITS = ("train", "val", "test", "full")`. |
+| S-4 §6a rejects sequence val artifacts | **RESOLVED NOT-A-DEFECT 2026-09-05.** §6a's 2-D rule is a deliberate **tier boundary**, not an oversight: cascor's gate says so in its own error text — *"3-D sequence artifacts belong to the juniper-recurrence tier, not cascade-correlation (W-2 tier boundary)"* (`src/api/lifecycle/manager.py`, `_artifact_to_tensors`). cascor refuses a 3-D artifact whether or not it carries `val`, and always did. The consumer that *does* read them is juniper-recurrence, whose reader is split-name-generic (see R-6). Verified 2026-09-05 by running a `multi_sine` artifact carrying `X_val` through `juniper_data_client.contract.validate_npz_contract`: it classifies `sequence` and validates all four splits. What #367 changed is the **docs**, which claimed "All arrays are 2-dimensional" ecosystem-wide — false of all six sequence generators; they now state rank by tier and direct consumers to dispatch on `meta.sequence`, not on `X.ndim`. |
 | S-5 three of four ml homes wrong | OPEN. |
 | S-6 store-root count vacuous | **RESOLVED** 2026-09-01 — full census; **R-4 downgraded to theoretical**, R-3 re-homed to LocalFS. |
 | S-7 stale env justifying dead code | **FILED** as juniper-canopy#559. |
@@ -198,14 +206,14 @@ invariant to "Chunk 4 gate" and then described no gate.
 
 | id | risk | rating | note |
 | --- | --- | --- | --- |
-| R-1 | Stale cached artifacts | **MEDIUM** | Self-mitigating **only if** ratios are request params — which **D-2 likely makes false** (§3). Chunk 3's `VERSION` bump is the unconditional mitigation; all 19 cached artifacts are at `1.0.0` across 5 generators |
+| R-1 | Stale cached artifacts | **CLOSED 2026-09-05** | The unconditional mitigation shipped: **all 16 generators are at `VERSION = "2.0.0"`** (9 tabular in juniper-data#361, the 6 sequence generators + `equities` in #367). `generate_dataset_id` hashes that version, so a seeded request that produced a two-way artifact cannot resolve to the same ID |
 | R-2 | Consumers accept silently | **HIGH** | §2. Addressed by §6a |
 | R-3 | `DatasetMeta` bricks the store | **HIGH** | Default the field |
 | R-4 | `ADD COLUMN NOT NULL` on a populated table; **and a missing `IF NOT EXISTS` breaks the second boot** | **HIGH** | E-7 |
-| R-5 | `full == train + test` breakage | **MEDIUM** (was HIGH) | Fires in Chunk 3b, not Chunk 3 (E-6). Gated by D-1 |
+| R-5 | `full == train + test` breakage | **CLOSED 2026-09-05** | Fired in Chunk 3b as predicted (E-6). juniper-data#367 took every identity three-way — in code, in the property tests, and in the ten prose sites that published the two-way form, two of them as a numbered **guarantee** |
 | R-6 | Silent exclusion at `client<0.5.0` | **LOW** (was MEDIUM) | recurrence's reader is split-name-generic and can already read a `val` split at 0.4.x; only its t/dt validation is skipped |
-| R-7 | cascor silently ignores a real `X_val` | **HIGH** (was MEDIUM) | E-3 — during Chunks 3→4 the artifact advertises compliance while the defect persists |
-| R-8 | Split tabular/sequence contract | **MEDIUM** | Persists until 3b **and** §6a land |
+| R-7 | cascor silently ignores a real `X_val` | **CLOSED 2026-09-05** | E-3's window ran 09-04 → 09-05 and is shut: cascor#620 consumes `X_val` and refuses an artifact without it |
+| R-8 | Split tabular/sequence contract | **CLOSED 2026-09-05** | Both landed: 3b in juniper-data#367, §6a's rank question resolved with S-4 |
 | R-9 | ml harness rejects `"validation"` | **MEDIUM** | Two tests, two guards (E-12) |
 | R-10 | Deployed stack skips release ceremony | **LOW** | — |
 

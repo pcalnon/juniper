@@ -103,6 +103,18 @@ def _dist_version(name: str) -> Optional[str]:
         return None
 
 
+def _section(blob: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """``blob[key]`` when it is a mapping, else ``{}``.
+
+    NOT `blob.get(key) or {}`. That guards FALSY -- `None`, `{}` -- and passes a truthy non-dict
+    straight through to the next `.get`, where a manifest carrying `"environment": "linux"` dies
+    with `AttributeError: 'str' object has no attribute 'get'` instead of being refused for
+    cause. Same fix as ml#1781 made in `read_run_metrics.py`; these files are the rest of it.
+    """
+    value = blob.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def collect_host(manifests: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     """Build HOST.json from the runs plus this host, flagging any fidelity gap.
 
@@ -111,17 +123,17 @@ def collect_host(manifests: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
     as the runs did, so the check is performed and recorded rather than assumed -- a HOST.json
     carrying a plausible but wrong torch version is worse than one that says it could not tell.
     """
-    run_pythons = sorted({(m.get("environment") or {}).get("python") for m in manifests if (m.get("environment") or {}).get("python")})
+    run_pythons = sorted({p for p in (_section(m, "environment").get("python") for m in manifests) if p})
     tool_python = platform.python_version()
-    thread_envs = [(m.get("environment") or {}).get("thread_env") for m in manifests]
-    nprocs = sorted({(m.get("environment") or {}).get("nproc") for m in manifests if (m.get("environment") or {}).get("nproc")})
+    thread_envs = [_section(m, "environment").get("thread_env") for m in manifests]
+    nprocs = sorted({n for n in (_section(m, "environment").get("nproc") for m in manifests) if n})
 
     host: Dict[str, Any] = {
         "cpu_model": _cpu_model(),
         "cpu_count": nprocs[0] if len(nprocs) == 1 else nprocs,
         "total_ram_kb": _total_ram_kb(),
         "gpu_present": _gpu_present(),
-        "platform": sorted({(m.get("environment") or {}).get("platform") for m in manifests if (m.get("environment") or {}).get("platform")}),
+        "platform": sorted({pl for pl in (_section(m, "environment").get("platform") for m in manifests) if pl}),
         "thread_budget": thread_envs[0] if thread_envs and all(t == thread_envs[0] for t in thread_envs) else thread_envs,
         "versions": {
             "python_tool": tool_python,
@@ -192,7 +204,22 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
             refusals.append(f"{suite_dir.name}: step_count is NOT invariant across cells ({[int(c) for c in summary['step_counts']]}) -- these are not repeats")
         # Distinct from the work invariant: cells that ran DIFFERENT workloads would give a
         # step_count spread that is a fact about the configs, not about the host or the code.
-        if not summary["single_workload"]:
+        # An UNKNOWN identity is not a small version of a differing one, and it must be named
+        # separately. A cell whose config is missing, unparseable, or unhashable has no identity
+        # to compare; `summarise` counts it, so `single_workload` is already False -- but the
+        # message below would then render "cells ran 0 different workloads", which states no
+        # cause and points nowhere. The mixed case is worse: silently dropping the unknown cell
+        # would bless the REST of the suite under a fingerprint those cells never shared, and a
+        # later comparison against the dropped cell would read as "same workload" rather than
+        # refuse.
+        unknown = [r["run_id"] for r in rows if not r.get("workload_fingerprint")]
+        if unknown:
+            refusals.append(
+                f"{suite_dir.name}: workload identity unknown for {unknown} -- a cell with no identity cannot be "
+                f"shown to have run the same workload as the others, so this suite counts as different workloads "
+                f"rather than one. Fix the cell's experiment.yaml, or baseline the cells that do have an identity."
+            )
+        if not summary["single_workload"] and len(summary["workload_fingerprints"]) > 1:
             refusals.append(
                 f"{suite_dir.name}: cells ran {len(summary['workload_fingerprints'])} different workloads "
                 f"(fingerprints {[f[:12] for f in summary['workload_fingerprints']]}) -- a baseline scenario must be ONE workload"
@@ -251,7 +278,11 @@ def build_baseline(tag: str, suite_dirs: Sequence[Path], *, accept_warnings: boo
         "accepted_warnings": accept_warnings,
         "scenarios": scenarios,
         "metric_contract": {
-            "work": "step_count -- gated EXACTLY; deterministic for a seed-fixed config and contention-immune",
+            "work": (
+                "step_count -- gated EXACTLY; deterministic for a seed-fixed config and contention-immune "
+                "ONLY WITHIN a termination branch (see completion_reason). Corpus census 2026-09-04: 29 of 79 "
+                "repeated configs diverge across branches, none within one."
+            ),
             "speed": "mean_step_seconds -- REPORTED, never gated; carries a 13-20.5% host drift floor",
             "de_ratified": "timings.drive and wall_seconds; drive is quantized to the 5 s poll interval",
         },

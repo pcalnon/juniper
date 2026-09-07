@@ -416,6 +416,15 @@ class TestLaunchLines(unittest.TestCase):
         self.assertIn("PYTHON_GIL=0", data_up)
         self.assertIn("-m juniper_data --host 127.0.0.1 --port", data_up)
         self.assertIn("/v1/health", data_up)
+        # APD-DATA-018 csv_import half: operators export these before --up; the child
+        # inherits. data_up must not hardcode /data/imports or clobber a caller-set
+        # ceiling / truncation opt-in (and must not unset them either).
+        for var in (
+            "JUNIPER_DATA_IMPORT_DIR",
+            "JUNIPER_DATA_CSV_IMPORT_MAX_BYTES",
+            "JUNIPER_DATA_CSV_IMPORT_ALLOW_TRUNCATION",
+        ):
+            self.assertNotIn(var, data_up, f"data_up must not set {var}; operators export it before --up")
 
     def test_cascor_launch_recipe(self) -> None:
         cascor_up = _extract_experiment_fn("cascor_up")

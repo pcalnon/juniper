@@ -10,6 +10,8 @@
 
 This file accumulates the arc's execution evidence phase by phase (plan §9). Matrix row statuses live in the matrix's own `status` column at Phase-1 close; this file holds transcripts, findings, and the PR ledger.
 
+**Triage this ledger mechanically** — `python3 util/ad-hoc/e2e_finding_triage.py` (see [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../docs/REFERENCE.md#canopy-e2e-finding-triage)). Disposition tokens (`FIXED` / `HEALED` / `ACCEPTED`) must sit in the finding **header**, in its last 170 characters. Body prose is invisible to the counter.
+
 ---
 
 ## Phase 0 — Prerequisites & stack fixes (2026-08-09) — COMPLETE
@@ -97,6 +99,59 @@ Found by the #1044 executor while mutation-testing: the live-up stubs capture `e
 
 **F-E2E-006 — isolated_stack canopy leg lacked the browser-WS origin allowlist (stack harness; FIXED ml#1049).**
 Found at first live browser attach (prior session, 2026-08-09): with `JUNIPER_CANOPY_WEBSOCKET__ALLOWED_ORIGINS` unset, canopy's browser-facing sockets rejected the dashboard's own origin. Fix: `util/isolated_stack.bash` canopy leg now exports the canopy-origin allowlist pair (`isolated_stack.bash:363-364`); merged as ml#1049. Verified live this run: both sockets OPEN with the allowlist in the process env.
+
+**F-E2E-007 — WITHDRAWN 2026-09-04, the same day it was filed. It was wrong, and the way it was wrong is the durable part (LEDGER; withdrawn).**
+
+It claimed that the `W4-01..17` / `W1-12..14` identifiers in this arc's repeated "Blast radius"
+sentence "have never existed", 18 of 20 of them, and that F-CANOPY-037's closure condition was
+therefore unsatisfiable. **Both claims are false.**
+
+`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md` §4 enumerates
+`### W4 — Topology exploration` as **exactly 17 numbered steps** (`:1005-1023`) and
+`### W1 — Cold-start cascor training` as 19, whose steps 12/13/14 are the topology-DOM steps
+(`:954-956`). Both were added 2026-08-09 in `e835e2b4` (juniper-ml#1036) and **never deleted** —
+`git log --all -S` on three distinctive step strings returns that one commit each. The coverage
+audit of the same day says it outright: *"W4 is a 17-step script"*
+(`JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-PLAN-COVERAGE-AUDIT.md:353`).
+
+**The error**: a search for the id *token* (`W4-09`) over a definition written as an ordinal (`9.`)
+under a section heading. Absence of the token was read as absence of the definition.
+
+**Three things make it worse, and they are why this entry stays as a record rather than vanishing.**
+
+1. **The answer was in the file being edited.** `util/ad-hoc/e2e_seg17_topology_driver.py:64-72`
+   already said these ids *"live in the MATRIX … NOT in the plan"*. That comment was read during the
+   same session and did not register.
+2. **The finding manufactured one of the ids it denied.** The literal token `W1-13` had never
+   appeared anywhere in this repository's history; it entered for the first time **inside the
+   sentence asserting it had never existed**. When a claim of non-existence has to spell the thing
+   to deny it, that is the tell.
+3. **It was convenient.** It removed the one obstacle to a closure the author was already trying to
+   make — an explicit escalator in
+   `JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md` §3 that was not
+   heeded.
+
+**The replacement root cause was also wrong, and was withdrawn before it shipped.** A second draft
+blamed the plan's §9 row-id scheme for having no `W<n>-NN` form, making workflow steps
+"structurally untrackable per-step". Refuted three ways: `reports/e2e/20260811T010700Z/statuses.tsv`
+carries **71 individually-verdicted W-rows** including `W5-01`…`W5-29` and `W6-01`…`W6-21` with
+per-step FAILs, so the tooling tracks them fine; the plan at `:151` explicitly delegates workflow
+ids to the matrix (*"its §4 scripts are canonical"*) and §9 is a screenshot-filename convention that
+never mentions `statuses.tsv`; and the token form appears in the 2026-08-10 run, sixteen days before
+the date the draft blamed. **W4 is not structurally different from W5 — it was driven once instead
+of thirty times.**
+
+Caught by the consensus procedure: three Lane A agents on independent entry points (run artifacts,
+git history, plan-plus-product) and two Lane B agents on opposing briefs. Lane A found the
+enumeration; Lane B2 refuted the replacement; Lane B1 independently found that the closure it
+enabled also needed amendment (see F-CANOPY-037). **No round agreed with the author.**
+
+> **A real trap, salvaged from the withdrawn entry because it is independently true.**
+> `util/ad-hoc/e2e_finding_triage.py` reads a finding's severity as the **first**
+> `P0|P0/P1|P1|P2|CRITICAL|LEDGER` token anywhere in the bolded header, not just the one in the
+> parenthetical. This entry's first draft said *"holding the arc's only P0/P1 open"* in its prose and
+> was duly triaged **P0/P1**, inventing a top-severity defect out of a bookkeeping note. **Do not
+> name another severity in a header's prose**, or the count silently misreports.
 
 **F-CANOPY-001 — dark-mode toggle glyph not synced from the persisted store on mount (P2, OPEN).**
 Reproducer: toggle dark (glyph 🌙→☀️, `<html>` gains `dark-mode`) → reload → theme restores dark but the button renders the layout-default 🌙; the next click still behaves correctly (store true→false → light), so only the glyph is stale.
@@ -584,10 +639,219 @@ fails if anyone wires a consumer without restoring a writer.
 
 **LIVE RE-DRIVE INCONCLUSIVE (2026-08-26, run `20260826T174225Z`, `e2e_p1wave_redrive.py --step f035,f035probe,storeprobe`; stays OPEN).** The adapter is provably correct — `/api/metrics/history` held 3216 candidate-phase entries in the exact `{epoch, metrics.loss, phase}` shape, and a direct simulation of `_candidate_series_from_history` kept 99/99 from the last-100 window. But the shared `metrics-panel-metrics-store` was **empty** (`len 0`) on BOTH the Training Metrics and Candidate Metrics tabs post-run, and the **main** metrics loss plot was empty too — the store never populated from the available history (the liveness-gated fast-interval poll starved/demoted throughout the congested run; F-CANOPY-004 territory). So M-CANDIDATES-07's live render cannot be exercised while the upstream store is empty — this is the instrument/F-004 condition, not an F-035 regression. The fix stands on its unit suite + the adapter simulation; the live render is blocked on the same store-population/staleness that F-CANOPY-004 tracks. Row stays as-is pending an F-004 render.
 
+> **THE OWED RE-DRIVE IS DONE (2026-09-05) — M-CANDIDATES-07 is FAIL, and the blocker is now measured
+> rather than inferred: the store is WRITTEN and never applied.**
+>
+> Driven against canopy main **`94220f0`** with
+> `util/ad-hoc/2026-09-04_f035_candidate_loss_redrive.py`. This re-drive exists separately from
+> `e2e_p1wave_redrive.py --step f035` for one reason: the 2026-08-26 attempt used the client-side
+> `storeprobe` this arc later ruled **inadmissible** (it read `None` for every store on the app,
+> including one whose heatmap was visibly rendering, and reported that as "empty"). This one uses the
+> repaired reader (`state.paths.strs`) and **refuses to score an unreadable store as an empty one**.
+>
+> | measurement | result |
+> |---|---|
+> | server, the handler's own endpoint | `{"history": [...]}`, **99 of 100 rows `phase:"candidate"`** |
+> | `ws-liveness-store` | `{'metrics_live': False, 'state_live': False}` — the WS demotion gate is **open**, so the REST branch is the one running |
+> | **writes to `metrics-panel-metrics-store`, parsed off `/_dash-update-component`** | **17 writes of 500 rows** in 30 s; `omitted=0`, `unparsed=0` *(correct for the window — but the `.json` archived beside it reads 46/`unparsed=7`; see the census-window correction below)* |
+> | store read **immediately before** those writes | `ok` via `paths.strs`, `len=0` |
+> | store read **immediately after** those writes | `ok` via `paths.strs`, **`len=0`** |
+> | `candidate-metrics-panel-loss-plot` | present, **zero traces**, after a 45 s budget |
+>
+> **The server sends 500 rows seventeen times and the client's copy stays empty.** That is the
+> **F-CANOPY-039 signature** — one store id, two different values — on a *different* store, after
+> canopy#549 fixed it for the topology store (which is now healthy: M-TOPOLOGY re-drives 16 PASS).
+>
+> **canopy#524's adapter is correct and unreachable.** The panel renders exactly what it is given. So
+> this finding's own fix stands, and its row stays FAIL on an upstream cause.
+>
+> **Two hypotheses ruled OUT by measurement, not argument.**
+>
+> - *The WS demotion gate is engaged.* `_update_metrics_store_handler` returns `no_update` only
+>   `if ws_live and not full_fetch`, and `ws-liveness-store` reads `metrics_live: False`.
+> - *The callback is starved, silent, or writing empty.* It is none of those: every one of the 17
+>   captured writes carried 500 rows. An earlier count in this session reported only "13 of 74
+>   responses naming the store", which established that the callback was *speaking* and **nothing about
+>   whether a value landed** — a `no_update` for an output can still name it in the body. Parsing the
+>   bodies is what separated the two.
+>
+> **A THIRD hypothesis was ruled out by the log, and a fourth was NOT ruled out by it — the difference
+> matters.** The handler warns on both its failure paths (`Metrics history API returned <code>` and
+> `Failed to fetch metrics from API`). The instance log carries **zero** of either, so the fetch is
+> neither erroring nor non-OK. It also carries zero `Fetched N metrics from …` debug lines — but the
+> log has **zero DEBUG lines at all**, so that absence says nothing about whether the handler ran. An
+> instrument that cannot produce a non-zero answer has not measured anything.
+>
+> **WHAT IS NOT ESTABLISHED, and the instrument that cannot establish it.** Whether the reader and the
+> writer are addressing *the same store instance*. The duplicate-instance hypothesis is exactly what
+> F-CANOPY-039's investigation chased, and this arc's own note records the limitation:
+> **"`dcc.Store` has no DOM; `paths.strs` hides duplicates"** (`util/ad-hoc/README.md`). The reader used
+> here goes through `paths.strs`. **It therefore cannot answer the question its own result raises.** The
+> next instruments are the ones the arc already built for this store —
+> `util/ad-hoc/e2e_f039_metrics_store_soak.py` and `e2e_f039_duplicate_store_probe.py` — and note that
+> the latter's `exit 1` is "could not run", not a verdict.
+>
+> **A correction to an earlier statement in this session.** The server check was first run at
+> `?limit=100`, the code's default `window_size`; the live display-mode store asks for **500**, which is
+> what the captured writes carry. The candidate-phase content holds at either limit, so no conclusion
+> moves — but the figure to quote is 500.
+>
+> **Matrix effect: none.** M-CANDIDATES-07 was already FAIL. What changes is the *basis* — from
+> "blocked on an upstream store that is empty for reasons attributed to F-CANOPY-038/-039" to a measured
+> written-and-not-applied, with the duplicate-instance question named and its instrument identified. The
+> row's "re-drive owed" state is closed.
+>
+> Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-05_f035_candidate_redrive.{txt,json}`
+> (bracketing reads + write census) and `…/2026-09-04_f035_candidate_redrive.{txt,json}` (the first
+> pass, kept because its weaker mention-count is the contrast that motivated parsing the bodies).
+
+---
+
+#### 2026-09-05, later — the open question is ANSWERED, the warning is DISCHARGED, and one instrument defect is repaired
+
+The block above closed with a question its own reader could not answer — *are the reader and the
+writer addressing the same store instance?* — and the F-039 topoprobe's report closed with a warning
+that had to be discharged before its verdict could be read. Both are now settled, and settling them
+turned up a defect in the re-drive instrument itself.
+
+**What was SERVING, not merely checked out.** Everything below was measured against a dedicated leg on
+`:8052` launched from the probe worktree at canopy **`8a43a33`** and running the topoprobe-instrumented
+`dashboard_manager.py`; the shared `:8050` leg was untouched. Naming the serving commit rather than the
+checkout is deliberate — a long-running leg serves the code it *imported*, and reading a merged fix into
+a process that predates it cost this arc a whole row census once already. Every `file:line` cited below
+was re-verified against canopy main **`785fb64`** after teardown and still resolves to the same
+statement, so the citations do not depend on which of the two commits the reader has to hand.
+
+**A. THE DUPLICATE-INSTANCE HYPOTHESIS IS REFUTED — from the one vantage point that can see it.**
+`state.paths.strs` maps one id to one path, so it cannot *represent* a duplicate; asking it this
+question was always going to return a confident non-answer. Dash serves the layout tree as JSON from
+the **server**, before dash-renderer indexes anything, so a duplicate id appears there as what it is.
+New instrument: `util/ad-hoc/2026-09-05_dash_layout_id_census.py`, against
+`/dashboard/_dash-layout` on the instrumented leg.
+
+| | |
+|---|---|
+| layout served | 165,807 bytes |
+| id-bearing nodes | **465** |
+| distinct ids | **465** |
+| duplicate ids, anywhere in the layout | **0** |
+| `metrics-panel-metrics-store` instances | **1**, at `children.11.children.1.children.0.children.0.children.children.11`, default `data=[]` |
+
+Corroborated by source: the id has exactly one declaration site,
+`metrics_panel.py:537` (`dcc.Store(id=f"{self.component_id}-metrics-store", data=[])`).
+`candidate_metrics_panel.py` declares no such store — its `SHARED_METRICS_STORE_ID` (line 63) is only
+ever *read*, as an `Input` at line 349. **There is one store. Reader and writer address it.**
+
+**B. THE TOPOPROBE'S WARNING IS DISCHARGED — the second writer is exonerated twice over.** The report
+demands: *"BEFORE concluding: discriminate by WRITER"*, naming `append_ws_metrics_store`
+(`allow_duplicate=True`, `dashboard_manager.py:3910`) as an ungated writer whose every write is
+"`no_update`-free by construction".
+
+- *Statically*, that characterisation is too strong in the direction that matters here.
+  `_append_ws_metrics_store_handler` (`dashboard_manager.py:6732`) opens
+  `if not ws_events: return dash.no_update`, and its only other return is
+  `current + ws_events` bounded to the window. **It cannot write an empty value at all**, so it
+  cannot be the thing holding the store at `[]`.
+- *Empirically*, it never ran. The appender fires only on a `ws-metrics-buffer` change; that store is
+  written by a **clientside** drain (`dashboard_manager.py:3602`) which returns `no_update` unless it
+  actually drained frames, and it bumps `gen` on every real drain. Bracketing the census window, the
+  buffer read `{'events': [], 'gen': 0, 'last_drain_ms': 0}` **before and after** — its mount default,
+  `gen` **0 → 0**. Consistent with `ws-liveness-store`'s `metrics_live: False`.
+
+The re-drive now records this as `ws_appender_fired: false` rather than leaving it to be inferred.
+**The liveness-gated REST poll is the sole writer**, and the topoprobe's verdict may be read.
+
+**C. THE SERVER'S OWN VIEW NEVER ADVANCES EITHER — this is the sharp fact.** The topoprobe logs the
+guarded handler's `State`, which is the handler's own Output handed back on the next tick. Over
+**130 comparisons** (`--target metrics`), every one is `eq=False` at a **constant `cur_len=2`** — the
+serialised `[]` — against `new_len=164570` offered each time.
+
+> If the browser had applied any of those writes, the following tick's `State` would carry 500 rows.
+> It carried `[]` one hundred and thirty times.
+
+So the response reaches the browser and **the browser does not apply it**. That is a stronger claim
+than the block above could make, and it is made from a server-side vantage point that shares no
+machinery with the `paths.strs` reader.
+
+**D. A CENSUS-WINDOW CORRECTION, and the instrument defect behind it.** The block above quotes
+"17 writes of 500 rows in 30 s; `omitted=0`, `unparsed=0`". That figure is **correct for the window**
+and matches the archived `.txt` exactly. The `.json` archived beside it, from the *same run*, reads
+**46 writes / `unparsed=7`**. Both are real: `_wire_census` and `_write_census` attached
+`page.on("response", …)` and **never detached**, and returned the very dict the handler keeps
+mutating — so the log printed the honest 30 s snapshot at t=91 s and the JSON, dumped at t=139 s
+after the script's 45 s wait on the loss plot, reported the whole listening lifetime. A census that
+does not stop counting when its window closes is not a census. Fixed in
+`util/ad-hoc/2026-09-04_f035_candidate_loss_redrive.py`: both censuses now `remove_listener`, return
+a copy, and record `window_s` in the artifact so the window is never again implied.
+
+Re-driven after the fix, artifacts coherent (`…_v2.{txt,json}`, both windows now agreeing):
+
+| measurement | result |
+|---|---|
+| server history | 100 rows, **93 `candidate`** / 7 `output` *(fixture regrown — see the F-CANOPY-037 notice)* |
+| `ws-liveness-store` | `{'metrics_live': False, 'state_live': False}` |
+| `ws-metrics-buffer`, bracketing | `gen` **0 → 0**, mount default both reads |
+| writes to the store, parsed, **30 s window** | **14 writes of 500 rows**; `omitted=0`, `unparsed=0` |
+| store read before / after those writes | `len=0` / **`len=0`** |
+| `candidate-metrics-panel-loss-plot` | present, **zero traces**, 45 s budget |
+
+**E. THE LEADING MECHANISM IS MEASURED — and it does NOT close the finding.** The arc already carries
+a mechanism with this exact signature: dash-renderer retires an **in-flight** call when the same
+callback is **re-requested**, and the retired response is discarded on arrival. `update_metrics_store`
+is driven by `fast-update-interval` at `FAST_UPDATE_INTERVAL_MS = 1000` (`canopy_constants.py:370`).
+New instrument: `util/ad-hoc/2026-09-05_f035_store_write_latency_probe.py`, 60 s window, timing every
+store-writing round trip at the browser.
+
+| | min | median | max |
+|---|---|---|---|
+| round-trip duration | 0.989 s | **1.827 s** | 4.71 s |
+| gap between store-writing requests | 1.128 s | **1.716 s** | 2.848 s |
+
+**29 writes of 500 rows; 20 of them (69%) were still in flight when a successor was issued.** The
+median round trip exceeds the median re-request gap, so on average a write is superseded before it
+lands — the retirement precondition, holding most of the time.
+
+**But it does not account for the result, and saying so is the point.** Nine of the 29 responses had
+no store-writing successor in flight, and the store still read `len=0` at the end of the window —
+and the server-side `State` was constant-empty across **130** comparisons, not 69% of them. Overlap
+this heavy would degrade freshness; it cannot by itself produce a store that *never* advances. So:
+
+- **Established**: one store instance; one active writer; full payloads on the wire; neither the
+  client's copy nor the server's `State` ever advancing; heavy request overlap.
+- **NOT established**: that renderer retirement is the cause. It is the leading hypothesis with
+  supporting arithmetic and an unexplained residual — nine unopposed responses that also failed to
+  land. Reporting it as the cause would be this arc's recurring error, a well-formed measurement of
+  an adjacent question returned in confident numbers.
+
+**The discriminating next measurement** is inside dash-renderer, not around it: instrument the store's
+`setProps`/reducer path in the browser to record whether the payload arrives at the renderer and is
+dropped, or never reaches it. `util/ad-hoc/e2e_f039_metrics_store_soak.py` and
+`e2e_f039_duplicate_store_probe.py` remain available; note the latter's `exit 1` means "could not
+run", not a verdict — and its question (duplicates) is now answered by **A**, so it is no longer the
+one to reach for.
+
+**Matrix effect: none.** M-CANDIDATES-07 stays **FAIL**; canopy#524's adapter stays correct and
+unreachable. What moves is the basis and the open-question list: the duplicate-instance question is
+**closed by refutation**, the writer discrimination is **done**, and the remaining unknown is narrowed
+from "why is the store empty" to "why does an applied-looking response not reach the store's state".
+
+**The instrumented leg is down.** The topoprobe was reverted (`revert` confirmed the checkout clean,
+zero `TOPOPROBE` occurrences, empty `git status`), the :8052 leg was stopped **by pid** (2235611) via
+`util/ad-hoc/2026-09-04_canopy_verify_instance.bash down 8052`, and the probe worktree
+`juniper-canopy--probe--f039-metrics--20260905-1200--probe` was removed and pruned.
+
+Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
+`2026-09-05_f035_candidate_redrive_v2.{txt,json}` (coherent re-drive),
+`2026-09-05_f035_layout_id_census.{txt,json}` (the duplicate refutation),
+`2026-09-05_f035_store_write_latency.{txt,json}` (the timing),
+`2026-09-05_f035_topoprobe_metrics_report.txt` (130 comparisons) and
+`2026-09-05_f035_topoprobe_canopy8052.txt` (the leg log it was read from — archived as `.txt`
+deliberately: `.gitignore:52` is `*.log`, which would have silently excluded it).
+
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.
 
-**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1, OPEN; found during the 2026-08-26 §6.3 topology re-drive).**
+**F-CANOPY-037 — the topology rebuild is still chained off the 1 Hz `metrics-panel-metrics-store`, which rewrites 141 KB of IDENTICAL data ~0.6/s on a COMPLETED run; the graph therefore renders only when it wins the race — 2 of 11 sessions measured (P0/P1; found during the 2026-08-26 §6.3 topology re-drive; mechanism FIXED canopy#531 2026-08-27, verified 2026-08-28; **CLOSED 2026-09-05** — the `ws-cascade-add-buffer` growth trigger the fix created is now driven on a live cascade, twice).**
 Measured live on a fresh isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `c6cd2f0`,
 canopy `9f6fac9`) against a completed 10-unit network, with `util/ad-hoc/e2e_seg17_topology_driver.py`.
 
@@ -680,6 +944,151 @@ so the claimed-Input starvation would survive exactly when the cascade is growin
 — and this finding measured the graph *equally absent during an active run and post-run*. Only decoupling
 fixes both regimes. (a) remains worth doing on its own merits (the ~80 KB/s waste, 4+ consumers re-fired);
 that is now **F-CANOPY-038**, not part of this fix.
+
+---
+
+### 2026-09-04 — the owed live re-drive, against merged main (and what it does not reach)
+
+This entry has said since 2026-08-28 that its **own mechanism is closed** and that it stays OPEN only
+until the topology block is re-driven. That re-drive is now done for the M-TOPOLOGY rows, **against canopy main `94220f0`** —
+which contains both of this arc's latest fixes (canopy#570 F-CANOPY-042, canopy#573 F-CANOPY-046) *and*
+another session's canopy#567, which moved every synchronous network call off the event loop and could
+plausibly have disturbed rendering.
+
+Driven with `util/ad-hoc/e2e_seg17_topology_driver.py` on the live 2/40/2/944 fixture, via a second
+canopy on `:8052` launched from the primary checkout
+(`util/ad-hoc/2026-09-04_canopy_verify_instance.bash`) so the arc's `:8051` instance was left untouched:
+
+| step | rows | result |
+|---|---|---|
+| `topo` | M-TOPOLOGY-01..08, -17 | **9 PASS / 0 FAIL** |
+| `topoevents` | -09, -10, -12, -15 | **4 PASS / 0 FAIL** |
+| `topostate` | -13, -18 | **2 PASS** (see the ordering note below) |
+| `topoexport` | -14 | **1 PASS** (`canopy_network_20260904_173346.png`, 2204×1200 = scale 2.0 from the IHDR) |
+
+**16 PASS / 0 FAIL across every scoreable M-TOPOLOGY row.** The two that remain BLOCKED — **-11**
+(select-mode drag emits nothing) and **-16** (cascade-add glow, which a saturated 40/40 fixture cannot
+exercise) — are blocked on their own causes, neither of which is this finding.
+
+**One row needed a control, and got one.** In the combined four-step run M-TOPOLOGY-18 scored
+**INDETERMINATE** (`empty_in_node_graph=False`) rather than PASS. That is an **ordering artifact, not a
+regression**: the row's first half needs the raw-topology store still empty, and `topo` fills it
+permanently when M-TOPOLOGY-03 opens the Weight Matrix. Re-driven **alone against the same build minutes
+later** it scored **PASS** (`empty_in_node_graph=True`, filled in 6.6 s). The scorer reporting
+INDETERMINATE instead of FAIL is the behaviour working as intended; the hazard is now pinned in three
+places in the driver so the next reader does not mistake it for a defect.
+
+**WHAT THIS DRIVE DOES NOT ESTABLISH — and why this entry is NOT closed on it.**
+
+An adversarial review of this very closure (Lane B, 2026-09-04) found the gap, and it is the one
+that matters: **this finding's fix was an `Input` → `State` demotion, so after it, cascade growth
+reaches the rebuild through exactly one Input — `ws-cascade-add-buffer`
+(`network_visualizer.py:369-379`). The drive above produced ZERO cascade adds**: the fixture is
+`COMPLETED`, 40/40, `early_stopped`. Seven of ten Inputs were driven, all of them user controls, on
+a static network where nothing contends. **The trigger the fix created, and the live-growth
+contention regime this finding is actually about, are both undriven.**
+
+Two further observations from the same review, each checkable in the transcripts:
+
+- **Both runs needed `wake_topology` to reach a painted graph.** That helper exists *because of this
+  defect* — its docstring records "0 rebuild POSTs in 180 s in one session, 12 in 60 s in another".
+  The runs report `already: False` and then `woke: True` after **23.2 s** (1 attempt) and **62.0 s**
+  (2 attempts — the first burned a full 30 s budget producing no paint). 23.2 s is this finding's own
+  lucky-session number. Neither run observed the tab-poll lane painting unaided.
+- **The step→row coverage is 9 of 20, not "most".** Uncovered: W4-01 (tab entry asserts a NET call;
+  M-17 asserts DOM on *re*-entry), W4-05, W4-10, W4-12 (the re-click gesture is driven nowhere),
+  W4-13, W1-12 (its precondition is a cold-start run), W1-13, W1-14. Partial: W4-03, W4-14, W4-17.
+  Two driver aliases are also wrong — `M-TOPOLOGY-12 / W4-13` should be W4-12, and
+  `M-TOPOLOGY-18 / W4-15` is unsound since W4-15 is the camera export (M-TOPOLOGY-14). And
+  `M-TOPOLOGY-08 / W1-14` is **structurally false**: W1-14 compares the *top status bar* to the
+  topology counts, and `counts()` never reads the top bar — the two surfaces are *designed* to
+  diverge under the depth filter.
+
+**The fixture blocker is a reversible arc decision, not an independent cause.**
+`nn_max_hidden_units` is a settable product parameter (`dashboard_manager.py:498`, `main.py:3791`),
+this arc gathered F-CANOPY-037's own evidence on a 10-unit fixture on 2026-08-26/28, and the matrix
+says plainly that the network *"was deliberately left [saturated] on 2026-09-02 to preserve the
+2/40/2/944 baseline"*. So W4-10, W1-13 and M-TOPOLOGY-16 are blocked on a choice this arc made and
+can unmake — pending owner sign-off, since the fixture is held by an explicit hold.
+
+**Disposition (2026-09-04): F-CANOPY-037 stays OPEN.** Its stated mechanism (claimed-Input starvation
+on a completed run) is credibly closed on merged main and the M-TOPOLOGY rows are re-driven; what
+remains undriven is the growth-trigger path the fix itself introduced. Closing on the static branch
+alone would be closing the symptom on the easy branch.
+
+---
+
+### CLOSED 2026-09-05 — the growth trigger is driven, on a live cascade, twice
+
+The owner lifted the fixture hold, so the regime this finding is actually about was finally
+exercised. `max_hidden_units` was raised by `PATCH /v1/training/params` — **the network was never
+destroyed** (`POST /v1/network` was not used; the uuid is unchanged throughout) — and training
+restarted, twice, with a browser attached and watching *before* growth began.
+
+**Probe**: `util/ad-hoc/2026-09-05_f037_growth_trigger_probe.py`, against canopy main `94220f0`.
+Growth oracle is **cascor's own** `hidden_units`, read off `:8202` — deliberately not through canopy,
+because canopy's number is the thing under test and an oracle sharing a path with its subject is not
+an oracle.
+
+| | run 1 (40 → 44) | run 2 (44 → 48) |
+|---|---|---|
+| server grew | t=18.4 s | t=17.6 s |
+| **`ws-cascade-add-buffer` `gen`** | *(not polled — see below)* | **0 → 6, `events=1`, t=17.6 s** |
+| rebuild wrote `-graph.figure` | t=12.4 s, t=38.3 s | t=65.3 s |
+| DOM reached the new count | **t=44.4 s → `44`** | **t=70.8 s → `48`** |
+| final DOM vs server | `44` = 44 ✓ | `2 / 48 / 2 / 1324`, hidden 48 ✓ |
+
+**The trigger the fix created fires.** `ws-cascade-add-buffer`'s `gen` moves `0 → 6` carrying an
+event at the exact moment cascor grows, and the rebuild follows. **The graph tracks live cascade
+growth to the correct final count in both runs.** The lag from server growth to DOM catch-up was
+**26 s** and **53 s** — an F-CANOPY-004 latency question, not the absence this finding recorded
+(0 rebuild POSTs in 9 of 11 sessions).
+
+**AN INSTRUMENT THAT WOULD HAVE GIVEN THE WRONG ANSWER, and why its number is excluded.** The probe
+also counts `/_dash-update-component` responses naming the buffer. That count is **0 in both runs**,
+and it means nothing: `ws-cascade-add-buffer` is written by a **`clientside_callback`**
+(`dashboard_manager.py:3652`), which executes in the browser and produces no callback response at
+all. A zero there is structurally guaranteed — the mirror image of browser-counting a server-side
+fetch, the error that produced a confident FAIL on M-TOPOLOGY-18. **Only the store's polled value is
+admissible for this trigger**, and it is what the table above reports. The counter is retained in
+the probe with that caveat written beside it rather than deleted, so the next reader sees why it is
+not evidence.
+
+**RESIDUALS, stated rather than buried.**
+
+- **n = 2 growth events**, one session each. The procedure's own escalator for a sample below ~5
+  applies; this closes the *stated* gap, it does not make the path well-characterised.
+- Run 1 did **not** poll the buffer — the trigger evidence rests on run 2 alone. Run 1 contributes
+  the independent fact that the DOM tracked growth.
+- Growth arrived as a **4-unit jump** at the 5 s poll granularity, and run 2's single drained event
+  may therefore cover several adds. Per-add behaviour is not resolved.
+- The DOM lag (26 s / 53 s) is unmeasured against a budget; it is recorded, not scored.
+
+**THE SHARED FIXTURE HAS CHANGED, and this is the notice.** It was **2/40/2/944** and is now
+**2/48/2/1324**, `max_hidden_units` 48, saturated again so it is stable. Every earlier row in this
+ledger and matrix quoting `2/40/2/944` was measured against the old fixture and remains valid *for
+that build and that fixture* — do not treat a new reading of `48` as a regression.
+
+The pre-change state is recoverable: snapshot **`snapshot_20260905T103912Z`** (815,937 bytes,
+`juniper.cascor` format v2, verified on disk — the creation response reports `size_bytes: 0` before
+flush, but the listing and the file agree at 815,937).
+
+**To make M-TOPOLOGY-16 (cascade-add glow) drivable again**, raise the cap and restart — the network
+is grown, not rebuilt:
+
+```bash
+curl -X PATCH -H 'Content-Type: application/json' \
+     -d '{"max_hidden_units": 52}' http://127.0.0.1:8202/v1/training/params
+curl -X POST  -H 'Content-Type: application/json' -d '{}' \
+     http://127.0.0.1:8202/v1/training/start
+```
+
+Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-05_f037_growth_1.txt` (run 1 — log
+only; the probe was stopped once growth had been captured, so it never wrote its results file)
+and `…_f037_growth_2.{txt,json}` (run 2, complete).
+
+Evidence: `reports/e2e-canopy-2026-09-02/transcripts/2026-09-04_f037_closure_main_94220f0.{txt,json}`
+and `…_f037_m18_isolated.{txt,json}` (the control).
 
 Pinned by `src/tests/unit/frontend/test_f037_topology_rebuild_decoupling.py` (6 tests): the store absent from
 Inputs / present in State; the real triggers still Inputs (a forward guard against an over-correction that
@@ -1631,6 +2040,7 @@ Both rows stay BLOCKED, attributed to the harness rather than scored FAIL agains
 ---
 
 **F-CANOPY-039 — the topology rebuild's response is provably CORRECT on the wire and the DOM never applies it; this, not starvation, is what blocked the topology block (P0/P1; found 2026-08-28 during the F-CANOPY-037 post-fix re-drive; root-caused in dash-renderer's own source and FIXED 2026-08-31 by canopy#549, censused 0-of-11 -> 11-of-11 at idle scope).**
+Operator loop (apply / soak / report / revert; read the whole series): [`docs/REFERENCE.md` § F-039 Store Probe](../docs/REFERENCE.md#f-039-store-probe).
 Measured on the isolated trio (data 8101 / cascor 8202 / canopy 8051, service mode; cascor `a709d52`,
 canopy `6b55399`) against a **completed 10-unit network whose server truth is byte-identical to the one
 F-CANOPY-037 was found on** — `GET /api/topology` = `2 / 10 / 2 / 89`, 14 nodes.

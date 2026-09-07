@@ -1,5 +1,16 @@
 # Performance lane — P1 Design of record
 
+Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 matched epoch pair + matrix-axis repeats, scrapeability, PF-3 stall/wall, PF-4/PF-8 not driver suites): [`docs/REFERENCE.md` § PF Scenario Suites](../docs/REFERENCE.md#pf-scenario-suites).
+
+> **Operator surface (2026-09-05, supersedes the 2026-09-04 banner).** Q-8 writer + split comparator
+> are on main. The work half's "deterministic, therefore gate exactly" premise
+> ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) is now **established with a
+> condition**: `step_count` is exact and deterministic *within a termination branch*, and `ml#1733`
+> made that branch part of the precondition. `ml#1741` + `ml#1743` closed all six comparator
+> defects. Still do not wire `compare_baseline.py` to CI — **§6 of this document owns that call**
+> (*whether the run tier gates CI at all*), and it is unmade. Operator contract:
+> [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
+
 **Closes**: phase **P1** of the four-phase gate in
 [`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md` §1.1](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md).
 That table's P1 deliverable: *"Design-of-record note: what is measured, on which tier, against which
