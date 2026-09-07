@@ -50,7 +50,9 @@ Exit:   0 patched (or already ported, with --dry-run); 1 refused; 2 validation f
 
 import argparse
 import os
-import subprocess  # nosec B404 - bash -n on our own generated workflow text
+# subprocess is used only to run `bash -n` over workflow text this script itself
+# generated, and `yaml.safe_load` on the same text -- no external input reaches either.
+import subprocess  # nosec B404
 import sys
 import tempfile
 
