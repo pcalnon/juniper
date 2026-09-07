@@ -52,7 +52,6 @@ Usage
 from __future__ import annotations
 
 import argparse
-import json
 import re
 import subprocess  # nosec B404 -- fixed argv git invocations, no shell
 import sys
