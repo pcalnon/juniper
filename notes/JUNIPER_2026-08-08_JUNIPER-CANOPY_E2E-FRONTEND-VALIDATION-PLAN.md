@@ -362,7 +362,9 @@ documented behaviour) / P2 (cosmetic or drift).
 that fails on the parent commit, (c) a matrix-row reference. After each merge, re-run the affected matrix
 rows on a fresh live stack and update the row status to `PASS (re-validated @ <sha>)`.
 **Exit**: every P0 and P1 closed or explicitly deferred with owner sign-off; no matrix row left FAIL
-without a linked issue. **Deliverables**: fix PRs + regression tests. **PR count**: unknown a priori —
+without a linked issue. Count that mechanically with `python3 util/ad-hoc/e2e_finding_triage.py` (operator
+contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../docs/REFERENCE.md#canopy-e2e-finding-triage));
+`ACCEPTED` is owner-deferred and is **not** OPEN. **Deliverables**: fix PRs + regression tests. **PR count**: unknown a priori —
 budget 3–10 (juniper-canopy), sized after Phase 1.
 
 ### 6.4 Phase 3 — Automated UI test-suite implementation

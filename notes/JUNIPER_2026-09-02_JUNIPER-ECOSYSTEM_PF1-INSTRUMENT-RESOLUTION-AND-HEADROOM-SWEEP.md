@@ -97,6 +97,17 @@ The completed sweep reconfirms the positional pattern across seven more blocks: 
 by **34x–91x** in the five blocks whose cells shared a poll count, and by **~1x** in the two
 (`04-sweep8`, `05-sweep12`) whose cells straddled a boundary.
 
+> **The both-directions property holds ABOVE 60 s too, pinned 2026-09-05.** A later reading proposed
+> making the "cannot serve as an upper bound" wording duration-conditional, on the grounds that the
+> `step_sum`/`drive` sd ratio "collapses to 0.86–1.25" at ≥60 s. **That range is the argument
+> against it, not for it.** "Upper bound" requires `drive` sd ≥ `step_sum` sd, i.e. ratio ≤ 1, and
+> **0.86–1.25 straddles 1** — so the sign of the error is still not fixed. Read the ratio off §3's
+> own table: at **66 s** the ratio is **4.198 / 3.357 = 1.25**, so `drive` *understates* there and
+> cannot bound the noise; at 126 s it is **1.970 / 2.256 = 0.87** and overstates. A metric that is
+> faithful **on average** but of unknown sign **per run** is exactly what cannot serve as a bound.
+> The magnitude claim is separate and does hold: 25x–182x is specific to 20 s cells, the
+> quantization is additive (~4.3 s), and its relative cost falls with duration.
+
 ---
 
 ## 4. Three published findings that do not survive
@@ -196,6 +207,24 @@ every load effect the lane has tried to measure.
 26-minute window with no synthetic load, span 18.282 / 22.024 / 18.663 ms per step (§8.4 of this
 document). So the drift floor is not a property of runs taken hours apart — it is present within
 half an hour, and it is larger than the effect of six competing CPU-bound processes.
+
+> **Normalization, pinned (2026-09-05).** Both endpoints of the **13–20.5%** band are
+> `max/min − 1`, and both are measured over **quiet** runs only. Stated explicitly because a later
+> reading proposed "correcting" the band to 15.0–20.5% on the theory that the two ends used
+> different formulas. They do not:
+>
+> | quantity | runs | `max/min − 1` | `(max−min)/max` |
+> |---|---|---|---|
+> | two quiet 20 s runs (18.42 → 20.81 ms) | quiet | **12.98% → 13.0%** ✓ | 11.48% |
+> | three quiet sweep blocks (18.282 / 22.024 / 18.663) | quiet | **20.47% → 20.5%** ✓ | 16.99% |
+> | `modest load 4/16` (18.42 → 21.18 ms) | **LOADED** | 14.98% → 15.0% | — |
+>
+> The 13.0% figure reproduces under `max/min − 1` and **not** under `(max−min)/max`, so the band is
+> already internally consistent. **15.0% is the modest-load run**, not a quiet one — it is the
+> `vs. fastest` entry in §5's table above. Adopting it as the lower bound of a *quiet* drift floor
+> folds a load effect into the noise band, which makes §8.4's central comparison circular: the
+> whole point there is that 6 workers at **+19.9%** sits *inside* the 20.5% quiet band, and that
+> comparison only means something while the band contains no loaded measurements.
 
 The 2026-09-01 handoff records between-run variability as unmeasured (true at 66 s, where n=1). At
 20 s three runs sat in the artifact tree holding the answer, unread because `drive` reported them as
