@@ -57,8 +57,6 @@
 | `python util/experiments/read_run_metrics.py SUITE_DIR` | Read ratified `step_count` / `mean_step_seconds` (not `wall_seconds` / `timings.drive`) |
 | `python util/experiments/make_baseline.py --tag TAG --suite SUITE_DIR` | Bless suite runs under `~/.local/state/juniper-experiments/baselines/<TAG>/` |
 | `python util/experiments/compare_baseline.py --baseline TAG --suite SUITE_DIR` | Split-compare a suite to a Q-8 baseline (exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED) |
-| `python util/experiments/run_suite.py --suite PATH` | Drive a multi-cell suite; `aggregate.csv` + `REPORT.md` carry `step_count` / mean step beside de-ratified `wall_seconds` |
-| `python util/experiments/run_suite.py --suite PATH --compare-baseline TAG` | Same, plus a reporting-only comparator verdict in `REPORT.md` (FAIL still exits 0) |
 | `util/experiment_stack.bash --down RUN_ID`             | Tear down a run (pidfile-first; keeps `artifacts/`) |
 | `python util/experiments/list_runs.py`                 | List experiment `RUN_DIR`s (directory-truth; default `~/.local/state/juniper-experiments`) |
 | `python util/experiments/list_runs.py --prune --older-than 7 --dry-run` | Preview prune of `down`/`stale` runs older than 7 days (never deletes) |
