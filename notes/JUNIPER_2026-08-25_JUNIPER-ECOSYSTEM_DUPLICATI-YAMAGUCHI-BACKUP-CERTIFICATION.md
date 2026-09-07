@@ -2531,3 +2531,72 @@ same class of overstatement three times (§8.20.2, §8.22.3, here).
   defaults every destination knob to sdc4. Its timer is `disabled` and its last run FAILED (2026-08-25),
   so retirement changes its error message, not its outcome — but the deployed/repo divergence is real
   and unrelated to this arc's open items.
+
+---
+
+### 8.26 Addendum (2026-09-07) — the 09-02 work reaches the record, and four corrections
+
+Written because §8.25 was the newest section while three executed changes lived only on the
+filesystem and in a session handoff. This note's own rule (§8.14 lineage) is that *a finding which
+lives only in a session handoff does not survive the handoff*; §8.26 exists because that rule was
+being broken by this arc's own author.
+
+#### 8.26.1 Executed 2026-09-02, previously unrecorded
+
+| Change | Evidence |
+|---|---|
+| Old-archive dlists given a second copy at `~/.local/state/yamaguchi-old-archive-dlists/` | 10 files, 934 MB, **all byte-identical to the sda1 primary by full SHA-256**; copied *from* sda1, the copy that survives |
+| `/mnt/Backups/Ubuntu/README.md` corrected | its stale "second copy is on sdc4" sentence retracted in place, with the reason it was about to become false |
+| `_yamaguchi_frozen_20260826.README.md` created | a **sibling** marker, deliberately not inside the destination |
+| sdc4 unmounted | partition **intact** (1.8 T ext4, start 3813408768); retired from service, not destroyed |
+
+The `/home` location was chosen because sdc3 is a **different physical disk** from sda1, so neither
+single-disk failure takes both copies. It also sits inside the live backup Source, so a third copy
+rides into the Yamaguchi set — **~934 MB of backup growth**, excludable by a job filter if unwanted.
+That knob was invented on 09-02 and is recorded nowhere else.
+
+#### 8.26.2 Four corrections to earlier sections
+
+1. **§8.21.5 residual 1 is WRONG.** It says `--encryption` "still defaults to gpg" in *both* tools.
+   `util/ad-hoc/duplicati_dlist_query.py` has defaulted to **aes** since its introduction; only
+   `util/ad-hoc/duplicati_dlist_crosscheck.py` defaults to gpg. The residual's *reasoning* (a wrong
+   algorithm fails loudly, so it cannot give a confident-but-wrong answer) is unaffected.
+2. **§8.24.2's "permanently loses one restore point"** was already corrected in §8.25.5 — true of the
+   manifest, false of the data. Restated here because the §8.24 text is what a reader reaches first.
+3. **§8.21.3 classified `util/ad-hoc/yamaguchi_records_sync.bash` as "sdc4 *is* the subject — correct
+   as written."** That was true while sdc4 lived. The 09-02 unmount **invalidated it**: the tool's
+   `SRC_ROOT` is hardcoded to sdc4 behind a `mountpoint` guard, so it refuses today and dies with the
+   partition. The §8.21.3 sweep was never re-run against the retirement.
+4. **`util/ad-hoc/yamaguchi_server_db_snapshot.py:20`** still describes "the encrypted passphrase" —
+   an uncorrected survivor of the falsehood §8.20.2 corrected in three note sections. The passphrase
+   is **cleartext** in `Duplicati-server.sqlite`.
+
+#### 8.26.3 The evidence base is frozen, and cannot be un-frozen by tooling
+
+Because of 8.26.2 item 3, `/mnt/Backups/Ubuntu/_yamaguchi_records/` holds 82 files, **none newer than
+2026-08-30**. Two bodies of certification evidence therefore exist **only as prose in this note**:
+
+- §8.21.4's live sda1 crosscheck — which §8.21.4 itself calls *"new certification evidence in its own
+  right"* (COMPLETE COVERAGE, 1,244,900 hashes);
+- all of §8.25.1's frozen-set certification (structural, 1,216,100-hash coverage, 811-volume HMAC).
+
+No existing tool can place them in the durable mirror. Either de-drift
+`util/ad-hoc/yamaguchi_records_sync.bash` to take a source argument, or accept that the mirror is a
+historical snapshot and say so in `/mnt/Backups/Ubuntu/README.md`. **Do not leave it looking
+maintained when it is not** — that is the stale-checker class this arc has now hit five times
+(§8.13.2, §8.14.2, §8.20.3, §8.21.3, and here).
+
+#### 8.26.4 Still open after this section
+
+Unchanged and enumerated in
+[`prompts/thread-handoff_automated-prompts/HANDOFF_2026-09-07_duplicati-arc-outstanding-work.md`](../prompts/thread-handoff_automated-prompts/HANDOFF_2026-09-07_duplicati-arc-outstanding-work.md).
+The item that most needs re-stating here, because §8.23's closure obscured it: **criterion 5
+(logout/login + reboot survival) has never been exercised** — `journalctl --list-boots` shows one boot
+ID spanning 2026-08-16 → 2026-09-07. §8.23 refuted a reboot *hazard*; it did not discharge the
+*criterion*, and the two are easy to conflate. `util/ad-hoc/yamaguchi_reboot_verify.bash pre` must run
+**before** the reboot.
+
+Also still owed before sdc4 is destroyed, both from §8.25.6 and §8.24.3: **`sda` drive health has
+never been checked** (SMART / `dumpe2fs`, root-gated), and the "re-verify sda1's copies after each
+move" rule. And note §8.25.2's literal verdict — the zero-byte `Untitled7-checkpoint.ipynb` is a
+**vacuous hash match**, preserved nowhere.

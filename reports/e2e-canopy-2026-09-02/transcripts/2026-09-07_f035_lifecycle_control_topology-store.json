@@ -1,0 +1,702 @@
+{
+  "canopy": "http://127.0.0.1:8052",
+  "store": "network-visualizer-topology-store",
+  "window_s": 60.0,
+  "callbacks_list_inventory": {
+    "ok": true,
+    "lists": {
+      "blocked": 0,
+      "executed": 0,
+      "executing": 0,
+      "prioritized": 0,
+      "requested": 9,
+      "stored": 32,
+      "watched": 7,
+      "completed": null
+    }
+  },
+  "armed": true,
+  "seen": {
+    "requested": 695,
+    "prioritized": 87,
+    "watched": 1946
+  },
+  "everSeen": {
+    "requested": 2,
+    "prioritized": 1,
+    "watched": 1
+  },
+  "touchHigh": {
+    "requested": 5,
+    "prioritized": 1,
+    "watched": 1
+  },
+  "entries": {
+    "requested": 10,
+    "prioritized": 10,
+    "watched": 9
+  },
+  "maxRun": {
+    "requested": 286,
+    "prioritized": 34,
+    "watched": 409
+  },
+  "samples": [
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    },
+    {
+      "list": "requested",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data",
+              "out": true
+            }
+          ],
+          "output": "network-visualizer-topology-store.data",
+          "inputs": [
+            {
+              "id": "tabpoll-topology",
+              "property": "n_intervals"
+            },
+            {
+              "id": "ws-topology-buffer",
+              "property": "data"
+            },
+            {
+              "id": "visualization-tabs",
+              "property": "active_tab"
+            }
+          ],
+          "state": [
+            {
+              "id": "network-visualizer-topology-store",
+              "property": "data"
+            }
+          ],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "network-visualizer-topology-store.data",
+        "changedPropIds": {
+          "visualization-tabs.active_tab": 2
+        },
+        "initialCall": false,
+        "priority": "0"
+      }
+    }
+  ],
+  "notifies": 2687,
+  "storeLenSeq": [],
+  "errors": [],
+  "independent_read": {
+    "ok": true,
+    "len": null
+  },
+  "buckets": {
+    "terminal": {},
+    "pre_execution": {
+      "requested": 2,
+      "prioritized": 1,
+      "watched": 1
+    },
+    "unclassified": {}
+  },
+  "result": {
+    "verdict": "RETIRED-BEFORE-EXECUTION",
+    "why": "entries appeared in pre-execution lists ['prioritized', 'requested', 'watched'] and NEVER in a terminal list (['executed', 'stored', 'completed']). The renderer drops the call before its result can be applied. In 'watched' it entered 9 SEPARATE times (longest unbroken presence 409 notifies), so this is a SERIES of calls each replaced before resolving -- supersession, not one stuck request. That names the mechanism the dispatch probe could only bound, and points the fix at the TRIGGER."
+  }
+}

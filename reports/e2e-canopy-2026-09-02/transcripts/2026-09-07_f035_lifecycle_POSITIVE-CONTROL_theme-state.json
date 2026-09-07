@@ -1,0 +1,1101 @@
+{
+  "canopy": "http://127.0.0.1:8052",
+  "store": "theme-state",
+  "window_s": 45.0,
+  "callbacks_list_inventory": {
+    "ok": true,
+    "lists": {
+      "blocked": 0,
+      "executed": 0,
+      "executing": 0,
+      "prioritized": 0,
+      "requested": 11,
+      "stored": 33,
+      "watched": 6,
+      "completed": null
+    }
+  },
+  "armed": true,
+  "seen": {
+    "stored": 1987
+  },
+  "everSeen": {
+    "stored": 1
+  },
+  "touchHigh": {
+    "requested": 3,
+    "stored": 3,
+    "watched": 2,
+    "executed": 1
+  },
+  "entries": {
+    "stored": 1
+  },
+  "maxRun": {
+    "stored": 1987
+  },
+  "samples": [
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    },
+    {
+      "list": "stored",
+      "entry": {
+        "callback": {
+          "matchKeys": [],
+          "firstSingleOutput": 0,
+          "outputs": [
+            {
+              "id": "theme-state",
+              "property": "data",
+              "out": true
+            },
+            {
+              "id": "dark-mode-toggle",
+              "property": "children",
+              "out": true
+            }
+          ],
+          "output": "..theme-state.data...dark-mode-toggle.children..",
+          "inputs": [
+            {
+              "id": "dark-mode-store",
+              "property": "data"
+            }
+          ],
+          "state": [],
+          "clientside_function": null,
+          "prevent_initial_call": false,
+          "background": null,
+          "dynamic_creator": null,
+          "no_output": false,
+          "optional": false,
+          "hidden": false,
+          "websocket": false,
+          "persistent": false
+        },
+        "anyVals": "",
+        "resolvedId": "..theme-state.data...dark-mode-toggle.children..",
+        "changedPropIds": {},
+        "initialCall": true,
+        "priority": "0",
+        "executionGroup": "0.2d3e29ddf0aa08",
+        "executionPromise": {},
+        "executionResult": {
+          "data": {
+            "theme-state": {
+              "data": "light"
+            },
+            "dark-mode-toggle": {
+              "children": "\ud83c\udf19"
+            }
+          },
+          "payload": {
+            "output": "..theme-state.data...dark-mode-toggle.children..",
+            "outputs": [
+              {
+                "id": "theme-state",
+                "property": "data"
+              },
+              {
+                "id": "dark-mode-toggle",
+                "property": "children"
+              }
+            ],
+            "inputs": [
+              {
+                "id": "dark-mode-store",
+                "property": "data",
+                "value": false
+              }
+            ],
+            "changedPropIds": [],
+            "parsedChangedPropsIds": []
+          }
+        },
+        "executionMeta": {
+          "allProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ],
+          "updatedProps": [
+            "theme-state.data",
+            "dark-mode-toggle.children"
+          ]
+        }
+      }
+    }
+  ],
+  "notifies": 1987,
+  "storeLenSeq": [],
+  "errors": [],
+  "independent_read": {
+    "ok": true,
+    "len": null
+  },
+  "buckets": {
+    "terminal": {
+      "stored": 1
+    },
+    "pre_execution": {},
+    "unclassified": {}
+  },
+  "result": {
+    "verdict": "EXECUTED-NOT-APPLIED",
+    "why": "entries DID reach terminal list(s) ['stored'] and the store still never advanced. The discard is AFTER execution, so renderer retirement is NOT the mechanism and the retirement hypothesis should be dropped."
+  }
+}
