@@ -158,6 +158,15 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 - **`2026-09-05_f035_store_write_latency_probe.py`** times each store-writing round trip against the interval that re-requests it, because dash-renderer retires an in-flight call on re-request. Read its
   `overlap_fraction` as the retirement **precondition**, never as retirement: on 2026-09-05 it read 0.69 while the store was constant-empty across 130 server-side comparisons, so nine unopposed
   responses also failed to land. A number that explains most of a result is not the cause of it.
+- **`2026-09-07_f035_renderer_dispatch_probe.py` needs no revert** — it patches nothing on the server. `window.store` is dash-renderer's Redux store, so wrapping `dispatch` and subscribing to state observes
+  both "did the payload arrive at the reducer" and "was it applied" from the page alone. Prefer this shape over a server-side instrument whenever the question is about the *client's* copy. Two traps it
+  paid for: (a) **a key match is not a value match** — asking "is the store id a key in this action?" also matches `paths.strs[id]`, dash-renderer's PATH INDEX, which reported 577 bogus `SET_PATHS` hits
+  with `len=18` (a path length dressed as a row count) against 3 real ones, a 192x over-count; require the payload position to look like a props write. (b) **a pre-registered rule does not protect a
+  branch that encodes the expected answer** — its `carrying and reached` branch *asserted* "something reverts it afterwards" and so mislabelled the one run in eight where the store actually worked and
+  the value STAYED. Check for the revert; do not assume it.
+- **Do not attribute a difference to a procedural detail on n=1.** Run 1 of that probe populated the store where the re-drive did not, and differed by a `page.reload()`. The obvious reading — "reload
+  fixes it" — died to a 2x2 over {fresh server, loaded server} x {reload, no reload}: run 1 did not reproduce **in its own cell**. When a run behaves differently, drive the cell it sits in before naming
+  the variable, and re-run the anomalous arm itself — a single success is an anomaly to be reported, not a condition to be announced.
 
 Always `revert` before committing anything from the instrumented checkout.
 
