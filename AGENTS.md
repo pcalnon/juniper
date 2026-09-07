@@ -5,7 +5,7 @@
 **Author**: Paul Calnon
 **License**: MIT License
 **Version**: 0.7.1
-**Last Updated**: 2026-09-06
+**Last Updated**: 2026-09-07
 
 ---
 
@@ -430,7 +430,9 @@ For larger / cross-cutting PRs, the long-form template at [`notes/templates/TEMP
 
 ## Worktree Procedures (Mandatory -- Task Isolation)
 
-Setup and cleanup procedures, directory naming, the when-to-use table, and `util/worktree_cleanup.bash`. **The mandate is not lost**: the always-loaded parent [`Juniper/CLAUDE.md`](../CLAUDE.md) § Worktree Procedures carries the operating instruction, the centralized worktree location and the naming convention. Moved to [`docs/REFERENCE.md` § Worktree Procedures Reference](docs/REFERENCE.md#worktree-procedures-reference) — read it when working on this area.
+Setup and cleanup procedures, directory naming, the when-to-use table, and `util/worktree_cleanup.bash`. **The mandate is not lost**: the always-loaded parent `Juniper/AGENTS.md` (`CLAUDE.md` is a symlink to it) § Worktree Procedures carries the operating instruction, the centralized worktree location and the naming convention. Moved to [`docs/REFERENCE.md` § Worktree Procedures Reference](docs/REFERENCE.md#worktree-procedures-reference) — read it when working on this area.
+
+> Deliberately **not** a link. `Juniper/AGENTS.md` sits in the ecosystem parent directory, which is **not a git repository** — `git rev-parse` there returns *"not a git repository"*. CI clones the sibling repos under a synthetic ecosystem root and that file is not among them, so a relative link to it resolves locally and is broken in `Docs Full Check` every time. It is also why edits to that file carry no PR, no CI and no history, and are invisible to any other machine.
 
 ## Thread Handoff (Mandatory -- Replaces Thread Compaction)
 
