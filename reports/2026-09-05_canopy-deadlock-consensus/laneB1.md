@@ -1,7 +1,7 @@
 # Lane B agent B1 — adversarial review, lens: CORRECTNESS
 
-**Procedure**: [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`](../../../../notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md) §2 Lane B
-**Target of attack**: [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md`](../../../../notes/JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md) (design of record) and juniper-canopy PR #592
+**Procedure**: [`JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md`](../../notes/JUNIPER_2026-08-30_JUNIPER-ECOSYSTEM_INDEPENDENT-AGENT-CONSENSUS-PROCEDURE.md) §2 Lane B
+**Target of attack**: [`JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md`](../../notes/JUNIPER_2026-09-02_JUNIPER-CANOPY_SELECTION-REACHABILITY-DESIGN.md) (design of record) and juniper-canopy PR #592
 **Subject repo**: `/home/pcalnon/Development/python/Juniper/juniper-canopy`, branch `main`, HEAD `fc62175`
 **Date**: 2026-09-05
 **Brief**: refute. A finding that the reasoning is sound is worth nothing.
