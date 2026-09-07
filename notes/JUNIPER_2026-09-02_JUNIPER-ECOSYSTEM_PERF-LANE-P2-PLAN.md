@@ -10,9 +10,13 @@ Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 traps
 > explained by `completion_reason` — none remains divergent within a termination branch**. `ml#1733`
 > made the branch part of the precondition (a flip now REFUSES, exit 2, rather than FAILing), and
 > `ml#1741` + `ml#1743` closed the two fail-open holes and all six comparator defects (A1–A4, A6, A7).
-> **Do not wire the exact-match work gate to CI** — but the reason has changed: it is now an unmade
-> **owner** decision (*whether the run tier gates CI at all*, §6 of the P1 design), not a soundness
-> bar. Operator contract: [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
+> **Never wire the exact-match work gate to CI.** The owner **closed** that question on 2026-09-07
+> (§6 of the P1 design), and the reason is **structural**: host identity is a blocking refusal that
+> outranks FAIL, every CI job is `runs-on: ubuntu-latest`, and no self-hosted runner exists — so the
+> comparator would exit 2 REFUSED on **100% of CI runs, permanently**. `compare_baseline.py` is an
+> **operator** tool, meaningful only on the baseline host. Item 1.4's decoupling of `run_suite`'s
+> exit code from the verdict is therefore **permanent, not pending**.
+> Operator contract: [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
 
 **Closes P2** of the four-phase gate in §1.1 of the phasing note
 ([`JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md`](JUNIPER_2026-08-16_JUNIPER-ECOSYSTEM_PERF-LANE-PHASING-AND-WORK-PRIORITISATION.md)),
@@ -134,10 +138,10 @@ intended as **its own PR** unless noted.
 
 | #   | Item | Repo | Size | Depends on |
 |-----|------|------|------|------------|
-| 0.1 | This plan, reviewed and ratified by the owner | juniper-ml | S | — |
+| 0.1 | **DONE 2026-09-07 — ratified by the owner; §6 acceptance ticked. WAVE 0 IS CLOSED.** Ratified alongside the three decisions this plan was blocked on: P1 §6 (CI gating — never, structural), 2.5 (PF-4 report-only), 0.5 (`xor-staged.yaml`, shipped `juniper-cascor#629`). This plan, reviewed and ratified by the owner | juniper-ml | S | — |
 | 0.2 | **SHIPPED — `cascor#618`.** **`spiral-smoke.yaml` must set `output_epochs` alongside `max_epochs: 50`.** The service applies `max_epochs` only to the *initial* output pass; later passes read `output_epochs`, which falls back to 10000, so the service is quietly better-trained and slower than the config asks. Required by §5 of the 60 s variance results ([`JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md`](JUNIPER_2026-08-31_JUNIPER-ECOSYSTEM_PF1-VARIANCE-RESULTS.md)) before **any** figure from it is quoted as a baseline. PF-1 uses it as `base_config`, and item 1.1 turns PF-1 output into the reference. | juniper-cascor | S | 0.1 |
 | 0.3 | **DONE 2026-09-02 — calibrated to 4000 epochs; `drive` median 65.3 s, `step_count` 1770 invariant across 5 repeats (§2.1 of this document).** **Re-calibrate PF-1's override, then re-run.** 0.2's measured effect is far larger than this row originally assumed: at PF-1's `(10, 10)` budget the corrected config runs **15.1 s / 32 steps** against **65–126 s / 4012 steps** before. That is below the ~40 s scrapeability floor (`scrape_confirmed` false), so **0.2 undoes 2026-09-01 owner decision 2** — cells lengthened to ~60 s. PF-1 must override `max_epochs` **and** `output_epochs` together at a calibrated value to restore ~60 s, then re-run 5 repeats and re-confirm `total_steps` invariance. The duration requirement belongs to PF-1, not to a config whose purpose is a fast smoke run. | juniper-ml | M | 0.2 |
-| 0.5 | **`xor-staged.yaml` carries the same undocumented split** (`max_epochs: 200`, no `output_epochs`). `spiral-baseline.yaml` (2000 / unset) splits *deliberately* and is documented as such; `xor-staged` is not, and no suite consumes it. Decide intent and either set both keys or record the split as intentional. | juniper-cascor | S | — |
+| 0.5 | **ANSWERED 2026-09-07 (owner): both keys set to 200 — SHIPPED as `juniper-cascor#629`.** The file calls itself *"small budgets"*; the split ran every non-initial pass at the 10000 fallback (~50×). Unlike `spiral-baseline.yaml` it had **no rationale**, and blessing it would launder "nobody looked" into "on purpose". Its `PENDING_EPOCH_SPLIT_DECISIONS` entry goes in the same change-set — `test_exempt_entries_are_not_stale` forces that pairing. No suite consumes it. | juniper-cascor | S | — |
 | 0.6 | **DONE 2026-09-03** — `EpochBudgetSplitDriftTest` in `tests/test_experiment_config_schemas.py`, with blessed and pending-decision exemptions kept in *separate* dicts, a staleness check so an exemption cannot outlive its condition, and always-on predicate self-checks (the cross-repo walk skips in the normal CI job). Both negative controls verified to fail. Also fixes `ECOSYSTEM_ROOT` resolution, which made the whole cross-repo walk skip vacuously from an in-repo worktree. **Add a drift gate** so this cannot recur silently: extend `tests/test_experiment_config_schemas.py` to fail any cascor experiment config that sets `max_epochs` without `output_epochs`, with an explicit allowlist for the configs that split deliberately. Today the only defence is a driver **warning**, which lands in the manifest and is easy to read past — every PF-1 run carried it and the campaign ran anyway. | juniper-ml | S | 0.5 |
 | 0.4 | **DONE 2026-09-03.** Promote `util/ad-hoc/2026-09-02_pf1_drive_extract.py` to `util/experiments/read_run_metrics.py` + `tests/test_read_run_metrics.py` (18 tests, wired into `ci.yml`). The ad-hoc original is **retained** as provenance per the 2026-08-25 policy and marked superseded in its docstring. It is now the canonical reader for both gate inputs and the only tool that reads them without going through the de-ratified `wall_seconds` in `aggregate.csv`. | juniper-ml | S | 0.1 |
 
@@ -332,7 +336,7 @@ PF-1 has now run repeatedly. **PF-2, PF-3, PF-5, PF-6 and PF-7 still have not.**
 | 2.2 | **DEFERRED 2026-09-05 — approval GIVEN, window NOT available.** Host measured at load avg 14.75 on 16 cores, 6.0% iowait, swap 20997/20999 MB. §8.4's own table puts that past the 12-worker point measured at **+181.6%**, so the result would be dominated by ambient load rather than by pool × processes. Reasoning: [`JUNIPER_2026-09-05_JUNIPER-ECOSYSTEM_PERF-LANE-G17-BRIDGE-EVIDENCE-AND-HOST-WINDOW.md` §4](JUNIPER_2026-09-05_JUNIPER-ECOSYSTEM_PERF-LANE-G17-BRIDGE-EVIDENCE-AND-HOST-WINDOW.md). Nothing else blocks it. Execute **PF-3** (candidate-pool × process scaling). Largest host-time cost in the lane: a 4×3 matrix at 2000 s driver budget. Needs an explicit host-time approval and a quiet window. | juniper-ml | M | 0.3 |
 | 2.3 | Execute **PF-5 / PF-6 / PF-7** (recurrence) — **unblocked by 3.1, but REPORT-ONLY.** Recurrence has no work counter, so these scenarios can never be gated; their value is the scaling *curves* (fit time vs `d`, vs `n_steps`, per readout rung), not a pass/fail. Do not cut a baseline from them — `make_baseline` refuses, deliberately. | juniper-ml | M | 3.1 (done) |
 | 2.4 | **PF-4 — establish** a cascor micro-level *timing* baseline. `baseline_20260526.json` holds 10 entries with **zero** timing data, and `test_baselines.py` defines three memory tolerances and no timing tolerance. PF-4's first task is creating the reference, not comparing against one. | juniper-cascor | M | 0.1 |
-| 2.5 | **Design item, owner-facing**: PF-4's *comparison* semantics must be re-derived. A stored baseline is by construction a different run and therefore inherits the 13–20.5% drift floor of §5 and §8.4 of the instrument-resolution results. Options: gate PF-4 on operation *counts* rather than durations (the micro analogue of the split gate), accept a ≥20% timing tolerance, or keep PF-4 report-only. **Do not build 2.4's comparator before this is answered.** | juniper-cascor | S | 2.4 |
+| 2.5 | **ANSWERED 2026-09-07 (owner): PF-4 stays REPORT-ONLY on timing.** Op *counts* rejected: `step_count` is **emergent** but a micro-benchmark's op count is **fixed by the test**, so gating it gates a constant — the vacuity that makes `n_epochs` unusable (§1.1). A ≥20% tolerance rejected: §8.4 put six competing processes at **+19.9%**, so it is blind to regressions yet fires on a loaded host. Memory stays gated. **2.4 may proceed** — a reference, not a gate. | juniper-cascor | S | 2.4 |
 
 ### Wave 3 — Recurrence parity (blocks the recurrence half of the lane)
 
@@ -452,7 +456,10 @@ sets the bar at *"items are enumerated and sequenced"*.
 - [x] Sequenced, with a critical path and a dependency graph — §3 of this document
 - [x] PF-8's deferral from §3 of the P1 design discharged into concrete items — Wave 4
 - [x] Inherited hazards carried forward rather than rediscovered — §4 of this document
-- [ ] **Reviewed — owner**
+- [x] **Reviewed — owner** (2026-09-07). Ratified together with the three decisions this plan was
+      waiting on: **P1 §6** (run tier never gates CI — structural, see the banner above), **item
+      2.5** (PF-4 report-only on timing), and **item 0.5** (`xor-staged.yaml` sets both epoch keys,
+      shipped as `juniper-cascor#629`). **Item 0.1 is therefore CLOSED, and with it Wave 0.**
 
 The two items most worth an owner's attention are **1.5** (what a work-count mismatch means, without
 which the gate gets switched off the first time it fires correctly) and **2.5** (PF-4's comparison
