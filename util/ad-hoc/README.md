@@ -120,8 +120,6 @@ The copied blast-radius sentence *W4-01..17 and W1-12..14 stay BLOCKED* names 20
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Step Order and Blast-Radius IDs](../../docs/REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
 
----
-
 ## Memory-budget slack (operational)
 
 `2026-08-25_p5_port_memory_budget.py measure-growth`, `2026-08-26_p5_fleet_state.py`,
@@ -179,6 +177,33 @@ Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFEREN
 A required name that never reports leaves `main` unmergeable with every visible check green (the 2026-08-10 fleet-union class). Re-run the auditor; do not quote the incident note's §1 counts. Human-mode exit 0 can still print `ERROR:` rows; `--json` fails closed on probe errors.
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
+
+## Canopy E2E matrix writes (operational)
+
+The 298-row ledger is `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`. Do not hand-edit status cells.
+
+| Script | Default | Load-bearing constraint |
+|--------|---------|-------------------------|
+| `e2e_matrix_fill.py` | dry-run (`--write` to apply) | Locates `status` by header per table; splits on unescaped pipes; first `--verdicts` source wins (newest first). `--overwrite` clobbers hand-authored `DIVERGENCE` cells — use rescore for a named subset. |
+| `2026-09-02_matrix_set_verdicts.py` | **writes immediately** | `--from` must match every named row. Atomic: one miss updates nothing. Naive split on every pipe — do not use on escaped-pipe rows. |
+| `e2e_matrix_rescore.py` | dry-run | Named `--row` only. Missing ids warn **and still write** the found rows. |
+| `e2e_unfilled_rows.py` | read-only | Ledger reader. Do **not** plan from `e2e_row_coverage.py` (estimator). |
+
+W-lane ids have no status cell (`no-matrix-row`, not an error). Operator contract: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../../docs/REFERENCE.md#canopy-e2e-matrix-writes).
+
+## F-CANOPY-027 poller starvation (operational)
+
+The `e2e_f027_*.py` family is **retained provenance** of the canopy dashboard starvation investigation (finding **FIXED** in juniper-canopy #507 / #509 / #511). Recurrence looks like a wiring miss (store fills, consumers never paint) and is not.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-027 Poller Starvation Probes](../../docs/REFERENCE.md#f-canopy-027-poller-starvation-probes).
+
+Do **not** add a new `dcc.Interval` / poller to "fix" a frozen panel — that re-saturates dash-renderer's hard-coded 12-slot pool. Feed an existing store instead (canopy#524 used `metrics-panel-metrics-store`).
+
+Live probes (`e2e_f027_queues.py`, `e2e_f027_ready.py`, `e2e_f027_slots.py`) need a **live isolated** canopy (`JuniperCanopy1`, `DEMO_MODE=0`, empty `LD_LIBRARY_PATH`) and Playwright via `e2e_w3_params_driver.py`. Point them with `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`) — there is no `--base-url` flag.
+
+`e2e_f027_deps_endpoint.py` is a **server-registry** check: run it from `juniper-canopy/src` so `frontend.dashboard_manager` imports. `e2e_f027_cleanroom.py` is self-hosted (default port `8399`); rebuild is the default, `--no-rebuild` omits the once-only `visualization-tabs.children` rewrite.
+
+These scripts are **not** CI. Sibling `e2e_f027_*.py` files in this directory are earlier refutation probes (layout, dispatch, redux, DOM) kept as the twenty-mechanism record; start with queues / ready / slots.
 
 ## Worktree in-use probe (operational)
 
