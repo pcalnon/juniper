@@ -53,6 +53,13 @@ Remaining work, in priority order:
    `util/snapshot_index.py` (4 unguarded chains), `util/experiments/run_experiment.py` (1),
    `util/snapshot_classify.py` (1). Re-measure:
    `python3 util/ad-hoc/2026-09-06_untyped_json_read_census.py util tests`
+5. THREE `##` sections stay DUPLICATED in docs/REFERENCE.md AFTER #1814 lands. Main has EIGHT;
+   #1814 is scoped to #1799's damage and removes five. Surviving: `## F-CANOPY-037 Render
+   Census`, `## Perf-Lane Split Comparator`, `## Pointer-Follow Soak`. Measure, do not trust:
+     git show origin/main:docs/REFERENCE.md | grep '^## ' | sort | uniq -d
+   Note #1811 (another session) patches BOTH copies of the perf-lane one -- its diff carries the
+   same two edits twice, because it could not see it was editing a duplicate. That is the COST
+   of the duplication, not a defect in #1811, and it is why item 5 is worth doing.
 
 Key context:
 - A DUPLICATED SECTION IS INVISIBLE TO THE GATE I SHIPPED. #1801's gate checks fences, swallowed
@@ -196,8 +203,10 @@ FILES OR GITHUB STATE** — **6 of the 15 are not queries**, and one of those cl
   (`QUICK_START.md` ×1, `DOCUMENTATION_OVERVIEW.md` ×1, `DEVELOPER_CHEATSHEET` ×2);
   `REFERENCE.md` self-links five more times. My earlier "eight documents" was occurrences
   relabelled as documents. **This decision is recorded ONLY here** — #1797's body argues a
-  different reason — so a successor may reasonably reopen it. Note `origin/main` still carries
-  the section TWICE until #1814 lands.
+  different reason — so a successor may reasonably reopen it. **`origin/main` carries the section
+  TWICE, and #1814 does NOT fix that** — an earlier draft of this handoff said it did. #1814 is
+  scoped to #1799's damage and removes 5 of main's 8 duplicated `##` sections; Perf-Lane Split
+  Comparator is one of the three it leaves. See §1 item 5.
 - **The structure gate gates the DELTA, not the count.** A zero-demanding gate could not ship
   against main's 102 inherited problems. Recorded durably in #1801's merged body.
 - **Of the 2841 lines the 35 docs PRs added, 173 are ABSENT from the merged tree.** That is a
@@ -266,3 +275,20 @@ stale, not a claim I got wrong, so it is counted separately — see §2.
 The most serious is the contract-revert one, because I repeated it to the operator several times
 before it was measured. Both Lane B agents were prompted to refute rather than to check; had they
 been asked to verify, the sizing table's own warning is that they would have agreed.
+
+### A TENTH, found after validation closed — and how
+
+Five agents and my own full read-through all passed over §5's *"`origin/main` still carries the
+section TWICE **until #1814 lands**"*. It is false: #1814 is scoped to #1799's damage and removes
+five of main's eight duplicated `##` sections; Perf-Lane Split Comparator is one of the three it
+leaves. A successor would have landed #1814 and believed the duplication resolved.
+
+Nothing in the validation could have caught it, because **every lane checked the document against
+the repo as it stands, and this claim is about a repo state that does not exist yet.** It only
+became measurable by simulating the future: `git merge-tree --write-tree origin/pr-1811
+origin/pr-1814`, then counting headings in the resulting tree. That also answered a question I had
+been treating as a risk — the two PRs merge **clean**, exit 0, no conflict.
+
+**A claim about what a PR WILL do is not verifiable by reading the PR.** Build the merged tree and
+measure it. This one cost nothing because it was caught; it was on track to cost a successor a
+wrong conclusion about work they had just finished.
