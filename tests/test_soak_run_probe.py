@@ -350,3 +350,46 @@ class TerminalVerdictDoesNotGateADryRun(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RetrievalChannelIgnoresAnswerText(unittest.TestCase):
+    """A mention of the pointer in PROSE is not retrieval.
+
+    Regression, found live on 2026-09-04 by probe P15. The first version of
+    `retrieval_channel` searched tool inputs AND the answer text, so a run whose
+    answer merely said "before the docs/REFERENCE.md relocation cut it to ~35k"
+    scored as a follow -- while zero tool calls had touched the document.
+
+    That is the worst possible direction for this instrument to fail in: a model
+    reciting the pointer's path without opening it is the strongest example of
+    NOT following the pointer, and the channel credited it as the opposite.
+    """
+
+    def test_answer_mention_alone_is_not_a_follow(self) -> None:
+        parsed = {
+            "tool_inputs": [json.dumps({"file_path": "util/some_helper.bash"})],
+            "answer": "I checked; before the docs/REFERENCE.md relocation this was larger.",
+        }
+        ch = mod.retrieval_channel(parsed, "docs/REFERENCE.md#some-anchor")
+        self.assertFalse(
+            ch["pointer_doc_referenced"],
+            "naming the pointer in prose must not count as retrieving it",
+        )
+        self.assertEqual(ch["suggests"], "source-recovered-or-miss")
+
+    def test_tool_input_hit_is_still_a_follow(self) -> None:
+        parsed = {
+            "tool_inputs": [json.dumps({"command": "sed -n '10,40p' docs/REFERENCE.md"})],
+            "answer": "no mention of the doc here at all",
+        }
+        ch = mod.retrieval_channel(parsed, "docs/REFERENCE.md#some-anchor")
+        self.assertTrue(ch["pointer_doc_referenced"])
+        self.assertEqual(ch["suggests"], "follow")
+
+    def test_empty_tool_inputs_with_rich_answer_is_not_a_follow(self) -> None:
+        parsed = {
+            "tool_inputs": [],
+            "answer": "docs/REFERENCE.md docs/REFERENCE.md docs/REFERENCE.md",
+        }
+        ch = mod.retrieval_channel(parsed, "docs/REFERENCE.md#x")
+        self.assertFalse(ch["pointer_doc_referenced"])

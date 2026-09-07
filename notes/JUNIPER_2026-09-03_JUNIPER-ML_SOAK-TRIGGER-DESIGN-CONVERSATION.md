@@ -476,3 +476,109 @@ Scored a follow, with the tension recorded rather than smoothed. It is a
 **registry-author** item: a discriminator that enumerates acceptable answers
 rather than stating the property will mis-score any better answer nobody thought
 of.
+
+---
+
+## 10. The bet failed — and two findings that complicate reading it
+
+Continuing §9.4's design (drive the ambiguous probes toward n≈8–10) produced
+three more runs and a terminal verdict.
+
+### 10.1 BET-FAILING
+
+```
+runs 43   follows 26   misses 2   src-recovered 15
+rate      60.5%   95% CI [0.456, 0.736]   boundary 0.75
+retention 95.3%   95% CI [0.845, 0.987]
+verdict   BET-FAILING  (upper bound is below the boundary)
+```
+
+The pointer-follow rate's **upper bound is now below 0.75**. The bet the arc was
+built to test has failed.
+
+**But retention is 95.3%.** Read together, these say something sharper than
+either alone:
+
+> **Relocation does not lose facts — and pointer-following is not what prevents
+> the loss.** Agents overwhelmingly still obtain a relocated fact (95.3%), but
+> they get it by reading the source, not by following the pointer (60.5%, and
+> that is now an upper-bounded failure rather than an open question).
+
+For the decision the soak exists to inform, that is a *usable* answer, and not
+the one the boundary was set to detect. Relocation looks safe. The mechanism
+credited for its safety was the wrong one.
+
+### 10.2 The retrieval channel was over-reporting follows — found live
+
+P15's run reported `pointer doc referenced: True`. A hand audit found **zero tool
+calls touching `docs/REFERENCE.md`**; the answer merely *named* the file ("before
+the `docs/REFERENCE.md` relocation cut it to ~35k").
+
+Cause, in `util/soak_run_probe.py`: `retrieval_channel` searched tool inputs
+**plus the answer text**. So any run that recited the pointer's path scored as a
+follow — and a model reciting a path without opening it is the strongest possible
+example of *not* following the pointer. The channel credited the exact opposite
+of what it measured.
+
+Fixed (tool inputs only) with three regression tests; a positive control that
+reintroduces the defect fails two of them. **All prior automated runs
+re-audited**: P23 (2 tool calls) and P06 (7) are genuine follows and their scores
+stand; P02 was correctly scored. **Only P15 was affected**, and it was caught
+before recording — it is filed source-recovered.
+
+This matters beyond one row: the channel is the part of scoring that
+`notes/JUNIPER_2026-09-02_JUNIPER-ML_SOAK-SESSION-ROLE-AUTOMATION-ANALYSIS.md`
+argued was *"mechanical, not a judgement"* and therefore safe to automate. It was
+mechanical and it was wrong, in the direction that inflates the headline.
+
+### 10.3 A third retrieval channel the scoring model has no category for
+
+P19's session wrote, in its own reasoning and with **no tool call retrieving it**:
+
+> *"The memory note about port checks fail-opening is relevant here."*
+
+P19 is one of the four rung-1 probes. That fact was in its context because of the
+`Port check fail-opens` index row added 2026-08-31. The session used the
+**index**, not the pointer and not the source.
+
+The model has two categories — follow and source-recovered — and this is neither.
+Call it **index-recovery**. It matters because rung 1's whole hypothesis was that
+index rows aid retrieval: if the intervention works by making the fact resident,
+it will never show up as a pointer *follow*, and §15.3's prediction that rung 1
+"will not move the follow rate" could be **correct and irrelevant at the same
+time**.
+
+**Do not over-read this.** It is 1 observation across the 4 rung-1 probes, and
+the detector only catches sessions that say so explicitly — silent index use is
+invisible. **1/4 is a floor, not an estimate.** The honest claim is that a
+category is missing, not that it is common.
+
+### 10.4 The stopping rule fired, exactly as §8.3 predicted
+
+Attempting the fourth run hit:
+
+```
+REFUSING: soak verdict is BET-FAILING -- terminal.
+```
+
+§8.3 flagged this guard as keyed on a signal the Q1 answer had demoted. It has
+now actually blocked per-probe characterisation work — which the *pooled* verdict
+says nothing about. The guard behaved as designed; the design is what is wrong
+for the current purpose.
+
+`--force` exists for this, but a terminal verdict is an owner-facing event, not
+something to push through silently.
+
+### 10.5 State
+
+| Probe | f/n after this batch |
+|---|---|
+| P21 | 1/4 |
+| P15 | 0/4 |
+| P19 | 0/4 |
+| P14 | 0/3 (run not attempted — blocked) |
+| P23 | 1/3 (run blocked) |
+
+Open: whether to `--force` and continue characterisation now that the pooled
+question is closed, and whether **index-recovery** should become a scored outcome
+(a registry- and ledger-level change, not a scorer's call).
