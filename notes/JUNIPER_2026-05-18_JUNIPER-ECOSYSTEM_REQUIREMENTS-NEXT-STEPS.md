@@ -10,6 +10,7 @@
 - Plan doc: [`JUNIPER_2026-05-11_JUNIPER-ECOSYSTEM_REQUIREMENTS-IDENTIFICATION-PLAN.md`](JUNIPER_2026-05-11_JUNIPER-ECOSYSTEM_REQUIREMENTS-IDENTIFICATION-PLAN.md) — §10 future-work, §11 ship history, §12 known issues
 - Snapshot index: [`JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-INDEX.md`](JUNIPER_2026-05-18_JUNIPER-ECOSYSTEM_REQUIREMENTS-INDEX.md)
 - Schema reference: [`requirements/README.md`](requirements/README.md)
+- Operator surface: [`docs/REFERENCE.md` § Requirements Snapshot Consolidation](../docs/REFERENCE.md#requirements-snapshot-consolidation) — `by-area` is the corpus of record; the ledger has no `detail`
 
 ---
 
@@ -293,7 +294,7 @@ Each refresh is a numbered iteration (vN+1) following the same pattern as v1-v4:
 
 1. **Audit** — run drift-detection (`util/requirements_drift_check.py --mode full`). Generate the drift report.
 2. **Decide scope** — review the drift report. If <5% drift, do a minimal refresh (re-cite only). If 5-20%, do a partial re-extraction on changed files. If >20%, consider a full re-extraction.
-3. **Refresh** — run the consolidation script. **Status (2026-05-18): the v1–v4 consolidate script (`phase4_consolidate.py`) was authored in `/tmp/` and is irrecoverable** — the session sandbox that held it has been reaped. The first refresh must therefore **rebuild it from scratch** at `util/requirements_consolidate.py`, using the per-phase behaviour descriptions in plan doc §11 as the de-facto specification (Phase-4 base dedupe + v2-3 cross-repo + v2-4 ARCH rebucket + v3-1 fuzzy + v3-2 cross-round + v3-3/v4-3 brief repair). This loss is the motivating incident for the new ecosystem-wide [Script placement rule](../AGENTS.md#script-placement-mandatory); see plan-doc §12 for the formal carry-over entry.
+3. **Refresh** — run [`util/requirements_consolidate.py`](../util/requirements_consolidate.py) (`--check-roundtrip`, `--check-views`, then `--merge PATH.yaml --apply`). **History (2026-05-18): the v1–v4 consolidator (`phase4_consolidate.py`) was authored in `/tmp/` and is irrecoverable** — the session sandbox that held it has been reaped. That loss is the motivating incident for the ecosystem-wide [Script placement rule](../AGENTS.md#script-placement-mandatory). The v5 rebuild is in-tree; it is **not** a reimplementation of the `/tmp` script (the Phase-3 extraction YAMLs are gone too). Operator contract: [`docs/REFERENCE.md` § Requirements Snapshot Consolidation](../docs/REFERENCE.md#requirements-snapshot-consolidation).
 4. **Validate** — re-run citation validator. Confirm precision ≥ 95% EXACT.
 5. **Update plan doc §11** — add a new vN+1 row in the phase tracker. Update §12 with any new issues.
 6. **Ship** — commit, push, open PR. Same close-out pattern as v1-v4.

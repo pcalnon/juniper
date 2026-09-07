@@ -127,6 +127,17 @@ class SpeedHalfTest(unittest.TestCase):
             result = cb.compare(payload, host, [_suite(Path(tmp), "cand", step_sum=110.0, step_count=1000)])
             self.assertAlmostEqual(result["scenarios"][0]["speed"]["delta_pct"], 10.0, places=6)
 
+    def test_zero_baseline_speed_is_n_a_and_still_passes(self):
+        # `if base_speed and cand_speed` treats 0 as missing. Rewriting that as `is not None`
+        # would divide by zero. Matching work with a zero baseline speed must still PASS.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_sum=0.0, step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            result = cb.compare(payload, host, [_suite(Path(tmp), "cand", step_sum=63.0, step_count=1770)])
+            self.assertEqual(result["verdict"], cb.PASS)
+            self.assertIsNone(result["scenarios"][0]["speed"]["delta_pct"])
+            self.assertIn("n/a", cb.render(result))
+
 
 class IdentityRefusalTest(unittest.TestCase):
     def test_different_workload_is_REFUSED_not_failed(self):
@@ -211,6 +222,46 @@ class IdentityRefusalTest(unittest.TestCase):
             self.assertIn("no step-duration data", " ".join(result["reasons"]))
             self.assertIn("vacuously", " ".join(result["reasons"]))
 
+    def test_different_workload_with_matching_step_count_is_still_REFUSED(self):
+        # The silent-green complement of the 4012-vs-1770 case. A config edit that happens to
+        # keep step_count identical would PASS if identity were dropped; the existing test
+        # would still FAIL (loud, wrong reason) because its counts differ.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", epochs=4000, step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            candidate = _suite(Path(tmp), "cand", epochs=500, step_count=1770)
+            result = cb.compare(payload, host, [candidate])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertEqual(result["scenarios"], [])
+            self.assertIn("INVALID comparison rather than a regression", " ".join(result["reasons"]))
+
+    def test_mixed_fingerprints_in_candidate_are_REFUSED_not_first_matched(self):
+        # Two cells, two known identities, identical step_count. Picking the first fingerprint
+        # that happens to be in the baseline would PASS; the suite is not a set of repeats.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", epochs=4000, step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            candidate = _suite(Path(tmp), "cand", cells=2, epochs=4000, step_count=1770)
+            (candidate / "cells" / "c001" / "experiment.yaml").write_text(
+                "experiment:\n  description: other workload\n  seed: 42\ntraining:\n  params:\n    max_epochs: 500\n",
+                encoding="utf-8",
+            )
+            result = cb.compare(payload, host, [candidate])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertEqual(result["scenarios"], [])
+            self.assertIn("different workloads", " ".join(result["reasons"]))
+
+    def test_empty_candidate_suite_is_REFUSED_not_passed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base")
+            payload, host = _baseline(Path(tmp), "t", base)
+            empty = Path(tmp) / "empty"
+            empty.mkdir()
+            result = cb.compare(payload, host, [empty])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertEqual(result["scenarios"], [])
+            self.assertIn("no registry.jsonl or no cells", " ".join(result["reasons"]))
+
 
 class HostRefusalTest(unittest.TestCase):
     def test_cpu_identity_mismatch_is_refused(self):
@@ -249,6 +300,17 @@ class HostRefusalTest(unittest.TestCase):
             candidate = _suite(Path(tmp), "cand", step_count=1771)
             foreign = dict(host, cpu_model="Some Other CPU")
             self.assertEqual(cb.compare(payload, foreign, [candidate])["verdict"], cb.REFUSED)
+
+    def test_cpu_count_mismatch_is_refused(self):
+        # The third HOST_IDENTITY_FIELDS member. cpu_model and thread_budget are pinned above;
+        # dropping cpu_count from the blocking set would make a core-count change advisory.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _suite(Path(tmp), "s")
+            payload, host = _baseline(Path(tmp), "t", suite)
+            foreign = dict(host, cpu_count=1)
+            result = cb.compare(payload, foreign, [suite])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("cpu_count", " ".join(result["reasons"]) + json.dumps(result["host"]))
 
 
 class WaiverTest(unittest.TestCase):
@@ -413,6 +475,33 @@ class CliTest(unittest.TestCase):
         self.assertEqual(cb.EXIT[cb.FAIL], 1)
         self.assertEqual(cb.EXIT[cb.REFUSED], 2)
         self.assertNotEqual(cb.EXIT[cb.FAIL], cb.EXIT[cb.REFUSED])
+
+    def test_unreadable_baseline_json_in_existing_tag_dir_exits_2(self):
+        # Distinct from a missing tag directory: the dir is present, baseline.json is not a payload.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            suite = _suite(root, "s")
+            payload, host = _baseline(root, "t", suite)
+            mb.write_baseline(root, "t", payload, {}, host)
+            (root / mb.BASELINES_DIRNAME / "t" / "baseline.json").write_text("{not-json", encoding="utf-8")
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                rc = cb.main(["--baseline", "t", "--suite", str(suite), "--run-root", str(root)])
+            self.assertEqual(rc, 2)
+            self.assertIn("missing or unreadable", err.getvalue())
+
+    def test_end_to_end_fail_exits_1(self):
+        # FAIL through argparse, not just compare() + the EXIT dict. A caller that keys on
+        # exit 1 vs 2 must not see a wiring miss that always returns 0 after printing FAIL.
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base = _suite(root, "base", step_count=1770)
+            payload, host = _baseline(root, "t", base)
+            mb.write_baseline(root, "t", payload, {}, host)
+            candidate = _suite(root, "cand", step_count=1771)
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                rc = cb.main(["--baseline", "t", "--suite", str(candidate), "--run-root", str(root)])
+            self.assertEqual(rc, 1)
+            self.assertIn("FAIL", out.getvalue())
 
 
 if __name__ == "__main__":
@@ -701,3 +790,29 @@ class VerdictPrecedenceTest(unittest.TestCase):
             other = _suite(Path(tmp), "other", epochs=500, step_count=4012)
             result = cb.compare(payload, host, [matching, other])
             self.assertEqual(result["verdict"], cb.REFUSED)
+
+
+class MultiSuiteTest(unittest.TestCase):
+    def test_one_identity_mismatch_among_suites_REFUSES_the_whole_comparison(self):
+        # `--suite` is repeatable. Any refusal must win: a matching sibling must not let a
+        # different-workload suite be reported as PASS or as a work FAIL.
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", epochs=4000, step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            matching = _suite(Path(tmp), "match", epochs=4000, step_count=1770)
+            foreign = _suite(Path(tmp), "foreign", epochs=500, step_count=1770)
+            result = cb.compare(payload, host, [matching, foreign])
+            self.assertEqual(result["verdict"], cb.REFUSED)
+            self.assertIn("INVALID comparison rather than a regression", " ".join(result["reasons"]))
+
+    def test_one_moved_suite_among_matching_suites_FAILS(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            base = _suite(Path(tmp), "base", step_count=1770)
+            payload, host = _baseline(Path(tmp), "t", base)
+            matching = _suite(Path(tmp), "match", step_count=1770)
+            moved = _suite(Path(tmp), "moved", step_count=1771)
+            result = cb.compare(payload, host, [matching, moved])
+            self.assertEqual(result["verdict"], cb.FAIL)
+            self.assertEqual(cb.EXIT[result["verdict"]], 1)
+            matches = {s["suite"]: s["work"]["match"] for s in result["scenarios"]}
+            self.assertEqual(matches, {"match": True, "moved": False})

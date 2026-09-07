@@ -10,6 +10,8 @@
 
 This file accumulates the arc's execution evidence phase by phase (plan §9). Matrix row statuses live in the matrix's own `status` column at Phase-1 close; this file holds transcripts, findings, and the PR ledger.
 
+**Triage this ledger mechanically** — `python3 util/ad-hoc/e2e_finding_triage.py` (see [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../docs/REFERENCE.md#canopy-e2e-finding-triage)). Disposition tokens (`FIXED` / `HEALED` / `ACCEPTED`) must sit in the finding **header**, in its last 170 characters. Body prose is invisible to the counter.
+
 ---
 
 ## Phase 0 — Prerequisites & stack fixes (2026-08-09) — COMPLETE
@@ -845,6 +847,108 @@ Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
 `2026-09-05_f035_topoprobe_metrics_report.txt` (130 comparisons) and
 `2026-09-05_f035_topoprobe_canopy8052.txt` (the leg log it was read from — archived as `.txt`
 deliberately: `.gitignore:52` is `*.log`, which would have silently excluded it).
+
+---
+
+#### 2026-09-07 — the payload never reaches the reducer, and once in eight runs it did
+
+The named next measurement — *"inside dash-renderer, not around it"* — was taken. It answers the
+question it was aimed at, refutes a causal claim this session made on n=1 along the way, and turns up
+one observation that is worth more than the other seven put together.
+
+**Setup.** A dedicated `:8052` leg from a fresh worktree at canopy main **`bf9d42c`** (the shared
+`:8050` leg untouched); cascor idle at 48/48, `COMPLETED`, uuid `1cd15120` — the same grown fixture,
+never rebuilt. New instrument: `util/ad-hoc/2026-09-07_f035_renderer_dispatch_probe.py`. It patches
+**nothing on the server** — `window.store` is dash-renderer's Redux store, so wrapping `dispatch` and
+subscribing to state observes both halves from the page. Unlike the F-039 topoprobe there is nothing
+to revert.
+
+**THE RESULT, 7 of 8 observations: `NEVER-ARRIVES`.** Across four probe runs (5,230 / 9,794 / 10,425 /
+10,616 dispatches each) **not one dispatched action ever carried a value for
+`metrics-panel-metrics-store`**, and the store's state never left `0`. In the same window the wire
+carries full 500-row payloads — re-confirmed on this leg by the unchanged 2026-09-04 re-drive: 18
+writes of 500 rows in 30 s, `omitted=0`, `unparsed=0`, store `len=0` before and after.
+
+> The response reaches the browser and is discarded **before the reducer sees it.**
+
+That is the split the measurement was for. Ownership moves off the reducer and onto the request /
+renderer layer — consistent with dash-renderer retiring a superseded in-flight call, and **not** with
+a reducer handed a value it fails to apply.
+
+**THE ONE RUN THAT WORKED, and why it is the most important row here.** Run 1 of 8: the store went
+**`0 → 500` and stayed**, applied by three `Callbacks.Aggregate` actions at one instant
+(`t=1788786229135`), the transition recorded at that same millisecond, and the arc's independent
+`paths.strs` reader agreeing at **`len=500`** at end of run. No console errors on that run.
+
+**So the path is functional.** This is not a dead wire, a missing writer, or a store that cannot
+hold data. **F-CANOPY-035's blocker is a LOST RACE** — lost in 7 of 8 observations here and in 3 of 3
+re-drives on 2026-09-05 and 2026-09-07, but demonstrably winnable. A permanent-blockage hypothesis is
+now refuted by a positive instance, which is a stronger refutation than any amount of failing runs.
+
+**A CAUSAL CLAIM THIS SESSION MADE AND WITHDREW.** Run 1 differed from the re-drive in one procedural
+respect — it called `page.reload()` — so the first reading was that *the reload* makes the store
+populate. That was an n=1 attribution and it is **wrong**. A 2×2 over {fresh server, loaded server} ×
+{reload, no reload} was driven to settle it:
+
+| server state | reload | store |
+|---|---|---|
+| fresh | reload | **500** (run 1) — and **0** on the repeat (run D) |
+| fresh | no reload | 0 (run C) |
+| loaded | reload | 0 (run B) |
+| loaded | no reload | 0 (run A) |
+
+**Run 1 does not reproduce in its own cell.** Neither reload nor a freshly-started server is the
+condition. Run 1 is an unexplained 1-in-8 success, and it is recorded as exactly that — an anomaly
+whose *existence* is the finding, not a mechanism.
+
+**TWO DEFECTS IN THIS SESSION'S OWN INSTRUMENT, both caught and both worth keeping.**
+
+- **A key match is not a value match.** The first dispatch detector asked "is the store id a key in
+  this action?", which also matches dash-renderer's **paths index**, where `paths.strs[id]` is an
+  array of layout keys. It reported **580** dispatches "carrying a value", of which **577 were
+  `SET_PATHS`** whose `len=18` is the length of a *path* presented as a row count. Exactly 3 were
+  real. Over-count 192×. Fixed by requiring the payload position to look like a props write.
+- **A pre-registered rule protects against reinterpreting a number, not against a branch that encodes
+  the expected answer.** The rule's `carrying and reached` branch returned `APPLIED-THEN-LOST` and
+  asserted "something reverts it afterwards" — for the one run where nothing reverted it. The branch
+  assumed the revert instead of checking for one, and so mislabelled the single most important
+  observation in the set. Split on the evidence: `APPLIED` when the value stays,
+  `APPLIED-THEN-LOST` only when a transition actually falls. Run 1 was **relabelled from its saved
+  data** — no re-run, the observation is untouched and only the label changed.
+
+**WHAT IS ESTABLISHED, AND WHAT IS STILL NOT.**
+
+- **Established**: the payload is discarded before the reducer (7 of 8, plus 3 of 3 re-drives); the
+  path is functional and the defect is a lost race (1 of 8, positive instance); neither reload nor
+  server freshness is the discriminating condition (2×2, one cell each).
+- **NOT established**: *which* pre-reducer mechanism discards it. "No dispatch ever carries the
+  value" is consistent with renderer retirement — the arc's documented 12-slot behaviour, and the 69%
+  request overlap measured on 2026-09-05 — but it is equally consistent with any other discard on the
+  path between response receipt and the aggregate action. **This measurement narrows the owner; it
+  does not name the mechanism**, and the retirement hypothesis is still a hypothesis.
+- A weak side-signal, recorded because it is cheap and might matter: `Callback failed: the server did
+  not respond` appeared in the console of **2 of the 4** failing probe runs and **none** of the
+  successful one. n is far too small to lean on.
+
+**The next measurement** is inside dash-renderer's own callback bookkeeping rather than at its store
+boundary: instrument the request lifecycle (`Callbacks.Aggregate` / the pending-callback map) to
+record, per store-writing request, whether the renderer marks it superseded before its response is
+processed. That is the step that would convert the retirement hypothesis into a mechanism or kill it.
+
+**Matrix effect: none.** M-CANDIDATES-07 stays **FAIL**; canopy#524's adapter stays correct and
+unreachable. The finding's basis moves from "the browser does not apply it" to "the payload is
+discarded before the reducer, and the path is provably functional — this is a race the store usually
+loses".
+
+**Leg torn down** by pid, worktree removed and pruned; nothing to revert, because this probe changed
+no product code.
+
+Evidence, all under `reports/e2e-canopy-2026-09-02/transcripts/`:
+`2026-09-07_f035_renderer_run1_applied.{txt,json}` (**the positive instance**),
+`2026-09-07_f035_renderer_{A_loaded_noreload,B_loaded_reload,C_fresh_noreload,D_fresh_reload}.json`
+(the 2×2 that refuted the reload claim) and
+`2026-09-07_f035_candidate_redrive_v3.{txt,json}` (the unchanged 2026-09-04 instrument reproducing
+`len=0` on this leg and commit, which is what proves the difference is not the build).
 
 **F-CANOPY-036 — candidate pool history NEVER accumulates in the live lane: the history-append callback loses its race with its own feeder's repoll, so short-lived pool states are never recorded (P2, OPEN; found during the 2026-08-24 live re-drive).**
 Across five training runs on one bring-up (~20 candidate phases), `candidate-metrics-panel-history-section` never rendered a card — while in the same sessions the SAME store's sibling consumers provably rendered active-pool values (run 5: an in-page 500 ms observer, healthy all run — 8 sampler gaps > 2 s, worst 2.8 s — recorded the badge rendering `Selecting Best` at t+189 s; runs 1/2 rendered pool 40 / `Training` / progress `351/400`). So this is **not** the fixed F-CANOPY-027 store→consumer starvation. Constructive probe on a CALM post-run page: injecting a fully-shaped `candidate_pool_status:"Training"` payload through the store's own `setProps` (the §12.1 idiom, `ok via memoizedProps.setProps`) produced **no card in 100 s**, and the request capture shows `update_pool_history` (output `…-pool-history-store.data`, `candidate_metrics_panel.py:347-381`) **never executed after the injected write** — while the same capture shows it executing normally on an ordinary poll fill (with `candidate_pool_status=Inactive`, i.e. after the transient state was already overwritten). Mechanism family: dash-renderer executes a queued callback with the store's CURRENT value (or supersedes the queued trigger entirely) when the feeder — `fetch_training_state`, polling at ~1 s on the candidates tab — rewrites the store before the append is promoted; any pool state shorter-lived than the promotion delay is unrecordable. The append's design contract (`:344-392`, one snapshot per `current_epoch` while a pool is active) is therefore probabilistic-to-never under load, and zero-across-five-runs in practice. Matrix effect: M-CANDIDATES-09 FAIL (populated arm unreachable, cause re-attributed from F-CANOPY-027 to this finding); M-CANDIDATES-10/-11 remain BLOCKED (their DEAD-EXPECTED click test needs a rendered card; blocker likewise re-attributed). Candidate fixes (owner decision): append server-side (canopy backend accumulates pool history and serves it, removing the client-side race entirely) or make `update_pool_history` clientside so it runs synchronously in the same commit as the store write.

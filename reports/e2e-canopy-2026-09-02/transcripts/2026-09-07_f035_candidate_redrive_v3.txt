@@ -1,0 +1,15 @@
+[t=    122ms]   server /api/metrics/history: {'ok': True, 'total': 100, 'phases': {'candidate': 93, 'output': 7}, 'candidate': 93}
+[t=    723ms] navigating to http://127.0.0.1:8052
+[t=   6389ms]   welcome modal not present/visible
+[t=  12918ms]   modal cleared after 1 attempt(s)
+[t=  27844ms]   metrics-panel-metrics-store: ok via 'paths.strs' type=list len=0
+[t=  29727ms]   ws-liveness-store: ok=True value={'metrics_live': False, 'state_live': False}
+[t=  31702ms]   ws-metrics-buffer BEFORE: ok=True value={'events': [], 'gen': 0, 'last_drain_ms': 0}
+[t=  56705ms]   wire census (25 s): {'responses_naming_store': 14, 'responses': 74, 'window_s': 25.0}
+[t=  86709ms]   WRITE census (30 s): responses=84 wrote=[500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500, 500] omitted=0 unparsed=0
+[t=  87632ms]   metrics-panel-metrics-store AFTER 18 writes: {'ok': True, 'via': 'paths.strs', 'len': 0, 'type': 'list'}
+[t=  88923ms]   ws-metrics-buffer AFTER: gen 0 -> 0  => ws appender fired: False
+[t= 136199ms]   !! timed out after 45s waiting for candidate loss plot to render a populated trace (last=False)
+[t= 137070ms]   loss figure: {'present': True, 'traces': [], 'annotations': []}
+[t= 137070ms]   M-CANDIDATES-07 -> FAIL: store readable and EMPTY while the server serves candidate history
+[t= 137190ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f035_redrive5.json

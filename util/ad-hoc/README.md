@@ -120,8 +120,6 @@ The copied blast-radius sentence *W4-01..17 and W1-12..14 stay BLOCKED* names 20
 
 Operator contract: [`docs/REFERENCE.md` § Canopy E2E Topology Step Order and Blast-Radius IDs](../../docs/REFERENCE.md#canopy-e2e-topology-step-order-and-blast-radius-ids).
 
----
-
 ## Memory-budget slack (operational)
 
 `2026-08-25_p5_port_memory_budget.py measure-growth`, `2026-08-26_p5_fleet_state.py`,
@@ -158,6 +156,15 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 - **`2026-09-05_f035_store_write_latency_probe.py`** times each store-writing round trip against the interval that re-requests it, because dash-renderer retires an in-flight call on re-request. Read its
   `overlap_fraction` as the retirement **precondition**, never as retirement: on 2026-09-05 it read 0.69 while the store was constant-empty across 130 server-side comparisons, so nine unopposed
   responses also failed to land. A number that explains most of a result is not the cause of it.
+- **`2026-09-07_f035_renderer_dispatch_probe.py` needs no revert** — it patches nothing on the server. `window.store` is dash-renderer's Redux store, so wrapping `dispatch` and subscribing to state observes
+  both "did the payload arrive at the reducer" and "was it applied" from the page alone. Prefer this shape over a server-side instrument whenever the question is about the *client's* copy. Two traps it
+  paid for: (a) **a key match is not a value match** — asking "is the store id a key in this action?" also matches `paths.strs[id]`, dash-renderer's PATH INDEX, which reported 577 bogus `SET_PATHS` hits
+  with `len=18` (a path length dressed as a row count) against 3 real ones, a 192x over-count; require the payload position to look like a props write. (b) **a pre-registered rule does not protect a
+  branch that encodes the expected answer** — its `carrying and reached` branch *asserted* "something reverts it afterwards" and so mislabelled the one run in eight where the store actually worked and
+  the value STAYED. Check for the revert; do not assume it.
+- **Do not attribute a difference to a procedural detail on n=1.** Run 1 of that probe populated the store where the re-drive did not, and differed by a `page.reload()`. The obvious reading — "reload
+  fixes it" — died to a 2x2 over {fresh server, loaded server} x {reload, no reload}: run 1 did not reproduce **in its own cell**. When a run behaves differently, drive the cell it sits in before naming
+  the variable, and re-run the anomalous arm itself — a single success is an anomaly to be reported, not a condition to be announced.
 
 Always `revert` before committing anything from the instrumented checkout.
 
@@ -170,6 +177,78 @@ Operator contract: [`docs/REFERENCE.md` § F-039 Store Probe](../../docs/REFEREN
 A required name that never reports leaves `main` unmergeable with every visible check green (the 2026-08-10 fleet-union class). Re-run the auditor; do not quote the incident note's §1 counts. Human-mode exit 0 can still print `ERROR:` rows; `--json` fails closed on probe errors.
 
 Operator contract: [`docs/REFERENCE.md` § Ruleset Context Audit](../../docs/REFERENCE.md#ruleset-context-audit).
+
+## Canopy E2E matrix writes (operational)
+
+The 298-row ledger is `notes/JUNIPER_2026-08-08_JUNIPER-CANOPY_E2E-CLICK-BY-CLICK-TEST-MATRIX.md`. Do not hand-edit status cells.
+
+| Script | Default | Load-bearing constraint |
+|--------|---------|-------------------------|
+| `e2e_matrix_fill.py` | dry-run (`--write` to apply) | Locates `status` by header per table; splits on unescaped pipes; first `--verdicts` source wins (newest first). `--overwrite` clobbers hand-authored `DIVERGENCE` cells — use rescore for a named subset. |
+| `2026-09-02_matrix_set_verdicts.py` | **writes immediately** | `--from` must match every named row. Atomic: one miss updates nothing. Naive split on every pipe — do not use on escaped-pipe rows. |
+| `e2e_matrix_rescore.py` | dry-run | Named `--row` only. Missing ids warn **and still write** the found rows. |
+| `e2e_unfilled_rows.py` | read-only | Ledger reader. Do **not** plan from `e2e_row_coverage.py` (estimator). |
+
+W-lane ids have no status cell (`no-matrix-row`, not an error). Operator contract: [`docs/REFERENCE.md` § Canopy E2E Matrix Writes](../../docs/REFERENCE.md#canopy-e2e-matrix-writes).
+
+## F-CANOPY-027 poller starvation (operational)
+
+The `e2e_f027_*.py` family is **retained provenance** of the canopy dashboard starvation investigation (finding **FIXED** in juniper-canopy #507 / #509 / #511). Recurrence looks like a wiring miss (store fills, consumers never paint) and is not.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-027 Poller Starvation Probes](../../docs/REFERENCE.md#f-canopy-027-poller-starvation-probes).
+
+Do **not** add a new `dcc.Interval` / poller to "fix" a frozen panel — that re-saturates dash-renderer's hard-coded 12-slot pool. Feed an existing store instead (canopy#524 used `metrics-panel-metrics-store`).
+
+Live probes (`e2e_f027_queues.py`, `e2e_f027_ready.py`, `e2e_f027_slots.py`) need a **live isolated** canopy (`JuniperCanopy1`, `DEMO_MODE=0`, empty `LD_LIBRARY_PATH`) and Playwright via `e2e_w3_params_driver.py`. Point them with `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`) — there is no `--base-url` flag.
+
+`e2e_f027_deps_endpoint.py` is a **server-registry** check: run it from `juniper-canopy/src` so `frontend.dashboard_manager` imports. `e2e_f027_cleanroom.py` is self-hosted (default port `8399`); rebuild is the default, `--no-rebuild` omits the once-only `visualization-tabs.children` rewrite.
+
+These scripts are **not** CI. Sibling `e2e_f027_*.py` files in this directory are earlier refutation probes (layout, dispatch, redux, DOM) kept as the twenty-mechanism record; start with queues / ready / slots.
+
+## Worktree in-use probe (operational)
+
+`2026-09-02_worktree_inuse_probe.py` is an independent second opinion for a worktree sweep. The cwd-only liveness probe (`2026-08-20_worktree_liveness_probe.py`) and the P5 cleaner's `occupied()` gate miss an editor or a long `pytest` whose cwd is elsewhere while a file inside the tree is still open.
+
+- STRONG (cwd or an open fd inside the tree) → `IN USE`, exit 1 `REFUSE`.
+- WEAK (cmdline substring) → `review` / `CAUTION`, exit stays 0. The first run reported every tree in use because the probe named the paths as arguments; self and parent pids are excluded from WEAK by pid.
+- Empty argv exits 2 (the cwd-only probe exits 0 on that misuse).
+- Read-only. Sibling `foo-extra` is not inside `foo`. Unreadable `/proc` (other users) is counted, not treated as in-use.
+
+```bash
+python3 util/ad-hoc/2026-09-02_worktree_inuse_probe.py <worktree-dir> [<worktree-dir> ...]
+```
+
+Operator contract: [`docs/REFERENCE.md` § Worktree Divergence](../../docs/REFERENCE.md#worktree-divergence-is-a-memory-cost).
+
+## Canopy E2E finding triage (operational)
+
+`e2e_finding_triage.py` is the mechanical P0/P1 open-count for Phase 2's exit criterion. It reads only line-starting `**F-<AREA>-<NNN> — …**` headers in the evidence ledger.
+
+- `FIXED` / `HEALED` in the last 170 characters of the header → closed.
+- `ACCEPTED` in that same tail, and not also FIXED → owner-deferred. Third disposition: not FIXED, not OPEN.
+- `--open-only` hides closed rows; the totals block still counts every finding.
+- Always exits 0. A green shell is not "no open P0/P1".
+
+```bash
+python3 util/ad-hoc/e2e_finding_triage.py
+python3 util/ad-hoc/e2e_finding_triage.py --open-only
+```
+
+Operator contract: [`docs/REFERENCE.md` § Canopy E2E Finding Triage](../../docs/REFERENCE.md#canopy-e2e-finding-triage).
+
+## F-CANOPY-037 render census (operational)
+
+`e2e_f037_render_census.py` re-drives the topology-graph paint that F-CANOPY-037 measured in 2 of 11 sessions. Default `--sessions` is 11; a single session is not a comparable claim. Exit 0 means every session produced PASS or FAIL (even if painted==0); exit 2 means the census failed to measure. All-zero `hidden_units` is INVALID (nothing to draw), not a render FAIL. Idle populated is VALID.
+
+The census does **not** start canopy. Bring up the isolated trio first (`util/isolated_stack.bash --up`), train a network, then:
+
+```bash
+python3 util/ad-hoc/e2e_f037_render_census.py
+```
+
+No `--base-url`; inherit `JUNIPER_E2E_CANOPY_URL` (default `http://127.0.0.1:8051`). A/B a pre-merge checkout on `:8052` with `e2e_f037_ab_premerge_leg.bash`. `_find_juniper_root` must see **both** `juniper-canopy` and `juniper-cascor`; three hops from a nested worktree recorded `sha=None`.
+
+Operator contract: [`docs/REFERENCE.md` § F-CANOPY-037 Render Census](../../docs/REFERENCE.md#f-canopy-037-render-census).
 
 ---
 

@@ -29,5 +29,8 @@ env_vars:
   - CASCOR_LOG_LEVEL
 
 npz_contract:
-  keys: ["X_train", "y_train", "X_test", "y_test", "X_full", "y_full"]
+  # THREE partitions. `val` is the in-loop split (early stopping, candidate selection);
+  # `test` is touched once, at the end. The `*_full` family left the contract in
+  # decision 11 (juniper-data#369) -- tolerate it on a stored artifact, never require it.
+  keys: ["X_train", "y_train", "X_val", "y_val", "X_test", "y_test"]
   dtype: float32
