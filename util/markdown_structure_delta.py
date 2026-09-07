@@ -30,10 +30,14 @@
 #   Inherited damage is therefore invisible and newly-inflicted damage is not, which is the only
 #   split that lets the gate go in today.
 #
-#   FAIL-CLOSED ON AN EMPTY EXAMINATION. The screen silently skips anything that is not a `.md`
-#   file, so a bad glob or a wrong base ref examines nothing and reports success -- a correct
-#   predicate over an empty site enumeration. When the diff names markdown files, at least one
-#   must actually have been examined, or this exits 2 rather than 0.
+#   FAIL-CLOSED ON AN EMPTY *OR PARTIAL* EXAMINATION. The screen silently skips anything that is
+#   not a `.md` file, so a bad glob or a wrong base ref examines nothing and reports success -- a
+#   correct predicate over an empty site enumeration. Three refusals cover it:
+#
+#     * `base == head` is not a comparison (ci.yml's non-PR fallback yields it on a root commit);
+#     * ANY touched file unreadable at head -- not just all of them, because nine read and one
+#       skipped is the same failure one file at a time;
+#     * zero files examined while the diff named markdown.
 #
 # Usage:
 #   markdown_structure_delta.py --base <ref> [--head <ref>]
@@ -99,6 +103,13 @@ def main(argv: list[str] | None = None) -> int:
             print(f"cannot resolve ref {ref!r}", file=sys.stderr)
             return 2
 
+    if git("rev-parse", args.base).stdout.strip() == git("rev-parse", args.head).stdout.strip():
+        # base == head is not a comparison. ci.yml's fallback for a non-`pull_request` event is
+        # `git rev-parse HEAD^1 || git rev-parse HEAD`, and on a root commit that second arm
+        # yields HEAD itself -- an empty diff, "no markdown touched", exit 0. Vacuous.
+        print(f"base and head are the same commit ({args.base}) -- that is not a comparison", file=sys.stderr)
+        return 2
+
     touched = touched_markdown(args.base, args.head)
     if not touched:
         print("no markdown touched by this PR -- nothing to compare")
@@ -106,10 +117,15 @@ def main(argv: list[str] | None = None) -> int:
 
     screen = _load_screen()
     examined = 0
+    unreadable: list[str] = []
     regressions: list[str] = []
     for rel in touched:
         after = problems_at(screen, args.head, rel)
         if after is None:
+            # NOT a silent continue. Skipping without counting means nine readable files and one
+            # unreadable reports success and says nothing about the tenth -- the same
+            # examined-nothing failure this guard exists for, one file at a time.
+            unreadable.append(rel)
             continue
         examined += 1
         before = problems_at(screen, args.base, rel)
@@ -121,6 +137,13 @@ def main(argv: list[str] | None = None) -> int:
         if after > before:
             regressions.append(f"{rel} ({label}): {before} -> {after}")
         print(f"  {'FAIL' if after > before else 'ok  '} {rel}: {before} -> {after}")
+
+    if unreadable:
+        print(f"could not read {len(unreadable)} of {len(touched)} touched markdown file(s) at {args.head}:", file=sys.stderr)
+        for rel in unreadable:
+            print(f"    {rel}", file=sys.stderr)
+        print("refusing to report on a partial examination", file=sys.stderr)
+        return 2
 
     if examined == 0:
         # The diff named markdown and none of it was examined. The screen skips non-`.md` files
