@@ -10,6 +10,11 @@
 - **Agent reports**: `reports/2026-09-05_canopy-deadlock-consensus/{laneA1,laneA2,laneA3,laneB1,laneB2}.md`
 - **Acceptance evidence**: `reports/2026-09-05_canopy-deadlock-consensus/browser_acceptance.md` (PR A)
   and `…/browser_acceptance_prb.md` (PR B)
+- **Handoff**: `prompts/thread-handoff_automated-prompts/HANDOFF_2026-09-07_canopy-selection-deadlock-fixed-generator-gap-open.md`
+  — the outstanding-work inventory, itself consensus-validated. **Its remaining item 1 (N5: Start is
+  not gated on backend agreement, so a "Recurrence" run executes on cascor) is a live defect this
+  arc surfaced and did not close**; §7's shipped table below records the label fix (#592), not a
+  gate.
 
 ---
 
