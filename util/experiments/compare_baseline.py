@@ -99,6 +99,18 @@ def compare_host(baseline_host: Mapping[str, Any], candidate_host: Mapping[str, 
     return {"match": not blocking, "blocking_differences": blocking, "advisory_differences": advisory}
 
 
+def _section(blob: Dict[str, Any], key: str) -> Dict[str, Any]:
+    """``blob[key]`` when it is a mapping, else ``{}``.
+
+    NOT `blob.get(key) or {}`. That guards FALSY -- `None`, `{}` -- and passes a truthy non-dict
+    straight through to the next `.get`, where a manifest carrying `"environment": "linux"` dies
+    with `AttributeError: 'str' object has no attribute 'get'` instead of being refused for
+    cause. Same fix as ml#1781 made in `read_run_metrics.py`; these files are the rest of it.
+    """
+    value = blob.get(key)
+    return value if isinstance(value, dict) else {}
+
+
 def compare(
     baseline_payload: Mapping[str, Any],
     baseline_host: Mapping[str, Any],
@@ -159,6 +171,20 @@ def compare(
         if not_succeeded:
             reasons.append(f"{Path(suite_dir).name}: candidate cells did not succeed: {not_succeeded} -- not comparable")
             continue
+        # ORDER MATTERS, and this block used to sit three checks lower. A recurrence run has
+        # no step counter at all, so EVERY cell reads `step_count is None` and the `unmeasured`
+        # branch below fired first -- telling the operator to go find step-duration data that
+        # cannot exist for this run kind. "Uncountable" is both more specific and more
+        # actionable: it says the WORK half does not apply and to report the run instead.
+        # Nothing else moves, because `work_countable` is False only for recurrence.
+        if not summary.get("work_countable", True):
+            reasons.append(
+                f"{Path(suite_dir).name}: candidate runs of kind {summary.get('kinds')} expose no countable work, so the "
+                f"WORK half of the gate does not apply. Speed alone cannot be compared here -- the host's drift floor is "
+                f"13-20.5%. Report the run rather than gating it."
+            )
+            continue
+
         unmeasured = [r["run_id"] for r in rows if r.get("step_count") is None]
         if unmeasured:
             reasons.append(
@@ -176,13 +202,6 @@ def compare(
             reasons.append(
                 f"{Path(suite_dir).name}: candidate cells ran {len(summary['workload_fingerprints'])} different workloads "
                 f"(or their identity is unknown) -- cannot compare"
-            )
-            continue
-        if not summary.get("work_countable", True):
-            reasons.append(
-                f"{Path(suite_dir).name}: candidate runs of kind {summary.get('kinds')} expose no countable work, so the "
-                f"WORK half of the gate does not apply. Speed alone cannot be compared here -- the host's drift floor is "
-                f"13-20.5%. Report the run rather than gating it."
             )
             continue
         if not summary["work_invariant"]:
@@ -213,7 +232,7 @@ def compare(
             )
             continue
 
-        base_reason = (matched.get("work") or {}).get("completion_reason")
+        base_reason = _section(matched, "work").get("completion_reason")
         cand_reason = summary["completion_reasons"][0]
         if not base_reason:
             # FAIL CLOSED, symmetrically with the candidate side. A baseline cut before this guard
@@ -235,10 +254,10 @@ def compare(
             )
             continue
 
-        base_count = (matched.get("work") or {}).get("step_count")
+        base_count = _section(matched, "work").get("step_count")
         cand_count = summary["step_counts"][0]
-        base_speed = (matched.get("speed") or {}).get("mean")
-        cand_speed = (summary.get("mean_step") or {}).get("mean")
+        base_speed = _section(matched, "speed").get("mean")
+        cand_speed = _section(summary, "mean_step").get("mean")
         speed_delta = (100 * (cand_speed - base_speed) / base_speed) if base_speed and cand_speed else None
 
         scenario_results.append(

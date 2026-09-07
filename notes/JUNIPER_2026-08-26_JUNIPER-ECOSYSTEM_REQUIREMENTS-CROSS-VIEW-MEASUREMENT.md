@@ -5,6 +5,8 @@
 **Date**: 2026-08-26
 **Status**: measurement complete (2026-08-26); decision taken and shipped 2026-08-29 — see §5
 
+**Operator surface:** [`docs/REFERENCE.md` § Requirements Snapshot Consolidation](../docs/REFERENCE.md#requirements-snapshot-consolidation) — `--check-roundtrip` is by-area only; `--check-views` owns the derived projection decided in §5.
+
 ---
 
 ## 1. What was recorded, and what it bought

@@ -1,0 +1,10 @@
+[t=    726ms] navigating to http://127.0.0.1:8052
+[t=   6578ms]   welcome modal not present/visible
+[t=  13273ms]   modal cleared after 1 attempt(s)
+[t=  86625ms]   store len before=0 after=0
+[t=  86625ms]   writes=29 rows=[500]
+[t=  86625ms]   duration_s  {'n': 27, 'min': 0.989, 'median': 1.827, 'max': 4.71}
+[t=  86625ms]   req gap_s   {'n': 26, 'min': 1.128, 'median': 1.716, 'max': 2.848}
+[t=  86625ms]   OVERLAPPED (a successor was issued while this one was in flight): 20/29 = 0.69
+[t=  86625ms]   NOTE: overlap is the PRECONDITION for renderer retirement, not retirement itself.
+[t=  86625ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f035_latency.json

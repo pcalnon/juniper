@@ -6,6 +6,8 @@
 **Status**: Plan locked. Execution not yet started.
 **Owner**: Paul Calnon (work to be performed by Claude Code agents under supervision)
 
+**Operator surface (v5 consolidator):** [`docs/REFERENCE.md` § Requirements Snapshot Consolidation](../docs/REFERENCE.md#requirements-snapshot-consolidation) — `by-area` is the corpus of record; the ledger has no `detail`.
+
 ---
 
 ## 1. Goal

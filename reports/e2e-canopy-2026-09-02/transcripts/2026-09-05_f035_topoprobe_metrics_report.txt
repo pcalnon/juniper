@@ -1,0 +1,35 @@
+TOPOPROBE lines: 130  (comparisons: 130)
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+  TOPOPROBE[metrics] eq=False cur_type=list cur_len=2 new_len=164570 canon_eq=False
+
+  every comparison unequal: True
+  distinct cur_len values : [2]
+  distinct cur_type values: list
+  distinct canon_eq values: False
+
+  => VERDICT: constant small cur_len=2 matching the store's empty
+     default - the client's copy never advances. For --target metrics this
+     supports F-035/-038/-039 being one defect.
+
+  BEFORE concluding: discriminate by WRITER. metrics-panel-metrics-store has a
+  second, UNGUARDED writer (append_ws_metrics_store, allow_duplicate=True,
+  dashboard_manager.py:3910) whose every write is no_update-free by construction,
+  and the guarded handler writes [] rather than no_update when the copy is falsy.

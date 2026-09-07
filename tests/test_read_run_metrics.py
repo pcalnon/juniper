@@ -181,6 +181,22 @@ class SummariseTest(unittest.TestCase):
             self.assertEqual(summary["step_counts"], [1770.0])
             self.assertFalse(summary["work_invariant"])
 
+    def test_completion_reasons_KEEPS_the_unknown_member_rather_than_filtering_it(self):
+        # The whole list, not just the derived boolean. ml#1776 removed the falsy filter
+        # (`... for r in rows if r.get("completion_reason")`) because dropping unknown cells
+        # BEFORE uniqueness made `4x early_stopped + 1x None` read as ONE branch -- fail-open
+        # on exactly the mixed case the guard exists for.
+        #
+        # Nothing pinned the list itself, only `single_completion_reason`. A parked fleet PR
+        # (ml#1735) still asserts the filtered form `["early_stopped"]`, so re-introducing the
+        # filter would satisfy that test and break nothing else. This is what says no.
+        with tempfile.TemporaryDirectory() as tmp:
+            suite = _write_suite(Path(tmp), [("c000", {"reason": "early_stopped"}), ("c001", {"reason": None})])
+            summary = rrm.summarise(rrm.read_suite(suite))
+            self.assertEqual(summary["completion_reasons"], ["None", "early_stopped"])
+            self.assertTrue(summary["has_unknown_completion_reason"])
+            self.assertFalse(summary["single_completion_reason"])
+
     def test_single_workload_false_when_some_identities_unknown(self):
         """One known fingerprint plus one unknown is not "the same workload".
 
