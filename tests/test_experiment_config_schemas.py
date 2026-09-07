@@ -136,9 +136,12 @@ DELIBERATE_EPOCH_SPLITS = {
 # Configs whose intent has NOT been decided. Separated from the blessed set deliberately: folding an
 # undecided case into DELIBERATE_EPOCH_SPLITS would launder "nobody has looked at this" into "this is
 # on purpose", which is precisely how the original defect survived in spiral-smoke.yaml for a month.
-PENDING_EPOCH_SPLIT_DECISIONS = {
-    "xor-staged.yaml": "undocumented split (max_epochs 200, no output_epochs); no suite consumes it. Owner decision tracked as P2 item 0.5",
-}
+# EMPTY as of 2026-09-07, and that is the intended resting state -- an entry here is a config nobody
+# has ruled on yet, not a permanent category. xor-staged.yaml was the only occupant; the owner ruled
+# on P2 item 0.5 and juniper-cascor#629 set output_epochs: 200, so the split is gone and the
+# exemption with it. test_exempt_entries_are_not_stale forces exactly this: it asserts every exempt
+# config STILL carries the split, so a fixed config cannot quietly keep its waiver.
+PENDING_EPOCH_SPLIT_DECISIONS: dict[str, str] = {}
 
 
 class EpochBudgetSplitDriftTest(unittest.TestCase):
