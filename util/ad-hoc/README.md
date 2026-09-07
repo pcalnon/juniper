@@ -165,6 +165,15 @@ Operator contract: [`docs/REFERENCE.md` § Memory-Budget Slack (Planning)](../..
 - **Do not attribute a difference to a procedural detail on n=1.** Run 1 of that probe populated the store where the re-drive did not, and differed by a `page.reload()`. The obvious reading — "reload
   fixes it" — died to a 2x2 over {fresh server, loaded server} x {reload, no reload}: run 1 did not reproduce **in its own cell**. When a run behaves differently, drive the cell it sits in before naming
   the variable, and re-run the anomalous arm itself — a single success is an anomaly to be reported, not a condition to be announced.
+- **`2026-09-07_f035_callback_lifecycle_probe.py` reads dash-renderer's pending-callback bookkeeping out of the SAME Redux store** (`state.callbacks`: `requested` / `prioritized` / `blocked` / `executing` /
+  `watched` / `executed` / `stored`). No work against the minified bundle, no product change, nothing to revert. `--discover` dumps the real list names first — those names have been renamed across
+  dash-renderer versions, and an instrument that assumes a schema it never checked is how a confident zero gets produced. Two traps it encodes: **match on the OUTPUT position, never a substring** (a store
+  that is a `State` of its writer and an `Input` of five readers is mentioned by nearly every entry in every list, so a substring test measures "callbacks near the store" and returns a large confident
+  number for the wrong question); and **a presence COUNT cannot distinguish supersession from a stuck request** — "present in `watched` for 2,344 notifies" fits both, and they need opposite fixes, so count
+  the absent→present TRANSITIONS. 23 and 26 separate entries across two replicates is a series; one long run would have been a hung promise.
+- **Sampling on Redux notifies can miss a fast transit.** An entry that passes through `executed` between two notifies is invisible, so "never reached a terminal list" is not self-supporting. Close it from
+  outside the instrument: F-CANOPY-035's conclusion rests on that list evidence *plus* an independent `paths.strs` read showing the value never advances *plus* the dispatch probe's zero value-carrying
+  dispatches. One instrument's blind spot is another's measurement; say which one closes it rather than asserting the negative.
 
 Always `revert` before committing anything from the instrumented checkout.
 
