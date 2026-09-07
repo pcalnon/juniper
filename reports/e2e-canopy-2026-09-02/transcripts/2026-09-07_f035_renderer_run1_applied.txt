@@ -1,0 +1,22 @@
+[t=   2606ms] navigating to http://127.0.0.1:8052
+[t=   6876ms]   welcome modal not present/visible
+[t=  15841ms]   hook armed: True
+[t=  18905ms]   modal cleared after 1 attempt(s)
+[t=  83689ms]   armed=True totalDispatches=15674 totalNotifies=15985 hookErrors=0
+[t=  83689ms]   dispatches CARRYING a value for metrics-panel-metrics-store: 580
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]      type='SET_PATHS' len=18
+[t=  83689ms]   state transitions: [(None, None), (None, 0), (0, 500)]
+[t=  83689ms]   independent read: {'ok': True, 'via': 'paths.strs', 'len': 500}
+[t=  83689ms]   top action types: [('Callbacks.Aggregate', 8124), ('RESET_COMPONENT_STATE', 2653), ('<thunk>', 2025), ('LOADING', 1149), ('LOADED', 1145), ('SET_PATHS', 577), ('IsLoading.Set', 1)]
+[t=  83689ms]   => VERDICT: APPLIED-THEN-LOST
+[t=  83689ms]      580 dispatches carried a value and the state DID reach non-empty ([500]). Something reverts it afterwards; read the transition list for the shape of the revert.
+[t=  83689ms] results -> /home/pcalnon/.claude/jobs/7a4c8f34/tmp/f035_renderer.json
