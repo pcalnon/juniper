@@ -3539,7 +3539,7 @@ Relocated verbatim from `AGENTS.md` (P3 of the shared-session-memory plan) so it
   - `metric_contract`'s work string is **under-specified**: it still reads "deterministic for a seed-fixed config and contention-immune" without the termination-branch condition `ml#1733` established. The written `baseline.json` inherits that wording; the guard itself is correct. Known source gap.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_make_baseline.py`.
 - `util/experiments/compare_baseline.py` -- Split comparator (P2 item 1.2). WORK exact, SPEED reported never gated, identity first. Exit 0 PASS/WAIVED, 1 FAIL, 2 REFUSED.
-  - **Do not wire to CI** — sound since ml#1743, but whether the run tier gates at all is an open OWNER decision (P1 design §6).
+  - **NEVER wire to CI** — closed 2026-09-07, structurally: host identity blocks, CI is `ubuntu-latest` with no self-hosted runner, so it exits 2 REFUSED on every CI run (P1 design §6). Operator tool, baseline host only.
   - Writer refusals the comparator still lacks: unmeasured cells, `timed_out` cells, zero-work, `--suite` collapse, duplicate-fingerprint last-wins, unchecked scenario coverage.
   - Operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). Tests: `tests/test_compare_baseline.py`.
 - `util/experiments/stats_summary.py` -- Wave 2.6 SS8.3 renderer (not a CLI; no `__main__`). `build_stats` / `render_summary_md` write `juniper-experiment-stats/1`. Recurrence duration lives under `outcome.timings`, not `recurrence.*`. `scrape_confirmed` is tri-state. Operator surface: [Experiment Stats Summary (SS8.3)](#experiment-stats-summary-ss83). Tests: `tests/test_run_experiment.py` (`StatsSummaryUnitTest`).
@@ -3792,7 +3792,7 @@ juniper-ml/
     ├── snapshot_backfill.py             # Consolidates the index + classification + attribution sidecars into ONE record per snapshot (handoff §3.4 'backfill'), with every field labelled by HOW it was obtained. Four derivation levels that differ in KIND, not degree: `observed` (read from the .h5), `measured` (obtained by running the artifact — load status, per-dataset accuracy), `inferred` (a judgement from those measurements — dataset attribution, always carrying confidence/meaning/evidence/caveat), and `population` (true of the COHORT, NOT verified for this snapshot). That fourth level is the point: item 3 trained 380 of 15,927 zero-node snapshots, so writing `formerly_broken` onto all of them as fact would fabricate a per-snapshot result for 15,547 files — a confidence SCORE would have licensed exactly that. Names a root cause for all 273 failing snapshots (cohort B, truncated writes). Run identity is never invented: no run dir survives from before 2026-07-30, so absence stays absence. `--explain NAME` prints one snapshot's full provenance. READ-ONLY — writes only snapshots_backfill.jsonl beside the index and never touches a .h5 (it does not import h5py at all); no prune path, because retention is §6.4
     ├── isolated_stack.bash               # Isolated training-runtime E2E trio (data 8101 / cascor 8202 / canopy 8051): --up/--down/--status/--dry-run
     ├── experiment_stack.bash             # Per-run experiment launcher (data 8110-8139 / cascor 8230-8259 / recurrence 8260-8289): --up/--down/--status/--dry-run
-    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + read_run_metrics.py / make_baseline.py / compare_baseline.py (Q-8 split gate — sound since ml#1743; CI-wiring is an open OWNER decision) + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
+    ├── experiments/                      # Experiment driver layer (Waves 2.2-2.6): run_experiment.py + plots_cascor.py / plots_recurrence.py + stats_summary.py + list_runs.py + run_suite.py + read_run_metrics.py / make_baseline.py / compare_baseline.py (Q-8 split gate — sound since ml#1743; NEVER CI-wired, P1 §6 closed 2026-09-07: host identity blocks on hosted runners) + suites/ (7.1+7.5) + suites/perf/ (Wave 7.3 PF instruments; PF-4/PF-8 are not driver suites — § PF Scenario Suites)
     ├── get_cascor_status.bash            # GET /v1/training/status
     ├── get_cascor_metrics.bash           # GET /v1/metrics
     ├── get_cascor_history.bash           # GET /v1/metrics/history?count=10
@@ -4533,7 +4533,7 @@ Missing or unreadable `cells/<cell_id>/experiment.yaml` returns `None`, not a sh
 
 `make_baseline` records the fingerprint per scenario and **refuses** a suite whose cells ran different workloads. That is distinct from the work-invariant refusal.
 
-The split **comparator** (`util/experiments/compare_baseline.py`, P2 item 1.2) is **not shipped**. The planned escape `--accept-work-change "<reason>"` does not exist yet; do not invent a flag. Until 1.2 lands, a deliberate workload change is a **new baseline** (tags supersede by name). Whether the run tier ever gates CI remains open (P1 design §6).
+The split **comparator** (`util/experiments/compare_baseline.py`, P2 item 1.2) **shipped**, and `--accept-work-change "<reason>"` exists. Prefer a **new baseline** anyway — tags supersede by name and are cheap; a waiver is for when the tag must stay. **The run tier never gates CI** — closed 2026-09-07, structurally: host identity blocks, CI is `ubuntu-latest` with no self-hosted runner, so it exits 2 REFUSED on every CI run (P1 design §6).
 
 #### Baseline (`util/experiments/make_baseline.py`)
 
@@ -4746,7 +4746,7 @@ Test seams (operator-visible): `JUNIPER_SUITE_LAUNCHER`, `JUNIPER_SUITE_DRIVER`,
 
 Do **not** point experiment ports at `plant_all` / isolated-stack ports, and do not use this launcher when you need canopy (use `isolated_stack.bash` or the host stack instead).
 
-Q-8 baselines and the split comparator are a **separate** operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). A `compare_baseline.py` FAIL is now interpretable — it means the workload, host, termination branch and measurement all matched and `step_count` still moved. Do not wire that tool to CI: whether the run tier gates at all is an unmade **owner** decision (§6 of the P1 design), not a soundness question.
+Q-8 baselines and the split comparator are a **separate** operator surface: [Perf-Lane Work Gate](#perf-lane-work-gate). A `compare_baseline.py` FAIL is now interpretable — it means the workload, host, termination branch and measurement all matched and `step_count` still moved. **Never wire that tool to CI**: P1 design §6 closed that 2026-09-07 on structural grounds — host identity blocks, CI is `ubuntu-latest`, no self-hosted runner exists, so it exits 2 REFUSED on every CI run.
 
 ---
 
@@ -5016,7 +5016,7 @@ Primary design: [`notes/JUNIPER_2026-07-29_JUNIPER-ECOSYSTEM_CASCOR-RECURRENCE-C
 
 The CLI ships in [juniper-ml#1622](https://github.com/pcalnon/juniper-ml/pull/1622). It reads a baseline cut by `util/experiments/make_baseline.py` that records `workload_fingerprint` per scenario ([juniper-ml#1613](https://github.com/pcalnon/juniper-ml/pull/1613), on `main`). Prefer merging this docs PR **after** #1622 so the path exists. Concurrent docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) described the comparator as unshipped — **this section supersedes that sentence**.
 
-Whether the run tier ever becomes a required CI check remains open (P1 design §6). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites.
+**The run tier never becomes a required CI check** — P1 design §6, closed 2026-09-07 on structural grounds (host identity blocks on any hosted runner). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites, and must not.
 
 ### Two halves
 
@@ -5093,7 +5093,7 @@ A waiver blesses a WORK change, never an invalid comparison. Passing it on a REF
 | Mixed known + missing cell YAML looks like one workload | **Fixed.** `summarise` used to drop `None` before uniqueness, so one identified cell plus one unknown could **PASS**; [ml#1776](https://github.com/pcalnon/juniper-ml/pull/1776) removed the filter, and `completion_reasons` now keeps the unknown member so a mixed set is not one branch. |
 | Repeatable `--suite`: FAIL became exit `2` | **Fixed.** A leftover reason from a sibling suite used to win the whole verdict, hiding a real work FAIL behind exit `2`; [ml#1741](https://github.com/pcalnon/juniper-ml/pull/1741) / [#1743](https://github.com/pcalnon/juniper-ml/pull/1743) landed the precedence, and `VerdictPrecedenceTest` pins both directions. |
 | Adding a speed threshold | There is no threshold field **by design**. Item 1.5 closed that question. |
-| Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
+| Gating CI on the CLI | **Never** — P1 §6 closed 2026-09-07. Host identity blocks on any hosted runner, so it would exit 2 REFUSED every time. Module tests are wired; the run-tier gate is not, permanently. |
 
 Coverage: `tests/test_compare_baseline.py` (54 tests on `main`; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
 
@@ -5475,7 +5475,7 @@ After a cascor suite finishes, compare it to a named Q-8 baseline with [`util/ex
 
 The CLI ships in [juniper-ml#1622](https://github.com/pcalnon/juniper-ml/pull/1622). It reads a baseline cut by `util/experiments/make_baseline.py` that records `workload_fingerprint` per scenario ([juniper-ml#1613](https://github.com/pcalnon/juniper-ml/pull/1613), on `main`). Prefer merging this docs PR **after** #1622 so the path exists. Concurrent docs [#1619](https://github.com/pcalnon/juniper-ml/pull/1619) described the comparator as unshipped — **this section supersedes that sentence**.
 
-Whether the run tier ever becomes a required CI check remains open (P1 design §6). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites.
+**The run tier never becomes a required CI check** — P1 design §6, closed 2026-09-07 on structural grounds (host identity blocks on any hosted runner). `ci.yml` runs `tests/test_compare_baseline.py` (the comparator's own hermetic gate); it does **not** invoke the CLI against live suites, and must not.
 
 ### Two halves
 
@@ -5551,7 +5551,7 @@ A waiver blesses a WORK change, never an invalid comparison. Passing it on a REF
 | Mixed known + missing cell YAML looks like one workload | On `main` (`#1613`) and #1622, `summarise` drops `None` before uniqueness, so one identified cell plus one unknown/unmeasured cell can **PASS**. [juniper-ml#1617](https://github.com/pcalnon/juniper-ml/pull/1617) / [#1626](https://github.com/pcalnon/juniper-ml/pull/1626) refuse on the rows. Until they land, do not compare a suite with a missing `cells/*/experiment.yaml`. |
 | Repeatable `--suite`: FAIL became exit `2` | #1622: leftover reasons win, so a sibling REFUSE hides a work FAIL. Compare one suite, or wait for #1626 (FAIL wins unless host-blocked). |
 | Adding a speed threshold | There is no threshold field **by design**. Item 1.5 closed that question. |
-| Gating CI on the CLI today | Tests of the module are wired; the run-tier gate itself is not (P1 §6). |
+| Gating CI on the CLI | **Never** — P1 §6 closed 2026-09-07. Host identity blocks on any hosted runner, so it would exit 2 REFUSED every time. Module tests are wired; the run-tier gate is not, permanently. |
 
 Coverage: `tests/test_compare_baseline.py` (20 tests on #1622; `util/` is outside pre-commit Python hooks, so this unittest **is** the gate). Wired in `.github/workflows/ci.yml` by #1622. Complementary pins: [#1625](https://github.com/pcalnon/juniper-ml/pull/1625) (same-`step_count` identity miss, empty candidate, `--suite` batch). Fail-closed mixed identity/unmeasured + FAIL-over-sibling-refusal: [#1626](https://github.com/pcalnon/juniper-ml/pull/1626).
 
