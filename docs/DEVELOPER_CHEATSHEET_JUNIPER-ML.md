@@ -312,17 +312,23 @@ Full contract: [REFERENCE — Worktree Divergence](REFERENCE.md#worktree-diverge
 
 ## Data Contract
 
-**Shipped NPZ keys** (still required): `X_train`, `y_train`, `X_test`, `y_test`, `X_full`, `y_full` (all `float32`). Sequence artifacts add `{dt,target_dt}_{train,test,full}`.
+**Shipped NPZ keys** — SIX, all `float32`: `X_train`, `y_train`, `X_val`, `y_val`, `X_test`, `y_test`. Sequence artifacts add `{dt,target_dt}_{train,val,test}`. The third partition is `X_val` / `y_val`, never `X_eval`.
 
-**Design (closed, not on the wire):** `*_full` leaves the contract (decision 11); the third partition is `X_val` / `y_val`, never `X_eval`. Required-fix 0 has not started. Tolerate `X_full` on stored artifacts; do not write new code that requires it. Recurrence YAML `dataset.split` is still `{train, test, full}` — `"validation"` is exit 2.
+**Decision 11 shipped 2026-09-06:** the `*_full` family is gone from the contract. Two rules — **never require `X_full`** (nothing emits it), and **never assert it is absent** (every artifact stored before 2026-09-06 has it, and consumers must keep loading those). Recurrence YAML `dataset.split` accepts `{train, val, test, full}`; the long form `"validation"` is exit 2.
 
 ```python
 from juniper_data_client import JuniperDataClient
 client = JuniperDataClient(base_url="http://localhost:8100")
 dataset_id = client.create_dataset("spiral", {"n_points": 200, "noise": 0.1})
 npz = client.download_artifact_npz(dataset_id)
-# npz.files includes X_full today; do not index it with partition-derived indices
+# The whole dataset is the concatenation, in this order -- the same order juniper-data
+# used when it built X_full, so it is row-for-row identical. On a LEGACY artifact the
+# key is still there; prefer it if present rather than assuming either shape.
+import numpy as np
+whole = np.vstack([npz[f"X_{p}"] for p in ("train", "val", "test") if f"X_{p}" in npz])
 ```
+
+> Exception: `equities` / `equities_seq` built `_full` entity-major while their partitions are split-major, so the concatenation differs in ROW ORDER for a multi-ticker artifact. Only matters if you slice by row index (walk-forward CV does).
 
 Generators: `spiral`, `xor`, `gaussian`, `circles`, `checkerboard`, `csv_import`, `mnist`, `arc_agi`, `equities`, `equities_seq`. Default `equities` / `equities_seq` against the bundled 503 names is HTTP **422** at 14 symbols unless `allow_truncation` is set — [REFERENCE — Equities Symbol Cap](REFERENCE.md#equities-symbol-cap).
 
@@ -756,7 +762,7 @@ Tip: on a failed `*_up` leg, isolated-stack `do_up` auto-calls `do_down` — exp
 
 Tip: `experiment_stack.bash` legs are OR-listed (`*_up || failed=1`), which disables `set -e` inside each body — critical steps need `|| return 1` or a health timeout with a live listener false-greens `--up` and skips teardown. A `--grafana-bridge` failure after healthy services tears the run down; a **staging** failure (missing `--config`) still exits between `allocate_port` and `ports.json`, so clear stale `*.lock` dirs under `JUNIPER_EXP_LOCK_ROOT` by hand (open #979).
 
-Tip: NPZ still requires `X_full` / `y_full`. The partition design **drops** the `*_full` family (decision 11) but required-fix 0 has not started — tolerate the key, do not require it in new code, and do not index it with partition indices. Recurrence `dataset.split: validation` is exit 2 (`RECURRENCE_SPLITS` is `{train, test, full}`). Keys will be `X_val` / `y_val`, never `X_eval`. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract).
+Tip: the NPZ contract is SIX keys — `X_val` / `y_val`, never `X_eval`. Decision 11 shipped 2026-09-06 and nothing emits `*_full` any more: never require it, and never assert it is absent either, because every stored artifact predating that date still carries it. Recurrence `dataset.split: val` works (juniper-ml#1761); the long form `validation` is exit 2 — `RECURRENCE_SPLITS` is `{train, val, test, full}`. See [REFERENCE — Partition Contract](REFERENCE.md#train--val--test-partition-contract).
 
 Tip: a renderer `ValueError` is a per-plot SKIP (exit `0`, no PNG); missing matplotlib, a failed payload fetch, or any other render exception is SKIP **and** acceptance failure (exit `1`). Inspect `jq '.driver.plots' $RUN_DIR/manifest.json`. See [REFERENCE — Plot SKIP vs acceptance](REFERENCE.md#plot-skip-vs-acceptance-valueerror-contract).
 
