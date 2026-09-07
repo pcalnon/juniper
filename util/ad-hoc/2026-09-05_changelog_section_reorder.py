@@ -97,7 +97,8 @@ def main() -> int:
     ap.add_argument("--write", action="store_true")
     args = ap.parse_args()
 
-    original = open(args.path, encoding="utf-8").read().splitlines()
+    with open(args.path, encoding="utf-8") as f:
+        original = f.read().splitlines()
     start, end = split_section(original, args.section)
     body = original[start + 1 : end]
 
@@ -144,7 +145,8 @@ def main() -> int:
     print("  CONTENT PRESERVED (exact multiset match on non-heading lines)")
 
     if args.write:
-        open(args.path, "w", encoding="utf-8").write("\n".join(new_doc) + "\n")
+        with open(args.path, "w", encoding="utf-8") as f:
+            f.write("\n".join(new_doc) + "\n")
         print(f"  WROTE {args.path}")
     else:
         print("  dry run -- pass --write to apply")
