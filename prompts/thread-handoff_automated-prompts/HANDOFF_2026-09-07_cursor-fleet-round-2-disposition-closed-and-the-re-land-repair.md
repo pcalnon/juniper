@@ -179,6 +179,13 @@ FILES OR GITHUB STATE** — **6 of the 15 are not queries**, and one of those cl
 11. **Do not switch branches in a worktree while a subagent is measuring in it.** I did; the
     agent detected the switch via reflog and re-ran from refs with `git archive`. Its numbers
     survived because it noticed — not because I was careful.
+12. **A gate piped into `tail` reports success no matter what it found** — the pipeline's exit
+    code is `tail`'s. I wrote this warning into §2 of this very document and then, three commits
+    later, ran `python3 util/wait_for_checks.py --pr 1819 ... | tail -5`. The tool hit a refused
+    connection and correctly returned **3**; the shell reported **0**, and the only reason I did
+    not read that as "checks are green" is that the error text happened to be inside the five
+    lines `tail` kept. **Knowing a trap does not protect you from it — the invocation has to
+    change.** Applies to every gate here: the structure checker, the census, `wait_for_checks`.
 
 ---
 
