@@ -7,8 +7,11 @@ Operator surface for the shipped PF-1…PF-7 instruments (how to run, PF-1 match
 > ([juniper-ml#1710](https://github.com/pcalnon/juniper-ml/pull/1710)) is now **established with a
 > condition**: `step_count` is exact and deterministic *within a termination branch*, and `ml#1733`
 > made that branch part of the precondition. `ml#1741` + `ml#1743` closed all six comparator
-> defects. Still do not wire `compare_baseline.py` to CI — **§6 of this document owns that call**
-> (*whether the run tier gates CI at all*), and it is unmade. Operator contract:
+> defects. **Never wire `compare_baseline.py` to CI — §6 CLOSED that call on 2026-09-07, and the
+> reason is structural, not a preference**: host identity is a blocking refusal, every CI job is
+> `runs-on: ubuntu-latest`, and no self-hosted runner exists — so the comparator would exit 2
+> REFUSED on 100% of CI runs, forever. It is an **operator** tool, run on the baseline host.
+> Operator contract:
 > [`docs/REFERENCE.md` § Perf-Lane Work Gate](../docs/REFERENCE.md#perf-lane-work-gate).
 
 **Closes**: phase **P1** of the four-phase gate in
@@ -191,8 +194,30 @@ them → P3's second half, a dry measurement pass reproducing end-to-end, can th
 ## 6. What this design deliberately does not decide
 
 - **Threshold values** — P3, and blocked on PF-1 as above.
-- **Whether the run tier ever gates CI** — §12.4 says report-only "at first"; whether "first" ends
-  is a separate owner decision, and §5's floor may answer it in the negative.
+- ~~**Whether the run tier ever gates CI**~~ — **ANSWERED 2026-09-07 (owner): NO, and the reason is
+  STRUCTURAL rather than a preference.** §12.4 said report-only "at first"; "first" does not end on
+  the current infrastructure, because the run tier *cannot* gate hosted CI at all:
+  - `compare_baseline.py` treats `HOST_IDENTITY_FIELDS = (cpu_model, cpu_count, thread_budget)` as
+    **blocking**. A mismatch becomes a `basis_reason`, and `basis_reasons` **outrank FAIL** — so the
+    verdict is REFUSED, exit 2.
+  - Every job in `.github/workflows/ci.yml` is `runs-on: ubuntu-latest`, and **no workflow in this
+    repo declares a self-hosted runner**. A hosted runner is never the baseline host: `cpu_count`
+    alone differs from the 16-core workstation the baselines are cut on, before `cpu_model`.
+  - Therefore wiring the comparator into CI as it stands yields **exit 2 REFUSED on 100% of runs,
+    permanently** — a check that can never pass and never fail, i.e. a vacuous gate of exactly the
+    class this lane keeps finding.
+
+  This does **not** weaken the gate; it locates it. `compare_baseline.py` is an **operator** tool run
+  on the baseline host, and that is the only place it is meaningful. The decision could only reopen
+  if a self-hosted runner were pinned to the baseline host — at which point re-derive it rather than
+  assuming this bullet.
+
+  **Consequence, now permanent**: item 1.4's decoupling of `run_suite`'s exit code from the
+  comparator verdict is no longer "pending an owner decision" — it is the settled design. Relaxing
+  `HOST_IDENTITY_FIELDS` to advisory was considered and **rejected**: §2 of this document defines a
+  run-tier regression as *"the same YAML, same hardware, same thread budget"*, so relaxing it would
+  make every CI comparison silently cross-hardware, which is the precise failure the refusal exists
+  to prevent.
 - **PF-8's harness** — deferred to P2 with its shape stated (§3).
 - **Q-9, alert scoping** — plan §12.4 item 4 recommends excluding `environment="host-experiment"`
   from existing alert rules so a deliberately brutal benchmark does not page. That recommendation
