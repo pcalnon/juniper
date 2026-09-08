@@ -264,12 +264,12 @@ REPO_TIMEOUTS = {
     # p90 893, max 1109 -> window (1109, 3572]. First measurement; was falling through to
     # DEFAULT_TIMEOUT at the same 2400 s, so this row records the number rather than changing it.
     "juniper-data-client": 2400,
-    # p90 262, max 375 -> window (375, 1048]. First measurement; was DEFAULT_TIMEOUT 2400.
-    "juniper-deploy": 1000,
-    # p90 258, max 352 -> window (352, 1032]. First measurement; was DEFAULT_TIMEOUT 2400.
+    # p90 262, max 375 -> window (375, 1048], mid 711. First measurement; was DEFAULT_TIMEOUT 2400.
+    "juniper-deploy": 700,
+    # p90 258, max 352 -> window (352, 1032], mid 692. First measurement; was DEFAULT_TIMEOUT 2400.
     # juniper-recurrence is absent from the parent CLAUDE.md's repo table, which is why no
     # earlier sweep measured it.
-    "juniper-recurrence": 1000,
+    "juniper-recurrence": 700,
 }
 
 

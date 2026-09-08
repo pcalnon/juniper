@@ -213,7 +213,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{slug}: no merged PRs to sample", file=sys.stderr)
         return 1
 
-    measured: list[tuple[int, float, float, int]] = []  # pr, span_required, span_all, n_required_seen
+    measured: list[tuple[int, float, float | None, int]] = []  # pr, span_required, span_all, n_required_seen
     unmeasurable: list[int] = []
 
     for pr in prs:
@@ -231,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
             # Required contexts entirely absent on this head. NOT a small span -- unknown.
             unmeasurable.append(pr["number"])
             continue
-        measured.append((pr["number"], s_req, s_all if s_all is not None else float("nan"), len({r[0] for r in req_rows})))
+        measured.append((pr["number"], s_req, s_all, len({r[0] for r in req_rows})))
 
     if not measured:
         print(f"{slug}: no head had a measurable required-context span -- refusing to report", file=sys.stderr)
@@ -243,13 +243,15 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{'PR':>7} {'req_ctx':>8} {'span_req':>9} {'span_all':>9}   inflation")
         print("-" * 60)
         for num, s_req, s_all, seen in measured:
-            infl = (s_all / s_req) if s_req else float("nan")
-            print(f"{num:>7} {seen:>8} {s_req:>9.0f} {s_all:>9.0f}   {infl:>6.1f}x")
+            if s_all is None or not s_req:
+                print(f"{num:>7} {seen:>8} {s_req:>9.0f} {'-':>9}   {'-':>7}")
+                continue
+            print(f"{num:>7} {seen:>8} {s_req:>9.0f} {s_all:>9.0f}   {s_all / s_req:>6.1f}x")
     if unmeasurable:
         print(f"  UNMEASURABLE heads (required contexts absent): {', '.join(str(n) for n in unmeasurable)}")
 
     req_spans = sorted(s for _, s, _, _ in measured)
-    all_spans = sorted(s for _, _, s, _ in measured if s == s)  # drop NaN
+    all_spans = sorted(s for _, _, s, _ in measured if s is not None)
 
     print()
     print(f"  REQUIRED-CONTEXT span   (n={len(req_spans)})")
