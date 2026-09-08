@@ -1,9 +1,15 @@
 """Index-based walk-forward fold generation (shape-agnostic).
 
-The folds are returned as integer index arrays into the ordered full arrays, so the same function
-serves 2-D tabular ``(n, F)`` and 3-D sequence ``(n, T, F)`` data identically -- the executor
-slices ``X`` / ``y`` / ``aux`` by these indices (decision D-CV-4: folds are derived client-side
-from the ``*_full`` arrays; no ``juniper-data`` change is required for v1).
+The folds are returned as integer index arrays into the ordered whole-dataset arrays, so the same
+function serves 2-D tabular ``(n, F)`` and 3-D sequence ``(n, T, F)`` data identically -- the
+executor slices ``X`` / ``y`` / ``aux`` by these indices (decision D-CV-4: folds are derived
+client-side over the whole dataset; no ``juniper-data`` change is required for v1). Since decision
+11 of the partition design (juniper-ml
+``notes/JUNIPER_2026-08-29_JUNIPER-ECOSYSTEM_TRAIN-EVAL-TEST-PARTITION-DESIGN.md`` §9.5;
+juniper-data#369) the producer no longer emits a ``*_full`` family: the caller rebuilds the whole
+dataset from the ``train`` / ``val`` / ``test`` partitions -- ``juniper_recurrence_model.data.
+derive_full_split`` is the reference implementation, and its ORDER matters, because these folds
+slice by row index. A legacy artifact that still carries ``*_full`` may be used as-is.
 
 The clamp/ordering conventions mirror ``juniper-data``'s ``core/split.py:temporal_split_index``
 (the single-cut chronological boundary this generalizes to many folds), so a caller that already
