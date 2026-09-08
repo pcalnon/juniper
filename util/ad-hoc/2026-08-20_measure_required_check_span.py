@@ -1,13 +1,30 @@
 #!/usr/bin/env python3
 """Measure the real wall-clock span of a PR head's REQUIRED check contexts.
 
+*** SUPERSEDED 2026-09-08 by util/ad-hoc/2026-09-08_measure_required_check_span_v2.py. ***
+
+This tool does not do what the sentence above says. It fetches
+`repos/{slug}/commits/{sha}/check-runs?per_page=100` and filters NOTHING, so advisory and bot
+check-runs enter the span alongside the required ones. On `pcalnon/juniper-cascor#626` a
+`claude` check-run attached to the head SHA 5.7 hours after CI finished, and this tool
+reported a 21,207 s span for a 605 s CI pass.
+
+Measured overstatement of the observed max, n=30 per repo: cascor 11x, canopy 20x,
+cascor-client 19x, data-client 27x, cascor-worker 70x, deploy 110x. It also makes the p90
+unstable by ~3x on sample size alone (cascor: 720 s at n=12, 2121 s at n=30), which is why
+the 2026-09-05 juniper-ml re-tier could not be reproduced.
+
+Use v2. It is kept only so the historical numbers in `util/safe_merge.py` can be re-derived
+and the correction audited; v2 prints this tool's unfiltered span alongside its own for
+exactly that purpose.
+
 Project:     Juniper
 Sub-Project: juniper-ml
 Application: ad-hoc measurement tooling
 Author:      Paul Calnon
 License:     MIT License
 Created:     2026-08-20
-Status:      ad-hoc -- measurement (re-run whenever the required-context list changes)
+Status:      SUPERSEDED by the v2 tool -- retained for audit, do not size budgets from it
 Retire when: RETAINED (owner policy 2026-08-25 — no retirement deadline). Previously: `DEFAULT_TIMEOUT` is derived automatically, or the fleet's CI shape settles.
 Related:     HANDOFF_2026-08-19 section 2.3; util/safe_merge.py DEFAULT_TIMEOUT.
 
