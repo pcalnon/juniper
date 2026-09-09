@@ -2262,10 +2262,6 @@ class SubprocessSmokeTest(unittest.TestCase):
         self.assertEqual(proc.returncode, 2)
 
 
-if __name__ == "__main__":
-    unittest.main(verbosity=2)
-
-
 class MetricsScrapedTest(unittest.TestCase):
     """``metrics_scraped`` must be falsifiable — the field it replaces could not fail.
 
@@ -2335,3 +2331,45 @@ class MetricsScrapedTest(unittest.TestCase):
             with mock.patch.object(rx, "_http_json", side_effect=RuntimeError("boom")):
                 out = rx._metrics_scraped(rd, "RID", True)
             self.assertIsNone(out["scrape_confirmed"])
+
+
+class MappingGuardTest(unittest.TestCase):
+    """Best-effort provenance reads must not raise on a truthy non-dict.
+
+    ``_require_mapping`` is right for CONFIG -- a malformed ``experiment.yaml`` should stop
+    the run. It is wrong for provenance, which is annotation: losing it is not worth failing
+    a completed run over. ``_mapping`` is the non-raising sibling.
+
+    Two sites needed it, and they failed differently:
+
+    * the Prometheus reply (``payload["data"]``) is read OUTSIDE the enclosing ``try``, so a
+      malformed response propagated ``AttributeError`` and killed the run;
+    * ``direct_url.json``'s ``dir_info`` is read inside ``except Exception: pass``, so a
+      non-dict there did not crash -- it silently dropped ``editable_source`` from the
+      package's provenance while the record was still written. A quiet gap, not a failure.
+
+    ``.get(k, {})``, which the second site used, is weaker than ``or {}``: it substitutes the
+    default only when the key is MISSING, so an explicit ``null`` reaches the next ``.get``
+    as ``None``. Both forms are covered below.
+    """
+
+    def test_mapping_replaces_every_truthy_non_dict(self) -> None:
+        for bad in (["a"], "s", 3, 1.5, True, (1,)):
+            with self.subTest(bad=bad):
+                self.assertEqual(rx._mapping(bad), {})
+
+    def test_mapping_replaces_null_and_absence(self) -> None:
+        self.assertEqual(rx._mapping(None), {})
+
+    def test_mapping_passes_a_real_dict_through(self) -> None:
+        payload = {"editable": True}
+        self.assertIs(rx._mapping(payload), payload)
+
+    def test_require_mapping_still_raises_for_config(self) -> None:
+        # The two helpers must not collapse into one another: config still fails closed.
+        with self.assertRaises(rx.ConfigError):
+            rx._require_mapping(["not", "a", "mapping"], "training block")
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

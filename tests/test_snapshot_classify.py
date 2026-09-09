@@ -470,5 +470,46 @@ class NoDestructivePathTest(unittest.TestCase):
         self.assertLessEqual(write_modes - {"r"}, {"w"}, f"unexpected file modes: {write_modes}")
 
 
+class MappingGuardTest(unittest.TestCase):
+    """A truthy non-dict in a sidecar row must not kill the classification read.
+
+    ``snapshot_classify`` reads rows another process wrote (``snapshots_index.jsonl`` and
+    its own ``snapshots_classification.jsonl`` sidecar). ``(row.get("arch") or {})`` and
+    ``verdict.get("load") or {}`` both guarded ABSENCE only, so a list or a string in
+    either position raised ``AttributeError`` at the next ``.get``.
+
+    The ``load`` site was additionally shielded by ``if load:`` -- which a truthy non-dict
+    PASSES, so the guard read as protective while doing nothing.
+
+    ``mapping()`` is imported from ``snapshot_index`` rather than re-declared here, so the
+    two modules cannot drift apart on the same question.
+    """
+
+    def test_hidden_units_survives_an_arch_that_is_a_list(self) -> None:
+        self.assertIsNone(sc.hidden_units({"arch": ["nope"]}))
+
+    def test_hidden_units_survives_an_arch_that_is_a_string(self) -> None:
+        self.assertIsNone(sc.hidden_units({"arch": "corrupt"}))
+
+    def test_hidden_units_still_reads_a_well_formed_row(self) -> None:
+        self.assertEqual(sc.hidden_units({"arch": {"num_hidden_units": 5}}), 5)
+
+    def test_hidden_units_absent_arch_is_still_None(self) -> None:
+        self.assertIsNone(sc.hidden_units({}))
+
+    def test_summarise_verdicts_survives_a_load_that_is_a_list(self) -> None:
+        verdicts = [
+            {"category": sc.UNDETERMINED, "load": ["not", "a", "dict"]},
+            {"category": sc.UNDETERMINED, "load": {"status": "ok"}},
+        ]
+        summary = sc.summarise(verdicts)
+        self.assertEqual(summary["total"], 2, "one malformed verdict must not lose the other")
+
+    def test_the_helper_is_shared_with_snapshot_index(self) -> None:
+        import snapshot_index
+
+        self.assertIs(sc.mapping, snapshot_index.mapping)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -145,6 +145,7 @@ from snapshot_index import (  # noqa: E402  - path bootstrap must precede the im
     DEFAULT_ROOT_FALLBACK,
     INDEX_NAME,
     default_root,
+    mapping,
     read_index,
 )
 
@@ -221,7 +222,7 @@ def hidden_units(row: dict) -> Optional[int]:
     ``None`` when the file carries no ``arch`` group at all, which is itself a finding --
     8 files in the archive are in that state and are prime category-1 candidates.
     """
-    value = (row.get("arch") or {}).get("num_hidden_units")
+    value = mapping(row.get("arch")).get("num_hidden_units")
     if value is None:
         return None
     try:
@@ -440,7 +441,7 @@ def summarise(verdicts: Iterable[Dict[str, Any]]) -> Dict[str, Any]:
     bounds: List[int] = []
     total_bytes = 0
     for verdict in verdicts:
-        load = verdict.get("load") or {}
+        load = mapping(verdict.get("load"))
         if load:
             by_load_status[load.get("status", "?")] = by_load_status.get(load.get("status", "?"), 0) + 1
             if verdict.get("health") == HEALTH_FAILS_TO_LOAD:
