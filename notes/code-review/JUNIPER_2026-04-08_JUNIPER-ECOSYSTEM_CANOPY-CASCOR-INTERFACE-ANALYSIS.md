@@ -1431,7 +1431,6 @@ Implement `set_params` in the control stream:
 ### Milestone Deliverables
 
 | Milestone                       | After Phase | Outcome                                                              |
-
 |---------------------------------|-------------|----------------------------------------------------------------------|
 | **M1: Interface Stability**     | Phase 1     | All critical interface bugs resolved; training limits work correctly |
 | **M2: Security Ready**          | Phase 2     | All security findings addressed; ready for external deployment       |
