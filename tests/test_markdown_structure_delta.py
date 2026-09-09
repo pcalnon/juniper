@@ -15,8 +15,9 @@ unittest **is** the gate for that module.
 
 The three things a gate like this gets wrong, each pinned here:
 
-* **Red on arrival.** ``main`` carries 104 structural problems across 23 files, most in
-  ``notes/legacy/`` and ``notes/code-review/``. A gate demanding zero is unmergeable from the
+* **Red on arrival.** ``main`` carries 102 structural problems across 21 files -- 11 under
+  ``notes/``, 6 under ``notes/legacy/``, 3 under ``prompts/``, 1 under ``notes/code-review/``,
+  and none at all under ``docs/``. A gate demanding zero is unmergeable from the
   first commit, so the comparison must be per-file and per-PR: a file the PR does not touch is
   not the PR's problem, and a file it touches must not come out worse than it went in.
 * **Vacuous pass.** The underlying screen silently skips anything not ending ``.md``. A bad glob,

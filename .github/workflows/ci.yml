@@ -1058,8 +1058,10 @@ jobs:
           python3 -m unittest -v tests/test_soak_handoff_consensus_checks.py
           # tests/test_x7_offload_census.py: The off-loop census exemption that certified a partial sweep: `census_source` classifies un-offloaded calls from a source string, extracted from `main` so the walk can be tested without canopy's main.py.
           python3 -m unittest -v tests/test_x7_offload_census.py
-          # tests/test_markdown_structure_delta.py: the CI gate for markdown structure. `main` carries 104 structural problems across 23 files (mostly notes/legacy/ and notes/code-review/), so the gate compares PER FILE and PER PR -- an untouched file is not the PR's problem; a touched one must not come out worse; an ADDED one has no before, so its baseline is zero. Also pins the vacuous case: the screen silently skips anything not ending `.md`, so examining zero of N touched files is an ERROR, not a pass.
+          # tests/test_markdown_structure_delta.py: the CI gate for markdown structure. `main` carries 102 structural problems across 21 files (11 files under notes/, 6 under notes/legacy/, 3 under prompts/, 1 under notes/code-review/; ZERO under docs/), so the gate compares PER FILE and PER PR -- an untouched file is not the PR's problem; a touched one must not come out worse; an ADDED one has no before, so its baseline is zero. Also pins the vacuous case: the screen silently skips anything not ending `.md`, so examining zero of N touched files is an ERROR, not a pass.
           python3 -m unittest -v tests/test_markdown_structure_delta.py
+          # tests/test_markdown_structure_screen.py: the SCREEN the delta gate imports and calls per file. Its `main()` selected files with `not p.is_file()`, and `is_file()` FOLLOWS SYMLINKS -- so each of the ten dangling links on `main` (nine under notes/legacy/ -> a `regressions/` dir that is not on main, one under notes/development/) was skipped WITHOUT being counted and scored clean. Pins: an unreadable markdown path exits 2 rather than passing silently; examining ZERO paths exits 2; a clean file still exits 0 and a real structural problem still exits 1; and the delta gate can still import the module and call check().
+          python3 -m unittest -v tests/test_markdown_structure_screen.py
 
       - name: Run bash regression tests
         run: |

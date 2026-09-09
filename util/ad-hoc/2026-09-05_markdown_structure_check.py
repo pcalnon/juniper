@@ -33,7 +33,14 @@ WHAT IT CHECKS
   * markdown tables whose header row lost its `| --- | --- |` separator, which renders the
     table as plain text and is likewise invisible to a substring check.
 
-Exit 1 if anything is found, so it can be wired as a gate.
+EXIT CODES
+
+  * 0 -- at least one markdown file was examined and none had a structural problem;
+  * 1 -- structural problems were found;
+  * 2 -- the run could not report honestly: no arguments, a markdown path that could not
+    be read, or ZERO paths examined. A skip that is not counted is the failure mode this
+    screen exists to catch, applied to itself -- `is_file()` follows symlinks, so ten
+    dangling links under `notes/` used to score clean.
 
 Usage:
     python util/ad-hoc/2026-09-05_markdown_structure_check.py docs/*.md
@@ -120,17 +127,48 @@ def main(argv=None) -> int:
         print(__doc__.strip().splitlines()[-1], file=sys.stderr)
         return 2
     total = 0
+    examined = 0
+    unreadable: list = []
+    not_markdown: list = []
     for arg in argv:
         p = Path(arg)
-        if not p.is_file() or p.suffix.lower() != ".md":
+        if p.suffix.lower() != ".md":
+            # A legitimate filter -- callers hand in mixed globs -- but it is COUNTED, so a
+            # run that filtered away everything cannot report success. See the examined == 0
+            # guard below.
+            not_markdown.append(arg)
             continue
-        found = check(p)
+        try:
+            found = check(p)
+        except OSError as exc:
+            # NOT a silent skip. The old predicate was `not p.is_file()`, and `is_file()`
+            # FOLLOWS SYMLINKS -- a dangling link answers False, so it was skipped without
+            # being counted and the run scored it clean. `main` carries ten such links (nine
+            # in notes/legacy/ pointing at a `regressions/` directory that is not on main,
+            # one under notes/development/), so the headline count was over 1024 of 1034
+            # paths while reporting as though it covered all of them.
+            unreadable.append(f"{arg}: {exc}")
+            continue
+        examined += 1
         if found:
             total += len(found)
             print(f"=== {arg} ===")
             for f in found:
                 print(f"   {f}")
     print(f"\nstructural problems: {total}")
+    print(f"examined {examined} of {len(argv)} path(s)" + (f"; skipped {len(not_markdown)} non-markdown" if not_markdown else ""))
+
+    if unreadable:
+        print(f"could not read {len(unreadable)} markdown path(s):", file=sys.stderr)
+        for item in unreadable:
+            print(f"    {item}", file=sys.stderr)
+        print("refusing to report on a partial examination", file=sys.stderr)
+        return 2
+    if examined == 0:
+        # Every path was filtered or unreadable. A correct predicate over an empty site set
+        # reports "no problems" -- the vacuous pass this guard exists to refuse.
+        print(f"examined 0 of {len(argv)} path(s) -- refusing to report success", file=sys.stderr)
+        return 2
     return 1 if total else 0
 
 
