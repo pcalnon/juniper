@@ -2548,7 +2548,7 @@ being broken by this arc's own author.
 | Old-archive dlists given a second copy at `~/.local/state/yamaguchi-old-archive-dlists/` | 10 files, 934 MB, **all byte-identical to the sda1 primary by full SHA-256**; copied *from* sda1, the copy that survives |
 | `/mnt/Backups/Ubuntu/README.md` corrected | its stale "second copy is on sdc4" sentence retracted in place, with the reason it was about to become false |
 | `_yamaguchi_frozen_20260826.README.md` created | a **sibling** marker, deliberately not inside the destination |
-| sdc4 unmounted | partition **intact** (1.8 T ext4, start 3813408768); retired from service, not destroyed |
+| sdc4 unmounted | partition **intact** (1.8 T ext4, start 3813408768); retired from service, not destroyed. ⚠ **SUPERSEDED 2026-09-08 — the partition was DELETED from the table on 09-07/08 and 1.845 TiB is now unallocated; see §8.27.2.** |
 
 The `/home` location was chosen because sdc3 is a **different physical disk** from sda1, so neither
 single-disk failure takes both copies. It also sits inside the live backup Source, so a third copy
@@ -2600,3 +2600,185 @@ Also still owed before sdc4 is destroyed, both from §8.25.6 and §8.24.3: **`sd
 never been checked** (SMART / `dumpe2fs`, root-gated), and the "re-verify sda1's copies after each
 move" rule. And note §8.25.2's literal verdict — the zero-byte `Untitled7-checkpoint.ipynb` is a
 **vacuous hash match**, preserved nowhere.
+
+### 8.27 Addendum (2026-09-08) — criterion 5 is exercised at last, and sdc4 was destroyed with every gate bypassed
+
+§8.26 was written on 2026-09-07 and was accurate for about eight hours. Between it and this
+section the machine rebooted **three times**, sdc4 was **deleted from the partition table**, and
+the escrow sheet was printed. All three were discovered by re-deriving state, not by being told —
+which is the §8.26 lesson arriving one day later from the other direction: a record written the
+day before is not a record of today.
+
+#### 8.27.1 Criterion 5 — EXERCISED, and the reboot lane PASSES
+
+`journalctl --list-boots` now shows **three** boot IDs where §8.26.4 recorded one:
+
+| Boot | Span | Note |
+|---|---|---|
+| −2 | 2026-09-07 15:13:11 → 15:14:15 CDT | **64 seconds** — a boot that did not stick |
+| −1 | 2026-09-07 15:15:09 → 23:11:30 CDT | ~8 h |
+| 0 | 2026-09-07 23:12:25 CDT → current | live |
+
+`duplicati.service` came back **unprompted on both surviving boots** — `Started` at 15:15:36 and
+at 23:12:58, each followed by *"Server has started and is listening on localhost, port 8300"*.
+On boot 0 that is **33 seconds after boot**.
+
+**The evidence for the criterion is the linger ordering, and it is decisive.** The criterion asks
+whether the lane returns *without a graphical login*. On boot 0:
+
+| Time | Event |
+|---|---|
+| 23:13:04 | `systemd-logind`: *New session '1' of user 'pcalnon' with class **`manager`***, type unspecified — this is the **linger-induced** session |
+| 23:13:07 | `systemd[1]: Started user@1000.service - User Manager for UID 1000` |
+| 23:15:26 | `systemd-logind`: *New session '3' of user 'pcalnon' with class **`user`** and type **wayland*** — the graphical login |
+
+The user manager was up **2 minutes 19 seconds before any pcalnon graphical session existed**. The
+only other session in that window belongs to `gdm-greeter` (uid 60578), a different user. Lingering
+brought the lane back on its own.
+
+`util/ad-hoc/yamaguchi_reboot_verify.bash post`, run 2026-09-08T06:57:06-0500, **exit 0, all four
+checks PASS** — service active; user bus reachable and the timer known; forced watchdog run;
+artifact refreshed post-boot with
+`2026-09-08T06:57:06-0500 OK OK backup=2 newest run 2026-09-07T14:00:00.1513167Z ParsedResult=Success age=22.0h`.
+
+Server state after the reboot: `ProgramState=Running`, `ActiveTask=null`, `SchedulerQueueIds=[]`,
+and **`ProposedSchedule` job 2 → `2026-09-08T14:00:00Z`** — the schedule survived. Census reconciles
+848 files / 215,353,308,976 B **AGREE** (unchanged from §8.26's figure precisely because no run has
+happened since; a *stable* census here is the correct reading, not a stale one).
+
+**Two honest limits on this pass.**
+
+1. **`pre` was never run.** §8.26.4 said it "must run **before** the reboot"; the reboots were not
+   procedural, so the pre-reboot ActiveTask gate the script exists to enforce was never applied. It
+   happened to be safe: the 09-07 run occupied 14:00:00.15Z → 14:14:26.24Z (09:00:00–09:14:26 CDT)
+   and the reboot stops were at **15:10:38** and **23:10:59** CDT, so no run was interrupted. That is
+   a fact established afterwards, not a gate that held.
+2. **The "without logging in graphically" instruction could not be honoured at `post` time** — the
+   graphical login had already happened at 23:15:26, ~7.7 h before. It does not matter here, because
+   the journal ordering above proves the stronger claim directly and independently of when `post` ran.
+
+**Criterion 5 is not yet CLOSED.** The script's own closing condition is one full *scheduled* run
+completing after the reboot. The next is **2026-09-08T14:00:00Z**. Until it lands, what is
+discharged is *the lane returns unaided*; what is not is *the schedule actually fires*.
+
+#### 8.27.2 sdc4 is DESTROYED, and the retirement tooling provably never ran
+
+sdc4 is gone from the partition table. Geometry read from `/sys/block/sdc/*`:
+
+| Partition | Start | Size | Ends |
+|---|---|---|---|
+| sdc1 | 34 | 32,734 | 32,768 |
+| sdc2 | 32,768 | 3,813,376,000 | **3,813,408,768** |
+| *(free)* | 3,813,408,768 | **3,969,024,000** | 7,782,432,768 |
+| sdc3 | 7,782,432,768 | 7,845,619,712 | 15,628,052,480 |
+
+**1.845 TiB is now unallocated**, exactly where sdc4 was, and **sdc2 was not grown** — it is still
+1.8 T NTFS. So §8.25.3's dangerous NTFS/GPT reclaim is still entirely ahead, now with free space
+sitting next to it.
+
+**All three retirement tools gate on sdc4 being mounted, so none of them can have run.** sdc4 was
+unmounted 2026-09-02 (§8.26.1); from that moment:
+
+- `util/ad-hoc/yamaguchi_retire_tier1.bash` — `mountpoint -q "$TB"` fails, `REFUSE`, **exit 3**
+- `util/ad-hoc/yamaguchi_retire_tier2.bash` — gate 0 loops both filesystems, `FATAL: … not a mountpoint`, **exit 3**
+- `util/ad-hoc/yamaguchi_retire_tier3.py` — gate 0 `is_mountpoint`, `refuse(...)`, **exit 3**
+
+The owner confirms (2026-09-08) the partition table was edited directly. So the deletion carried
+**none** of the protections the arc spent three tools building: tier-2's gate 3 (newest run Success),
+gate 4 (a drill at the new destination verified, every candidate `VERIFIED`/`PASS`), tier-3's gate 2
+(live-set census AGREE), gate 3 (purge complete) and gate 4 (drill evidence byte-identical on both
+spindles).
+
+**How much that costs is smaller than it sounds, and the reason is worth stating precisely.** The
+substantive question those gates encode — *is anything on sdc4 the last copy?* — was answered
+independently on 2026-09-01 by the three-lane consensus of §8.25.2, which hashed **all 908 files with
+full SHA-256 on both sides**. The gates were bypassed; the property they check had already been
+established by other means. That is luck in the sense that nothing re-checked it on the day, not in
+the sense that the answer was unknown.
+
+**What is now realized loss.** §8.25.2's five sdc4-only paths and 17 directories — four Duplicati
+usage-telemetry JSONs (536 / 584 / 584 / 623 B) and the zero-byte `Untitled7-checkpoint.ipynb` whose
+hash match was **vacuous** — moved from *pending* to *gone*. ~2.3 KB of drill debris. It is trivial in
+volume and it is still the only irreversible content loss this arc has taken.
+
+**And it happened before the one check §8.25.6 and §8.26.4 both named as owed *first*: `sda` drive
+health.** Destroying the second copy made an unverified disk load-bearing, in that order. See §8.27.4.
+
+#### 8.27.3 sdc4 is probably recoverable, and the cheap proof writes nothing
+
+Deleting a GPT partition entry rewrites the partition array; it does **not** touch the partition's
+contents. Nothing has been allocated in the gap since (`lsblk` shows no fourth partition), so the
+ext4 superblock should still be at byte 1024 of sector 3,813,408,768.
+
+The proof requires no write to `/dev/sdc` at all — map the old extent as a **read-only loop device**:
+
+```bash
+sudo losetup --find --show --read-only \
+    --offset $((3813408768 * 512)) --sizelimit $((3969024000 * 512)) /dev/sdc
+sudo blkid /dev/loopN            # expect TYPE="ext4" + the original UUID
+sudo dumpe2fs -h /dev/loopN      # expect a clean superblock, matching block count
+sudo mount -o ro /dev/loopN /mnt/sdc4-recover
+```
+
+If that mounts, **the data is intact and the five lost paths can be copied off without ever editing
+the partition table** — strictly safer than re-adding the entry, because `/dev/sdc` also carries live,
+mounted `/home` (sdc3). Re-adding the partition (`sgdisk -n 4:3813408768:7782432767 -t 4:8300
+/dev/sdc`) is only worth the risk if the ~196 G second copy of the destination is wanted back, which
+is a separate decision from recovering 2.3 KB.
+
+This could not be run from the agent lane: uid 1000 is not in group `disk` (`/dev/sdc` is
+`brw-rw---- root:disk`), and `sudo` is refused by the worktree-isolated session guard. It is an
+**owner action**. It is also not urgent-but-indefinite: the region is free space, and the first
+partition created there ends the option.
+
+#### 8.27.4 `sda` health — partially checked for the first time, and still not drive health
+
+§8.25.6 recorded that `sda` health had **never** been verified. Two root-free signals now exist:
+
+| Signal | Reading |
+|---|---|
+| `/sys/fs/ext4/sda1/errors_count` | **0** |
+| `/sys/fs/ext4/sda1/{first,last}_error_time` | **0 / 0** |
+| `journalctl -k`, all retained boots, `I/O error` + `EXT4-fs error` | **0 matches** |
+| `/sys/block/sda/device/model` | `WDC WD40EZAZ-00S` |
+
+`errors_count` is persisted in the ext4 superblock, so zero is a claim about the filesystem's whole
+life, not this boot. That is real evidence and it is **not** drive health: a disk accumulating
+reallocated or pending sectors reports exactly this while it fails, because the kernel never surfaced
+an error to ext4. Note also that the WD40EZAZ is an **SMR** drive — relevant to rewrite behaviour, not
+to this verdict.
+
+**SMART remains undone**, and cannot be done from this lane: `dmesg` returns *"read kernel buffer
+failed: Operation not permitted"*, `/dev/sda` is not readable by uid 1000, and `sudo` is refused by
+the worktree guard. `sudo smartctl -H /dev/sda` (plus `-A` for reallocated/pending counts) is an
+**owner action**, and it is now the single highest-value unchecked fact in the arc: since §8.27.2 it
+guards the only remaining copy of the live destination.
+
+#### 8.27.5 Escrow printing is CLOSED
+
+`~/.cache/yamaguchi-key-escrow-sheet.txt` is **absent**. Owner confirms (2026-09-08): **printed, then
+removed.** The paper copy exists, and the §8.24.1 interim — a synced password-manager copy, accepted
+as a trust-model improvement rather than a fix — is now backed by a record that fails independently of
+an account, a provider and a reachable device. **This item is closed.** The sheet remains regenerable
+by `util/ad-hoc/yamaguchi_key_escrow.py` from `/home/pcalnon/.config/duplicati-backup/env` (present,
+0600, 388 B), and the third key copy at `/mnt/Backups/Ubuntu/_yamaguchi_keys/env` is present (388 B,
+0600, in a 0700 directory).
+
+#### 8.27.6 State of the record after this section
+
+**Closed by this section**: escrow printing (§8.27.5); criterion 5's *unaided return* half (§8.27.1).
+
+**Open, owner actions, in value order**:
+
+1. `sudo smartctl -H -A /dev/sda` — §8.27.4. Guards the sole remaining copy.
+2. The read-only loop probe of §8.27.3, then a decision on recovering the 2.3 KB and/or the 196 G copy.
+3. §8.25.3's sdc2 grow — unchanged, still NTFS-on-GPT beside live `/home`, still forced by nothing.
+
+**Open, agent-actionable**: criterion 5's second half (the 2026-09-08T14:00:00Z run); the seven-repo
+drift-guard test port; §8.26.3's frozen evidence mirror; the §8.11.3 removal PR. All enumerated in
+[`prompts/thread-handoff_automated-prompts/HANDOFF_2026-09-07_duplicati-arc-outstanding-work.md`](../prompts/thread-handoff_automated-prompts/HANDOFF_2026-09-07_duplicati-arc-outstanding-work.md).
+
+**Corrections to §8.26 forced by this section**: §8.26.1's row *"sdc4 unmounted — partition **intact**
+… retired from service, not destroyed"* is **false as of 2026-09-07/08**; the partition is gone.
+§8.26.4's *"still owed **before** sdc4 is destroyed"* framing is now moot in the order it assumed —
+the destruction went first.
