@@ -152,13 +152,17 @@ import time
 
 DEFAULT_OWNER = "pcalnon"
 DEFAULT_REPO = "juniper-ml"
-# CI-wait budget. RE-MEASURED 2026-08-20 by
-# `util/ad-hoc/2026-08-20_measure_required_check_span.py`, which spans ALL required contexts
-# on one head (max completed_at - min started_at) rather than timing a single workflow.
+# CI-wait budget. HISTORICAL RECORD OF THE 2026-08-20 MEASUREMENT -- kept because it is why
+# 900 s was abandoned, but every NUMBER in it is superseded. It was produced by
+# `util/ad-hoc/2026-08-20_measure_required_check_span.py`, which despite its name filters
+# nothing: advisory and bot check-runs on the head SHA enter the span, and the figures below
+# overstate the observed max by 11x-110x depending on the repo. The live table is
+# `REPO_TIMEOUTS` further down, re-measured 2026-09-08 with the v2 instrument.
 #
 # The previous 900 s was sized off "ci.yml median 251 s" -- one workflow, one repo. Measured
-# properly, the fleet spans differ by ~6x and 900 s was BELOW the observed max on three of
-# the four repos sampled:
+# across all required contexts the fleet spans differ by ~6x, and 900 s was BELOW the
+# observed max on three of the four repos sampled. That conclusion survives the instrument
+# correction; the numbers supporting it do not:
 #
 #   repo                   min  median    p90     max     n
 #   juniper-ml             233     248     263     273    18
@@ -170,16 +174,27 @@ DEFAULT_REPO = "juniper-ml"
 # refused with "checks did not finish" while the checks were in fact still healthy. A
 # spurious refusal is not harmless here: it is indistinguishable from a real blocker.
 #
-# Sizing is off the **p90, not the max**, and that is deliberate. Two more repos measured the
-# same day show why max is the wrong statistic:
+# Two more repos measured the same day, and the inference drawn from them was WRONG:
 #
 #   juniper-cascor-worker  314    493    1122    1717     8
 #   juniper-cascor-client  177    564    6799   15616     8
 #
-# cascor-client's 15,616 s (4h20m) is a check sitting QUEUED, not CI doing work. Sizing to
-# cover that would mean a stuck check is indistinguishable from a slow one -- which is
-# precisely the distinction this timeout exists to make. A budget must clear the typical
-# worst case and then FIRE on the pathological tail. So: tiers at roughly 2x p90.
+# This comment used to read: "cascor-client's 15,616 s (4h20m) is a check sitting QUEUED, not
+# CI doing work", and concluded that sizing must therefore be off the p90 and never the max.
+#
+# **It was not queue time.** It is the v1 instrument counting bot check-runs that attached to
+# the head SHA hours after CI finished. Re-measured 2026-09-08 with the v2 tool over required
+# contexts only, cascor-client's max is 1511 s across 30 heads with 0 unmeasurable -- a 19x
+# overstatement, the same artifact seen on every other repo (cascor 11x, canopy 20x,
+# data-client 27x, cascor-worker 70x, deploy 110x).
+#
+# The distinction the paragraph was defending is real and still holds: a budget must clear
+# the typical worst case and then FIRE on a pathological tail, or a stuck check is
+# indistinguishable from a slow one. What changed is that the "pathological tail" was an
+# instrument artifact, so clearing the observed max is now both feasible and correct. Sizing
+# is therefore off BOTH statistics -- `> observed_max` and `<= 4x p90` -- which is what
+# `tests/test_safe_merge.py::test_default_timeout_is_sized_from_measurement` has always
+# described in prose and, since 2026-09-08, actually asserts.
 #
 # The CEILING is a RISK threshold, not a hard bound -- an earlier version of this comment
 # claimed it was the latter and that was wrong. What is measured (kill forensics §3.4):
@@ -195,38 +210,66 @@ DEFAULT_REPO = "juniper-ml"
 # is the answer rather than a longer local wait.
 TIMEOUT_CEILING = 3300
 DEFAULT_TIMEOUT = 2400  # unmeasured repos: the "standard" tier
+# RE-MEASURED FLEET-WIDE 2026-09-08, n=30, with
+# `util/ad-hoc/2026-09-08_measure_required_check_span_v2.py`. Every number below is the span
+# of the repo's REQUIRED contexts only.
+#
+# The v1 instrument (`util/ad-hoc/2026-08-20_measure_required_check_span.py`) sized this
+# table and measured the wrong thing. Its docstring says "over the REQUIRED contexts on ONE
+# head SHA"; its code fetches `check-runs?per_page=100` and filters nothing, so advisory and
+# bot check-runs enter the span. On cascor#626 a `claude` check-run attached to the head SHA
+# 5.7 hours after CI finished, and v1 reported a 21,207 s span for a 605 s CI pass. Measured
+# overstatement of the observed max: cascor 11x, canopy 20x, cascor-client 19x,
+# data-client 27x, cascor-worker 70x, deploy 110x.
+#
+# Two consequences that were live in this table until today:
+#   * juniper-cascor's 2400 s sat BELOW its own observed max (2561 s) -- a healthy cascor PR
+#     at its worst was refused, the same failure that hit ml#1754;
+#   * juniper-deploy and juniper-recurrence fell through to DEFAULT_TIMEOUT at 2400 s, which
+#     is 9x their p90 -- a stuck run there looked merely slow for 40 minutes.
+#
+# Sizing rule, both halves now enforced by `KillResilienceTest`: the budget must CLEAR the
+# observed max and stay inside 4x p90. Values are picked mid-window, not guessed.
+#
+# If a repo starts refusing healthy PRs, re-run the v2 tool with `-n 30` and record `n`
+# alongside whatever you write here -- the 2026-09-05 juniper-ml re-tier could not be
+# reproduced because its sample size was never written down.
 REPO_TIMEOUTS = {
-    # juniper-ml was the FAST tier at 900 s on the 2026-08-20 numbers above (p90 263, max
-    # 273). RE-MEASURED 2026-09-05 with the same tool, n=12: min 376, median 430, **p90 455,
-    # max 823**, and 26 checks on a head rather than 17. That is 1.7x growth at p90 and 3.0x
-    # at max, against a fleet carrying 103 open PRs on this repo (the 2026-08-18 audit's
-    # measured concurrency peak was 54).
-    #
-    # 900 s was therefore 2.0x p90 but only **1.09x the observed max**, and it REFUSED
-    # ml#1754 live -- "required checks did not finish within 900s -- absent: Quality Gate",
-    # on a PR whose checks were entirely healthy. The 2x-p90 sizing RULE did not fail here;
-    # the numbers it was applied to went stale.
-    #
-    # 1500 s is chosen, not guessed: the budget must CLEAR the observed max (823 s) and stay
-    # inside 4x p90 (1820 s), the bound `KillResilienceTest` enforces so a stuck run cannot
-    # masquerade as a slow one. That leaves (823, 1820]; 1500 sits mid-window at 3.3x p90
-    # and 1.8x max. An earlier draft of this change used the standard tier's 2400 and the
-    # test correctly rejected it.
-    #
-    # The rest of this table has NOT been re-measured on 2026-09-05 and is still sized off
-    # the August numbers -- if a sibling repo starts refusing healthy PRs, re-run
-    # `util/ad-hoc/2026-08-20_measure_required_check_span.py --repo <repo>` before assuming
-    # the PR is at fault.
-    # ml tier -- p90 455 s, max 823 s (2026-09-05)
+    # p90 538, max 773 -> window (773, 2152]. 1500 kept from the 2026-09-05 re-tier; it
+    # remains mid-window on the corrected numbers, so this row needed no change. (The
+    # 2026-09-05 figures it was chosen from -- p90 455, max 823 -- came from v1, but ml's
+    # advisory check-runs happen to sit inside its CI window, so v1 overstated ml by 1.0x.)
     "juniper-ml": 1500,
-    # standard tier -- p90 1065-1122 s (2026-08-20)
+    # p90 679, max 1047 -> window (1047, 2716].
     "juniper-data": 2400,
-    "juniper-cascor": 2400,
+    # p90 770, max 2561 -> window (2561, 3080]. RAISED 2400 -> 2800: the old value did not
+    # clear the observed max. cascor's spread is the fleet's widest (median 635, max 2561)
+    # because `Quality Gate` gates on 23 other required contexts and re-runs extend the tail.
+    "juniper-cascor": 2800,
+    # p90 888, max 1029 -> window (1029, 3552].
     "juniper-cascor-worker": 2400,
-    # slow tier -- p90 1371 s (canopy); cascor-client is ceiling-bound because its tail is
-    # queue time, and the timeout SHOULD fire on that rather than absorb it.
+    # p90 1597, max 2067 -> window (2067, 6388]. Kept at the ceiling: canopy's window is
+    # wide enough that TIMEOUT_CEILING binds first, and tightening it buys nothing.
     "juniper-canopy": 3300,
+    # p90 724, max 1511 -> window (1511, 2896], so 3300 is ABOVE 4x p90 and this row is
+    # excluded from `KillResilienceTest`'s pin rather than changed.
+    #
+    # THE STATED REASON FOR THAT EXCLUSION IS REFUTED, AND THE EXCLUSION IS KEPT ANYWAY.
+    # The table previously called cascor-client "ceiling-bound because its tail is queue
+    # time" on a v1 max of 15,616 s. It is not queue time: v2 measures a required-context
+    # max of 1511 s across 30 heads with 0 unmeasurable, and v1's 19x overstatement here has
+    # the same bot-check-run cause as everywhere else. Lowering it is a live merge-path
+    # change on a repo this arc was told not to touch, so it is left for an owner ruling.
     "juniper-cascor-client": 3300,
+    # p90 893, max 1109 -> window (1109, 3572]. First measurement; was falling through to
+    # DEFAULT_TIMEOUT at the same 2400 s, so this row records the number rather than changing it.
+    "juniper-data-client": 2400,
+    # p90 262, max 375 -> window (375, 1048], mid 711. First measurement; was DEFAULT_TIMEOUT 2400.
+    "juniper-deploy": 700,
+    # p90 258, max 352 -> window (352, 1032], mid 692. First measurement; was DEFAULT_TIMEOUT 2400.
+    # juniper-recurrence is absent from the parent CLAUDE.md's repo table, which is why no
+    # earlier sweep measured it.
+    "juniper-recurrence": 700,
 }
 
 
