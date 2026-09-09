@@ -440,7 +440,7 @@ is ever deleted.**
 ### 6.3 Phase 3 — Correctness fixes (deliver R3, harden R4)
 
 | id | fix | repo |
-| --- | -- -| --- |
+| --- | --- | --- |
 | **D-A** | ✅ **SHIPPED.** Restore made faithful in cascor `5f15a45`; resume follow-on (R3) in cascor#539. ⚠ The 2026-08-17 re-scope that stood here is **retracted in full** — it called D-A inert, ranked it lowest, and said "**Do not** add a state-survives save→load test". All three were wrong: that test is precisely what now guards the fix (`test_snapshot_serializer_coverage_final.py::TestOutputOptimizerStateReuse`, `test_p1_fixes.py::test_2b_optimizer_state_survives_resume`). Not gated on S-5 — S-5 was ANSWERED yes (§9). | juniper-cascor |
 | **D-B** | Give `load_network` a raising variant (or a typed result) so *absent*, *corrupt*, and *loaded* are distinguishable; keep the `None` form for back-compat callers. Fix `'Invalid format'` to name the missing group. | juniper-cascor |
 | **3.1** | Move the service snapshot root out of the importable package (`src/snapshots/` → a data dir), so no cleanup can ever again delete modules (cascor#501). | juniper-cascor |
@@ -683,6 +683,9 @@ note, not here.
 |         | be extended to the CLI tier, or replaced by the §6.2 index?      |                                                                                                                                                                                   |
 | **S-4** | Retention horizon and cold-archive location, once §6.2 exists.   | The only genuinely policy-shaped question, deliberately deferred to last. **Horizon ANSWERED 2026-08-23: there is none — nothing is deleted (§6.4.3).** Cold-archive *location* remains open, and any physical move is gated on the restore drill of §6.4.2 q3. |
 | **S-5** | **Is R3 ("training pauses" with optimizer state)                 | Raised by the 2026-08-17 correction to §4.1. Cascor deliberately **recreates** the output optimizer on every `train_output_layer` call                                            |
+|         | a real requirement for Cascade Correlation at all?**             |   because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`).              |
+|         |                                                                  |   So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", |
+|         |                                                                  |   that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.**                               |
 
 > **S-5 ANSWERED (2026-08-18) — R3 IS a real requirement, and it is NOT yet delivered.**
 >
@@ -749,9 +752,6 @@ note, not here.
 > **Evidence contract met:** a test that resumes and asserts `step` *continues*, a negative control
 > that growth still forces a rebuild, and a test that the layer's weights actually **move** — the
 > last being the only one that catches the trap. Golden trajectory unchanged, locally and in CI.
-|         | a real requirement for Cascade Correlation at all?**             |   because a hidden-unit insertion changes the output parameter space, making prior optimizer moments invalid *by construction* (`cascade_correlation.py:2050-2053`).              |
-|         |                                                                  |   So R3-as-written cannot be satisfied by any serializer change, and may not be meaningful. If what is actually wanted is "resume training from a snapshot and continue growing", |
-|         |                                                                  |   that is already what `/resume` does — and it needs no optimizer state. **Answering this decides whether any optimizer work is scheduled at all.**                               |
 
 ---
 

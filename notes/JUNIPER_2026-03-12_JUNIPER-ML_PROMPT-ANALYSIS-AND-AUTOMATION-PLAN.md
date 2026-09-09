@@ -346,7 +346,7 @@ Analysis reveals **6 natural prompt types** that differ in structure, purpose, a
 
 **Canonical structure:**
 
-```
+```markdown
 # Thread Handoff: [Task Description]
 ---
 ## Completed So Far
@@ -370,7 +370,7 @@ Analysis reveals **6 natural prompt types** that differ in structure, purpose, a
 
 **Canonical structure:**
 
-```
+```markdown
 # [Action Verb] [Subject]
 ## Overview
 ## [Task Sections with Numbered Steps]
@@ -391,7 +391,7 @@ Analysis reveals **6 natural prompt types** that differ in structure, purpose, a
 
 **Canonical structure:**
 
-```
+```markdown
 # [Category Title]
 ## Role
 ## Resources
@@ -414,7 +414,7 @@ Analysis reveals **6 natural prompt types** that differ in structure, purpose, a
 
 **Canonical structure:**
 
-```
+```markdown
 # [Subject] Plan / Analysis / Design
 ## Overview / Background
 ## Objectives
@@ -436,7 +436,7 @@ Analysis reveals **6 natural prompt types** that differ in structure, purpose, a
 
 **Canonical structure:**
 
-```
+```markdown
 # [Subject] Audit
 ## Scope
 ## Audit Criteria / Standards
@@ -458,7 +458,7 @@ Analysis reveals **6 natural prompt types** that differ in structure, purpose, a
 
 **Canonical structure:**
 
-```
+```markdown
 # [Service/Tool] Setup / Configuration
 ## Goal
 ## Configuration Steps

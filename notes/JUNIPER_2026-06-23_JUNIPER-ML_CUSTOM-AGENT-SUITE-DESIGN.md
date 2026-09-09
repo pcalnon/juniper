@@ -243,7 +243,7 @@ via a `match_signal`), not a separate file. Stated here so PR 2b coverage is una
 
 **Canonical skeleton** (unifies draft + corpus consensus):
 
-```
+```markdown
 # {{CATEGORY_TITLE}}
 ## Role
 ## Resources            # grounding bundle injected here (real file:line, repo/branch, deps, conventions)

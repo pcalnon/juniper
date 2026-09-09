@@ -370,6 +370,8 @@ See [`JUNIPER_2026-06-05_JUNIPER-RECURRENCE_RECURSE-DELTA-T-HANDLING.md`](JUNIPE
 >
 ### 3.2 Testing the new model (juniper-recurse)
 
+| Suite | What it asserts | Technique |
+|-------|-----------------|-----------|
 | **Growth-loop correctness** (GrowableModel) | Adding a unit is sound                           | After `grow_step()`: unit count +1; previously-frozen weights unchanged; training error non-increasing on the fit set (or documented exception); `unit_added` event emitted            |
 | **Determinism**                             | Reproducible                                     | Same seed → same trajectory within tolerance                                                                                                                                           |
 | **Overfit-tiny sanity**                     | The model *can* learn                            | Memorize a tiny dataset to ~0 error (catches dead training loops)                                                                                                                      |
