@@ -394,7 +394,7 @@ def _metrics_scraped(run_dir: Path, run_id: str, bridge: bool) -> Dict[str, Any]
     if code != 200 or not isinstance(payload, dict) or payload.get("status") != "success":
         out["reason"] = f"Prometheus query returned HTTP {code} / status {payload.get('status') if isinstance(payload, dict) else '?'}"
         return out
-    result = (payload.get("data") or {}).get("result") or []
+    result = _mapping(payload.get("data")).get("result") or []
     found = int(float(result[0]["value"][1])) if result else 0
     out["series_found"] = found
     out["scrape_confirmed"] = found > 0
@@ -526,6 +526,21 @@ def _require_mapping(value: Any, where: str) -> Dict[str, Any]:
     if not isinstance(value, dict):
         raise ConfigError(f"{where} must be a mapping, got {type(value).__name__}")
     return value
+
+
+def _mapping(value: Any) -> Dict[str, Any]:
+    """Non-raising sibling of :func:`_require_mapping`, for BEST-EFFORT reads.
+
+    Config blocks must raise -- a malformed experiment.yaml should stop the run. Provenance
+    read back from Prometheus or from an installed dist's ``direct_url.json`` must not: it
+    is annotation, and losing it is not worth failing a completed run over.
+
+    Both forms it replaces are unsafe. ``x.get(k) or {}`` guards ABSENCE, not TYPE, so a
+    truthy non-dict reaches the next ``.get`` and raises ``AttributeError``;
+    ``x.get(k, {})`` substitutes only when the key is MISSING, so an explicit ``null``
+    reaches it as ``None``.
+    """
+    return value if isinstance(value, dict) else {}
 
 
 def _reject_unknown_keys(block: Dict[str, Any], allowed: frozenset, where: str) -> None:
@@ -1426,7 +1441,7 @@ def probe_packages() -> Dict[str, Any]:
             if direct:
                 parsed = json.loads(direct)
                 url = parsed.get("url", "")
-                if parsed.get("dir_info", {}).get("editable") and url.startswith("file://"):
+                if _mapping(parsed.get("dir_info")).get("editable") and url.startswith("file://"):
                     entry["editable_source"] = url[len("file://"):]
         except Exception:  # noqa: BLE001 - provenance is best-effort
             pass

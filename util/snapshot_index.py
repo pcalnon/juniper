@@ -140,6 +140,23 @@ def default_root() -> Path:
     return Path(override).expanduser() if override else DEFAULT_ROOT_FALLBACK
 
 
+def mapping(value: Any) -> Dict[str, Any]:
+    """The sub-object at ``value`` when it really is a mapping, else an empty dict.
+
+    ``x.get(k) or {}`` guards ABSENCE, not TYPE. A truthy non-dict -- a list, a string, a
+    number -- sails straight through it into the next ``.get`` and raises
+    ``AttributeError``, which kills the whole read rather than the one malformed row.
+    ``x.get(k, {})`` is weaker still: it substitutes the default only when the key is
+    MISSING, so an explicit ``null`` reaches the next ``.get`` as ``None``.
+
+    These rows are parsed from ``snapshots_index.jsonl`` / ``manifest.json``, written by a
+    different process at a different time, so the shape is an assumption rather than a
+    guarantee -- a partially written or hand-edited record is exactly the case where the
+    index most needs to stay readable.
+    """
+    return value if isinstance(value, dict) else {}
+
+
 def _attr(group: Any, key: str) -> Optional[Any]:
     """Read one HDF5 attribute, decoding the bytes form the writer uses.
 
@@ -296,7 +313,7 @@ def scan(root: Path, *, verify: bool = False, rebuild: bool = False, limit: Opti
 
 
 def matches(row: dict, args: argparse.Namespace) -> bool:
-    provenance = row.get("provenance") or {}
+    provenance = mapping(row.get("provenance"))
     if args.unattributed and provenance:
         return False
     if args.attributed and not provenance:
@@ -310,7 +327,7 @@ def matches(row: dict, args: argparse.Namespace) -> bool:
         # in the snapshot, so accept either source. The env pass-through remains a
         # manual escape hatch; the join is the path that actually populates it.
         if field == "dataset_id" and found is None:
-            found = (row.get("dataset") or {}).get("dataset_id")
+            found = mapping(row.get("dataset")).get("dataset_id")
         if found != wanted:
             return False
     if args.tier and row.get("tier") != args.tier:
@@ -327,7 +344,7 @@ def summarise(rows: Iterable[dict]) -> Dict[str, Any]:
     experiments: Dict[str, int] = {}
     for row in rows:
         tiers[row.get("tier", "unknown")] = tiers.get(row.get("tier", "unknown"), 0) + 1
-        experiment = (row.get("provenance") or {}).get("experiment")
+        experiment = mapping(row.get("provenance")).get("experiment")
         if experiment:
             experiments[experiment] = experiments.get(experiment, 0) + 1
     return {
@@ -355,10 +372,10 @@ def _print_rows(rows: "list[dict]", as_json: bool) -> None:
     header = f"{'name':<62} {'tier':<8} {'experiment':<24} {'cell_id':<18}"
     print(f"{header} {'dataset_id':<34} {'created':<26}" if show_dataset else f"{header} {'created':<26}")
     for row in rows:
-        provenance = row.get("provenance") or {}
+        provenance = mapping(row.get("provenance"))
         line = f"{row.get('name', ''):<62} {row.get('tier', ''):<8} {str(provenance.get('experiment') or '-'):<24} {str(provenance.get('cell_id') or '-'):<18}"
         if show_dataset:
-            dataset_id = (row.get("dataset") or {}).get("dataset_id") or provenance.get("dataset_id") or "-"
+            dataset_id = mapping(row.get("dataset")).get("dataset_id") or provenance.get("dataset_id") or "-"
             line += f" {str(dataset_id):<34}"
         print(f"{line} {str(row.get('created') or '-'):<26}")
 
@@ -406,7 +423,7 @@ def main(argv: "list[str] | None" = None) -> int:
         run_root = args.run_root or default_run_root()
         cache: Dict[str, Any] = {}
         for row in rows:
-            row["dataset"] = resolve_dataset((row.get("provenance") or {}).get("run_id"), run_root, cache)
+            row["dataset"] = resolve_dataset(mapping(row.get("provenance")).get("run_id"), run_root, cache)
     rows = [row for row in rows if matches(row, args)]
     if args.stats:
         summary = summarise(rows)

@@ -17,6 +17,7 @@ The arms that carry weight:
 
 from __future__ import annotations
 
+import argparse
 import importlib.util
 import io
 import json
@@ -263,10 +264,6 @@ class NoDestructivePathTest(unittest.TestCase):
         self.assertIn('h5py.File(path, "r")', source, "snapshots must never be opened writable by the indexer")
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class DatasetJoinTest(TempRoot):
     """``dataset_id`` is DERIVED from the run manifest, not stored in the snapshot.
 
@@ -343,3 +340,55 @@ class DatasetJoinTest(TempRoot):
 
         self.assertEqual(rc, 0)
         self.assertNotIn("dataset", json.loads(out)[0], "the join must not run unless asked — it reads outside the snapshot root")
+
+
+class MappingGuardTest(unittest.TestCase):
+    """``or {}`` guards ABSENCE, not TYPE -- and these rows come from another process.
+
+    ``snapshots_index.jsonl`` and ``manifest.json`` are written by a different process at
+    a different time, so a row's shape is an assumption. Under ``(row.get("dataset") or
+    {}).get(...)`` a MISSING or ``null`` value is handled, but a truthy non-dict -- a list,
+    a string, a number -- sails through the ``or`` into the next ``.get`` and raises
+    ``AttributeError``. That kills the whole read rather than the one malformed row, which
+    is precisely when the index most needs to stay readable.
+
+    ``mapping()`` closes it by testing the type. Each test here feeds a TRUTHY non-dict:
+    ``None`` and a missing key pass against the old code too and would pin nothing.
+    """
+
+    def test_mapping_replaces_every_truthy_non_dict(self) -> None:
+        for bad in (["a", "list"], "a string", 7, 1.5, True, (1, 2)):
+            with self.subTest(bad=bad):
+                self.assertEqual(snapshot_index.mapping(bad), {})
+
+    def test_mapping_passes_a_real_dict_through_unchanged(self) -> None:
+        payload = {"dataset_id": "spiral-1.0.0-abc"}
+        self.assertIs(snapshot_index.mapping(payload), payload)
+
+    def test_mapping_handles_absence_as_before(self) -> None:
+        self.assertEqual(snapshot_index.mapping(None), {})
+        self.assertEqual(snapshot_index.mapping({}), {})
+
+    def test_summarise_survives_a_row_whose_provenance_is_a_list(self) -> None:
+        rows = [
+            {"tier": "t", "provenance": ["not", "a", "dict"], "readable": True},
+            {"tier": "t", "provenance": {"experiment": "e-1"}, "readable": True},
+        ]
+        summary = snapshot_index.summarise(rows)
+        self.assertEqual(summary["total"], 2, "one malformed row must not lose the other")
+        self.assertEqual(summary["by_experiment"], {"e-1": 1})
+
+    def test_matches_survives_a_row_whose_dataset_is_a_list(self) -> None:
+        args = argparse.Namespace(dataset_id="want", tier=None, unreadable=False, unattributed=False, attributed=False)
+        self.assertFalse(snapshot_index.matches({"dataset": ["nope"], "provenance": {}}, args))
+
+    def test_print_rows_survives_a_row_whose_provenance_is_a_string(self) -> None:
+        rows = [{"name": "s.h5", "tier": "t", "provenance": "corrupt", "created": "2026-09-08"}]
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            snapshot_index._print_rows(rows, False)
+        self.assertIn("s.h5", buf.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()
